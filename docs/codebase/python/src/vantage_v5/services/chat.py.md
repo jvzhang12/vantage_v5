@@ -1,0 +1,68 @@
+# `src/vantage_v5/services/chat.py`
+
+Orchestrates the normal chat pipeline: retrieve candidate memory, vet it, generate an assistant reply, decide whether anything should be written back to the graph, execute that write, and trace the turn to disk. The module now writes both the existing JSON debug trace under `traces/` and a markdown-backed `Memory Trace` record that can feed Recall on later turns. Scenario Lab is routed earlier by the server through navigator-first dispatch, so this module now focuses only on the standard chat path.
+
+## Purpose
+
+- Produce the assistant response for a user message.
+- Build the memory/context payload used by chat, meta, and traces.
+- Coordinate retrieval, vetting, meta decisioning, and graph execution.
+- Persist both a JSON debug trace and a markdown-backed Memory Trace record for each turn.
+- Remain the normal chat path rather than the navigator-routed Scenario Lab path.
+
+## Core Data Flow
+
+- `ChatService.reply()` merges durable and reference concepts, memory traces, memories, artifacts, and vault notes, accepts `selected_record_id`, and now also accepts an interpreter-resolved `whiteboard_mode`, a shared continuity hint from `vetting.py`, optional `pending_workspace_update` context from the prior turn, a `workspace_scope` trace hint, plus a transient whiteboard flag so `/api/chat` can use the live whiteboard buffer without persisting it.
+- For ordinary chat it searches the combined context, vets the results, and splits them into concept, saved-note, and vault-note buckets while also preserving a unified `recall` list for the turn payload and the legacy `working_memory` alias.
+- Selected records are resolved once, passed into the shared continuity hint, and only merged back into the candidate set when the navigator explicitly requests preservation or the fallback continuity heuristic says the turn is a clear continuation. Live workspace drafts can influence vetting through the shared hint without being copied into working memory as extra saved context.
+- When continuity is not being preserved, chat no longer forwards the selected record to the model as separate hidden context; the selected item must either re-enter through bounded vetting or stay out of scope.
+- After reply generation it classifies the turn with a truthful grounding mode. Recall-grounded turns stay distinct from whiteboard-only, recent-chat-only, pending-whiteboard, or mixed-context turns, and the visible `This is new to me, but my best guess is:` preface is reserved for truly ungrounded replies. Scenario Lab now reuses the same grounding classifier so its payloads stay aligned with the top-level chat semantics instead of falling back to a separate working-memory-only contract.
+- In OpenAI mode the normal chat reply can choose one of two whiteboard-collaboration formats for concrete work products: an ask-first whiteboard offer or a whiteboard draft after the user has chosen that path. `reply()` receives the navigator/server whiteboard hint plus any pending-offer context, parses those tagged responses, returns concise chat copy, and exposes whiteboard offers or pending drafts through conservative `workspace_update` metadata without auto-writing Markdown into the workspace file; unresolved draft proposals now use the canonical status `draft_ready` plus a `proposal_kind` marker and leave `decision` unset until the user explicitly applies them. When a concrete whiteboard draft iteration is produced, `reply()` also auto-saves an artifact snapshot of that iteration so drafting history is durable even before the whiteboard file itself is saved.
+- If the OpenAI reply call itself raises at runtime, `reply()` now logs the failure and falls back to deterministic chat instead of letting `/api/chat` 500; that fallback stays truthful about whether Vantage is missing a key versus temporarily losing the provider for just this turn.
+- `_extract_workspace_signal()` now enforces that contract in the conservative direction: if the model emits `WHITEBOARD_DRAFT` while the resolved mode is only `offer`, the parser downgrades that response into an offer instead of letting an ordinary work-product turn silently bypass the invitation step.
+- Whiteboard-signal parsing remains outside that provider fallback path, so local parsing bugs still surface as application errors rather than being mislabeled as OpenAI outages.
+- Once a pending draft is accepted, the client may either apply it into the current whiteboard or fork it into a fresh unsaved whiteboard draft when the proposed document is clearly different from the currently active workspace, which keeps work-product drafting non-destructive even across short confirmation turns.
+- The server now also exposes a dedicated acceptance route for pending whiteboard offers, so the UI can confirm a collaboration flow without fabricating a hidden user message just to reach the draft path.
+- Navigator-first Scenario Lab routing happens before `ChatService.reply()` is called, so Scenario Lab turns do not pass through this path.
+- For normal chat it generates a reply with OpenAI when available, otherwise a deterministic fallback response.
+- After the reply is generated, `MetaService.decide()` chooses any write action, `GraphActionExecutor.execute()` performs it, and the result is folded into the returned `ChatTurn`.
+- `_trace_turn()` writes the turn payload, whiteboard excerpt, recent history, memory mode, resolved whiteboard mode, workspace scope, and selected-record continuity metadata to `traces/`, using collision-safe filenames when multiple turns land in the same second. When the whiteboard buffer is transient, the trace redacts the buffer rather than persisting unsaved content.
+- `MemoryTraceStore.create_turn_trace()` now writes a second Markdown record for the turn under `memory_trace/`, so recent history can participate in retrieval without reusing the raw debug files.
+- The server now also exposes that interpretation layer back to the UI as `turn_interpretation`, so the user can see why Vantage kept the turn in chat, invited the whiteboard, preserved selected context, or chose Scenario Lab.
+- `response_mode` now also reports pending whiteboard carry-over explicitly when that prior-turn offer/draft context is actually supplied to chat, so the UI does not incorrectly label that turn as a pure best guess.
+
+## Key Classes / Functions
+
+- `ChatTurn`: structured output for a complete chat interaction, including candidates, recall-shaped payloads, working-memory summaries, response mode, learned items, optional whiteboard-update metadata, vetting, meta action, and a `created_record` compatibility alias derived from the canonical `learned` payload when a durable write occurred. Auto-saved whiteboard artifact snapshots also surface through `learned` / `created_record` when no separate meta write occurred.
+- `ChatService`: coordinates the full request lifecycle.
+- `reply()`: main entry point used by the server.
+- `_openai_reply()`: builds the LLM chat prompt from workspace, history, vetted memory, the explicit `whiteboard_mode`, and any pending whiteboard-offer context so short acceptance turns can still produce the full draft.
+- `WorkspaceDraft`, `WorkspaceOffer`, `_extract_workspace_signal()`, `_normalize_workspace_draft_content()`: parse the model’s whiteboard-offer / whiteboard-draft response formats and normalize the Markdown that should be returned as a pending whiteboard proposal.
+- `_fallback_reply()`: produces a plain-text response when no API key is configured.
+- `resolve_selected_record_candidate()`, `should_preserve_selected_record()`, `build_continuity_hint()`, and `anchor_selected_record_candidate()`: shared helpers from `vetting.py` that keep an explicitly selected record in scope only when continuity is genuinely part of the turn.
+- `_created_record_payload()`: reloads the written record so the response can include its final stored form.
+- `_graph_action_payload()`: normalizes either executed or planned meta actions for reporting.
+- `_group_memory_payload()`, `_merge_records()`, `_merge_saved_records()`, `_find_record()`: support helpers for combining and locating records.
+- `_normalize_memory_mode()`, `_normalize_whiteboard_mode()`: map request intent to conservative backend enums.
+
+## Notable Edge Cases
+
+- `memory_intent` values of `skip` and `dont_save` both disable writes, while anything else falls back to `auto`.
+- The OpenAI reply path can resolve a manually selected saved item id from either the graph stores or the vault note store.
+- Selected-record continuity can now come from the navigator for longer semantic follow-ups, but short follow-up messages with a selected record and non-empty history still keep a conservative fallback path when no interpreter hint exists.
+- The selected record is not injected into the candidate list by default; only an explicit preserve decision or the shared fallback heuristic can pull it back into the five-item working set after vetting.
+- `whiteboard_mode="chat"` suppresses any parsed `WHITEBOARD_*` signal even if the model emits one, which lets the UI force a chat-only response.
+- A turn can still use the whiteboard or recent-chat context without working memory, and the response payload now records that grounding explicitly instead of collapsing everything into `Best Guess`.
+- Best-guess prefaces are suppressed when the assistant is intentionally offering or drafting in the whiteboard, so the collaboration flow reads as a product action rather than a guess.
+- OpenAI reply runtime failures now take the same deterministic fallback branch as the no-key case, which keeps `/api/chat` responsive during provider errors such as rate limits or quota exhaustion.
+- Whiteboard collaboration is intentionally non-destructive to the workspace file in normal chat: the assistant can offer the whiteboard or return a pending draft proposal, and neither path writes the workspace file automatically. Concrete whiteboard draft iterations now do create durable artifact snapshots, while transient whiteboard buffers are still redacted from chat traces.
+- That offer-first rule is now protected even against model drift: a misclassified `WHITEBOARD_DRAFT` in `offer` mode is surfaced as an offer, not as a real pending draft.
+- Hidden whiteboards no longer ground normal chat by accident; `ChatService.reply()` only sees whiteboard content when the server has already marked that whiteboard context as in scope.
+- That non-destructive rule now extends to accepted drafts for new documents: the client can chat against an unsaved forked workspace id backed only by the live whiteboard buffer until the user explicitly saves it.
+- Pending whiteboard offers can now survive into the next turn as explicit prompt context, which lets an acceptance like “yes, do that in the whiteboard” turn into a `WHITEBOARD_DRAFT` response even when the follow-up message is short and the original work-product request lives mostly in the previous turn.
+- That carry-over is now intentionally narrower on the client side: pending whiteboard context should only be forwarded for clear accept/continue/edit follow-ups, not for unrelated new requests, which prevents stale draft context from silently influencing later answers.
+- If the meta layer plans an action but execution does not happen, `_graph_action_payload()` still reports it as `planned`.
+- `selected_record_id` lookup failures are tolerated silently, so chat still completes even when the selected id no longer exists.
+- Trace writing always creates the traces directory first, timestamps each file in UTC, and appends a suffix if needed to avoid same-second collisions.
+- `created_record` is only populated when the executor returns an id that can be reloaded from the stores, which keeps the chat response resilient to partial write failures; the turn payload no longer carries a second `created_concept` alias, and `created_record` now acts as a thin compatibility alias for the first `learned` record rather than the primary contract field.
+- JSON turn traces remain the low-level debug stream, while the separate markdown-backed `Memory Trace` store now acts as the recent-history retrieval source for this module.

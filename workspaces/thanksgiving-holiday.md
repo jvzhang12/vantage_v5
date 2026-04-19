@@ -1,0 +1,5 @@
+# Thanksgiving (Holiday)
+
+> Thanksgiving is a major holiday celebrated in the United States (fourth Thursday in November) and Canada (second Monday in October). It centers around gratitude, family gatherings, large meals, and marks the start of the holiday season. The history involves a 1621 harvest feast shared by Pilgrims and Wampanoag, and contemporary awareness includes recognition of its complex Indigenous-settler history.
+
+Thanksgiving is a holiday primarily observed in the United States and Canada. In the US, it is held on the fourth Thursday of November, and commemorates a harvest feast shared by English Pilgrims and the Wampanoag people in 1621. Traditions include large family meals (often with turkey, stuffing, and pie), parades, football, and expressions of gratitude. In Canada, Thanksgiving is held on the second Monday in October, and is centered on giving thanks and harvest themes, but with a different historical context. The holiday also marks the start of the broader holiday season in North America. In modern times, there is increased discussion about the holiday's complex history, especially its impact on Indigenous peoples.

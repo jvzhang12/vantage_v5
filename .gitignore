@@ -1,0 +1,22 @@
+.DS_Store
+
+# Local secrets and environments
+.env
+.venv/
+
+# Python caches and build outputs
+.pytest_cache/
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+
+# Generated runtime state
+state/*.json
+state/experiments/*
+!state/experiments/.gitkeep
+traces/*.json
+!traces/.gitkeep
+memory_trace/*
+!memory_trace/.gitkeep

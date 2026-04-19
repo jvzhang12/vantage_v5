@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vantage-v5"
+version = "0.1.0"
+description = "Vantage V5: chat-first local app with shared Markdown workspaces and concept-based memory."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "openai>=1.0.0",
+  "python-dotenv>=1.0.1",
+  "PyYAML>=6.0.1",
+  "uvicorn>=0.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28.0",
+  "pytest>=8.0.0",
+]
+
+[project.scripts]
+vantage-v5-web = "vantage_v5.server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

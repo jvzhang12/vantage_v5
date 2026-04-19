@@ -1,0 +1,7 @@
+# `src/vantage_v5/storage/markdown_store.py`
+
+This module is the shared persistence layer for concept, memory, and artifact records. `MarkdownRecord` is the canonical file-backed record shape, and `MarkdownRecordStore` handles file naming, frontmatter serialization, loading, listing, creation, and revisioning for Markdown-based records.
+
+Each record is stored as a single `.md` file in the configured directory. The file begins with YAML frontmatter containing `id`, `title`, `type`, `card`, timestamps, `links_to`, `comes_from`, and `status`, followed by the body text. Loading reverses that process, normalizing scalar or list forms for `links_to` and `comes_from`, and returning the parsed record with source and trust metadata injected by the store configuration.
+
+Creation uses slugified titles to form IDs, then de-duplicates by appending `-2`, `-3`, and so on if a filename already exists. Revisions use a `--vN` suffix, inherit the base record’s type and card defaults, and merge lineage fields so provenance is preserved. The main constraints are that the store only scans top-level `.md` files, relies on valid YAML frontmatter for structured data, and treats filenames as the storage key.

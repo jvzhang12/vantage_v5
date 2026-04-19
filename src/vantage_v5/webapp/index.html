@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vantage V5</title>
+    <link rel="stylesheet" href="/static/styles.css?v=20260419-reasoning-detail" />
+  </head>
+  <body>
+    <div class="notice-rail" id="noticeRail" aria-live="polite"></div>
+    <div class="shell" id="shell">
+      <section class="panel chat-panel">
+        <header class="panel-head">
+          <div>
+            <p class="eyebrow">Vantage V5</p>
+            <h1 id="chatSurfaceTitle">Chat first.</h1>
+            <p class="subtle hero-copy" id="chatSurfaceSubtitle">Ask naturally. Open Vantage when you want to inspect what shaped the answer. Use the whiteboard when you want a shared draft.</p>
+            <p class="subtle hero-copy" id="experimentBadge">Durable mode. Notes persist unless you start an experiment.</p>
+          </div>
+          <div class="button-row">
+            <button type="button" id="startExperimentButton">Start experiment</button>
+            <button type="button" id="endExperimentButton">End experiment</button>
+            <button type="button" class="button button--secondary" id="whiteboardToggleButton">Whiteboard</button>
+            <button type="button" class="button button--secondary" id="vantageToggleButton">Vantage</button>
+            <span class="status-pill" id="statusPill">Loading</span>
+          </div>
+        </header>
+
+        <div class="transcript" id="transcript"></div>
+
+        <section class="turn-workspace-update chat-workspace-update" id="workspaceUpdatePanel" hidden>
+          <div class="section-label" id="workspaceUpdateLabel">Whiteboard Offer</div>
+          <div class="turn-notice turn-notice--decision" id="workspaceUpdateSummary">Whiteboard collaboration choices will appear here.</div>
+          <div class="chip-row" id="workspaceUpdateActions"></div>
+        </section>
+
+        <form class="composer" id="composer">
+          <textarea id="messageInput" rows="3" placeholder="Ask anything. Mention the whiteboard when you want a shared draft..."></textarea>
+          <div class="composer-actions">
+            <button type="button" id="seedPrompt">Use sample prompt</button>
+            <button type="submit" id="sendButton">Send</button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="panel whiteboard-panel" id="workspaceDock" hidden>
+        <header class="panel-head">
+          <div>
+            <p class="eyebrow">Whiteboard</p>
+            <div class="whiteboard-heading">
+              <h2 id="workspaceTitle">Whiteboard</h2>
+              <span class="subtle whiteboard-panel-label" id="workspaceDockLabel">Ready</span>
+            </div>
+            <p class="subtle hero-copy">Draft here. Chat stays available in the sidebar.</p>
+          </div>
+          <div class="whiteboard-action-groups">
+            <div class="button-row button-row--cluster">
+              <button id="hideWhiteboardButton" type="button">Back to chat</button>
+            </div>
+            <div class="button-row button-row--cluster button-row--work">
+              <button id="saveWorkspaceButton" type="button">Save</button>
+              <button id="promoteWorkspaceButton" type="button">Save as artifact</button>
+            </div>
+          </div>
+        </header>
+        <section class="whiteboard-surface">
+          <div class="workspace-meta" id="workspaceMeta">Whiteboard ready.</div>
+          <section class="turn-workspace-update whiteboard-decision-panel" id="whiteboardDecisionPanel" hidden>
+            <div class="section-label" id="whiteboardDecisionLabel">Whiteboard Decision</div>
+            <div class="turn-notice turn-notice--decision" id="whiteboardDecisionSummary">Whiteboard decisions will appear here when needed.</div>
+            <div class="chip-row" id="whiteboardDecisionActions"></div>
+          </section>
+          <textarea class="workspace-editor" id="workspaceEditor"></textarea>
+        </section>
+      </aside>
+
+      <aside class="panel vantage-panel" id="vantagePanel" hidden>
+        <header class="panel-head">
+          <div>
+            <p class="eyebrow">Vantage</p>
+            <h2>Guided Inspection</h2>
+            <p class="subtle hero-copy" id="vantageSummary">Inspect the reasoning path, the recall, the memory trace, the learned items, and the library.</p>
+          </div>
+          <div class="button-row">
+            <button type="button" class="button button--secondary" id="closeVantageButton">Back to chat</button>
+          </div>
+        </header>
+
+        <section class="workspace-stack">
+          <details class="dock" id="answerDock" open>
+            <summary class="dock-summary">
+              <div>
+                <p class="eyebrow">Working Memory</p>
+                <h2>What Influenced This Response?</h2>
+              </div>
+              <span class="subtle dock-label" id="answerDockLabel">Idle</span>
+            </summary>
+            <section class="panel turn-panel">
+              <header class="panel-head">
+                <div>
+                  <p class="eyebrow">Working Memory</p>
+                  <h2 id="turnTitle">What Influenced This Response?</h2>
+                </div>
+                <div class="turn-head-meta">
+                  <span class="subtle" id="turnMeta">Waiting for a turn</span>
+                  <span class="status-pill status-pill--soft" id="turnIntent">Idle</span>
+                </div>
+              </header>
+              <div class="chip-row" id="turnActions" hidden>
+                <button id="rememberButton" type="button">Next turn: remember</button>
+                <button id="dontSaveButton" type="button">Next turn: don't save</button>
+                <button id="showRelatedButton" type="button">Open related now</button>
+              </div>
+              <section class="turn-reasoning-path" id="turnReasoningPathSection" hidden>
+                <div class="section-label">Reasoning Path</div>
+                <div class="turn-notice turn-notice--decision" id="turnReasoningPathSummary">Vantage will show how this turn was routed and what entered Working Memory.</div>
+                <div class="turn-reasoning-path-meta" id="turnReasoningPathMeta"></div>
+                <div class="reasoning-path-rail" id="turnReasoningPathRail"></div>
+              </section>
+              <div class="section-label">Answer summary</div>
+              <div class="turn-notice" id="turnNotice">This section will show the response mode, recall, and rationale behind the answer. Whiteboard decisions stay separate.</div>
+              <div class="section-label">Recall</div>
+              <div class="concept-list compact" id="turnWorkingMemoryList"></div>
+              <div class="section-label">Memory Trace</div>
+              <div class="turn-notice" id="turnTraceNotice">Recent searchable history for this turn will appear here.</div>
+              <div class="concept-list compact" id="turnTraceList"></div>
+              <div class="section-label">What did the system learn?</div>
+              <div class="concept-list compact" id="turnLearnedList"></div>
+            </section>
+          </details>
+
+          <details class="dock dock--scenario-lab" id="scenarioDock" hidden>
+            <summary class="dock-summary">
+              <div>
+                <p class="eyebrow">Scenario Lab</p>
+                <h2>Scenario Review</h2>
+                <p class="subtle dock-summary-copy">Comparison question, recommendation, branch paths, and the saved comparison artifact.</p>
+              </div>
+              <span class="subtle dock-label" id="scenarioDockLabel">Idle</span>
+            </summary>
+            <section class="panel scenario-lab-panel">
+              <section class="scenario-lab" id="scenarioLabSection" hidden></section>
+            </section>
+          </details>
+
+          <details class="dock" id="memoryDock">
+            <summary class="dock-summary">
+              <div>
+                <p class="eyebrow">Library</p>
+                <h2>What Else Exists In The Library?</h2>
+              </div>
+              <span class="subtle dock-label" id="memoryDockLabel">0 notes</span>
+            </summary>
+            <section class="panel concepts-panel">
+              <header class="panel-head">
+                <div>
+                  <p class="eyebrow">Library</p>
+                  <h2 id="conceptsTitle">What Else Exists In The Library?</h2>
+                </div>
+                <span class="subtle" id="conceptsCount">0 concepts · 0 memories · 0 artifacts · 0 references</span>
+              </header>
+              <div class="memory-tools">
+                <input id="memorySearch" type="search" placeholder="Search concepts, memories, artifacts, and references..." />
+                <button id="clearSearchButton" type="button">Clear</button>
+                <button id="refreshConceptsButton" type="button">Refresh</button>
+              </div>
+              <div class="memory-summary" id="memorySummary">
+                <span class="badge badge--accent" id="conceptsSummary">Concepts: 0</span>
+                <span class="badge badge--soft" id="memoriesSummary">Memories: 0</span>
+                <span class="badge badge--soft" id="artifactsSummary">Artifacts: 0</span>
+                <span class="badge badge--soft" id="vaultNotesSummary">References: 0</span>
+              </div>
+              <section class="memory-context-bar">
+                <div>
+                  <div class="section-label">Pinned Context</div>
+                  <div class="subtle" id="nextTurnContextStatus">Selection only opens something in review. Pinning keeps it in the next-turn context until you clear it.</div>
+                </div>
+                <div class="button-row">
+                  <button id="pinSelectedContextButton" type="button">Pin selected context</button>
+                  <button id="clearPinnedContextButton" type="button">Clear pinned context</button>
+                </div>
+              </section>
+              <div class="memory-sections">
+                <section class="memory-section memory-section--concepts">
+                  <div class="section-head">
+                    <div>
+                      <div class="section-label">Concept KB</div>
+                      <div class="subtle" id="conceptsHint">Durable reasoning concepts</div>
+                    </div>
+                  </div>
+                  <div class="concept-list" id="conceptList"></div>
+                </section>
+                <section class="memory-section memory-section--concepts">
+                  <div class="section-head">
+                    <div>
+                      <div class="section-label">Memories</div>
+                      <div class="subtle" id="memoriesHint">Durable continuity notes</div>
+                    </div>
+                  </div>
+                  <div class="concept-list" id="memoryList"></div>
+                </section>
+                <section class="memory-section memory-section--artifacts">
+                  <div class="section-head">
+                    <div>
+                      <div class="section-label section-label--artifact">Artifacts</div>
+                      <div class="subtle" id="artifactsHint">Durable work products and snapshots</div>
+                    </div>
+                  </div>
+                  <div class="concept-list" id="artifactList"></div>
+                </section>
+                <section class="memory-section memory-section--vault">
+                  <div class="section-head">
+                    <div>
+                      <div class="section-label section-label--vault">Reference Notes</div>
+                      <div class="subtle" id="vaultNotesHint">Read-only Nexus references</div>
+                    </div>
+                  </div>
+                  <div class="concept-list" id="vaultNoteList"></div>
+                </section>
+              </div>
+              <div class="concept-inspector" id="conceptInspector">
+                <div class="empty-note">Select something in the library to inspect it here. Selection alone does not change next-turn context.</div>
+              </div>
+            </section>
+          </details>
+        </section>
+      </aside>
+    </div>
+
+    <template id="messageTemplate">
+      <article class="message">
+        <div class="message-meta">
+          <span class="message-role"></span>
+        </div>
+        <div class="message-body"></div>
+      </article>
+    </template>
+
+    <template id="conceptTemplate">
+      <article class="concept-card">
+        <div class="concept-header">
+          <span class="concept-type"></span>
+          <span class="concept-id"></span>
+        </div>
+        <h3 class="concept-title"></h3>
+        <p class="concept-card-text"></p>
+        <div class="concept-actions">
+          <button type="button" class="concept-open-button">Open</button>
+          <button type="button" class="concept-inspect-button">Inspect</button>
+        </div>
+      </article>
+    </template>
+
+    <script type="module" src="/static/app.js?v=20260419-working-memory-scope"></script>
+  </body>
+</html>

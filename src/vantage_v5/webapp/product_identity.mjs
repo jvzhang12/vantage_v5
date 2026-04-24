@@ -10,6 +10,31 @@ function pluralize(word, count) {
   return `${word}${count === 1 ? "" : "s"}`;
 }
 
+function scenarioLabBranchCount(scenarioLab) {
+  if (!scenarioLab || typeof scenarioLab !== "object") {
+    return 0;
+  }
+  if (Array.isArray(scenarioLab.branches) && scenarioLab.branches.length) {
+    return scenarioLab.branches.length;
+  }
+  const comparisonArtifact = scenarioLab.comparisonArtifact
+    || scenarioLab.comparison_artifact
+    || null;
+  if (Array.isArray(comparisonArtifact?.branchIndex) && comparisonArtifact.branchIndex.length) {
+    return comparisonArtifact.branchIndex.length;
+  }
+  if (Array.isArray(comparisonArtifact?.branch_index) && comparisonArtifact.branch_index.length) {
+    return comparisonArtifact.branch_index.length;
+  }
+  if (Array.isArray(comparisonArtifact?.branchWorkspaceIds) && comparisonArtifact.branchWorkspaceIds.length) {
+    return comparisonArtifact.branchWorkspaceIds.length;
+  }
+  if (Array.isArray(comparisonArtifact?.branch_workspace_ids) && comparisonArtifact.branch_workspace_ids.length) {
+    return comparisonArtifact.branch_workspace_ids.length;
+  }
+  return 0;
+}
+
 function recallCountFromPayload(payload) {
   const visibleRecallCount = Array.isArray(payload?.recall)
     ? payload.recall.length
@@ -24,13 +49,13 @@ function learnedKind(item) {
   const kind = String(item?.kind || "").trim().toLowerCase();
   const type = String(item?.type || "").trim().toLowerCase();
   if (source === "concept" || kind === "concept" || type === "concept") {
-    return "concept";
+    return "idea";
   }
   if (source === "memory" || kind === "memory" || type === "memory") {
-    return "memory";
+    return "note";
   }
   if (source === "artifact" || kind === "artifact" || type === "artifact" || type === "scenario_comparison") {
-    return "artifact";
+    return "work product";
   }
   return "item";
 }
@@ -139,6 +164,244 @@ export function deriveTurnGrounding({
   };
 }
 
+function normalizeRecallReasonText(value) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (!text) {
+    return "";
+  }
+  if (/[=:]/.test(text) && /\btitle=|\bcard=|\bbody=|\bcontext=|\bmetadata=/.test(text)) {
+    return "";
+  }
+  return text.endsWith(".") ? text : `${text}.`;
+}
+
+export function describeRecallReason(item = null) {
+  const provided = normalizeRecallReasonText(
+    item?.recallReason
+    || item?.recall_reason
+    || item?.whyRecalled
+    || item?.why_recalled
+    || item?.userReason
+    || item?.user_reason,
+  );
+  if (provided) {
+    return provided;
+  }
+
+  const source = String(item?.source || "").trim().toLowerCase();
+  const type = String(item?.type || "").trim().toLowerCase();
+  if (source === "memory_trace") {
+    return "Recent memory trace looked relevant to this turn.";
+  }
+  if (source === "vault_note") {
+    return "A reference note looked relevant to this request.";
+  }
+  if (source === "artifact" || type === "artifact" || type === "scenario_comparison" || type === "scenario comparison") {
+    return "A prior work product looked relevant to this request.";
+  }
+  if (source === "memory") {
+    return "A saved memory looked relevant to this request.";
+  }
+  if (source === "concept" || type === "concept") {
+    return "A reusable idea in your library looked relevant to this request.";
+  }
+  return "";
+}
+
+function isLearnedArtifact(item = null) {
+  const source = String(item?.source || "").trim().toLowerCase();
+  const type = String(item?.type || "").trim().toLowerCase();
+  return source === "artifact" || type === "artifact" || type === "scenario_comparison" || type === "scenario comparison";
+}
+
+function isLearnedScenarioComparison(item = null) {
+  const scenarioKind = String(item?.scenarioKind || item?.scenario_kind || "").trim().toLowerCase();
+  return isLearnedArtifact(item) && scenarioKind === "comparison";
+}
+
+export function describeLearnedScopeLabel(item = null) {
+  const durability = String(item?.durability || "").trim().toLowerCase();
+  const scope = String(item?.scope || "").trim().toLowerCase();
+  if (durability === "temporary" || scope === "experiment") {
+    return "Temporary in this experiment";
+  }
+  if (durability === "durable" || scope === "durable") {
+    return "Saved in your library";
+  }
+  return "Saved from this turn";
+}
+
+export function buildLearnedCorrectionModel(item = null) {
+  const correctionKind = String(
+    item?.correctionAffordance?.kind
+    || item?.correction_affordance?.kind
+    || "",
+  ).trim().toLowerCase();
+  const explicitPrimaryLabel = String(
+    item?.correctionAffordance?.label
+    || item?.correction_affordance?.label
+    || "",
+  ).trim();
+  const scopeLabel = describeLearnedScopeLabel(item);
+  const temporary = scopeLabel === "Temporary in this experiment";
+  const canonicalPrimaryActionLabel = isLearnedArtifact(item)
+    ? (isLearnedScenarioComparison(item) ? "Continue comparison in whiteboard" : "Continue in whiteboard")
+    : "Revise in whiteboard";
+  const normalizedExplicitLabel = explicitPrimaryLabel.toLowerCase();
+  const explicitLooksLikeWhiteboardAction = correctionKind === "open_in_whiteboard" && (
+    normalizedExplicitLabel === "open in whiteboard"
+      || normalizedExplicitLabel.includes("whiteboard")
+      || normalizedExplicitLabel.includes("revise")
+      || normalizedExplicitLabel.includes("continue")
+  );
+  const primaryActionLabel = explicitLooksLikeWhiteboardAction && normalizedExplicitLabel !== "open in whiteboard"
+    ? explicitPrimaryLabel
+    : canonicalPrimaryActionLabel;
+  const summary = temporary
+    ? "This item is temporary in this experiment. Direct correction works through the whiteboard, and you can pin it for the next turn while you explain what should change."
+    : "This item is saved in your library. Direct correction works through the whiteboard, and you can pin it for the next turn while you explain what should change.";
+  const modeSummaries = {
+    overview: summary,
+    wrong: temporary
+      ? "Not direct yet. Vantage cannot mark this temporary item as wrong directly in this build. Revise it in the whiteboard and pin it for the next turn if you want the correction carried forward."
+      : "Not direct yet. Vantage cannot mark this library-saved item as wrong directly in this build. Revise it in the whiteboard and pin it for the next turn if you want the correction carried forward.",
+    temporary: temporary
+      ? "This item is already temporary in this experiment. It stays session-local unless you promote a later revision."
+      : "Not direct yet. Changing this learned item from library-saved to temporary is not supported directly in this build. Revise it in the whiteboard during an experiment if you want a temporary follow-up instead.",
+    forget: temporary
+      ? "Not direct yet. Direct forget or delete is not supported here yet. This temporary item will disappear when the experiment ends unless you promote it."
+      : "Not direct yet. Direct forget or delete is not supported for library-saved items yet. Leave it unpinned so it stops carrying forward, or revise it in the whiteboard to make a corrected replacement.",
+  };
+  const limitations = temporary
+    ? [
+        "Pin it for the next turn if you want to explain what should change before deciding what to keep.",
+        "Direct mark-wrong, make-temporary, and forget actions are not available yet; revise it in the whiteboard to create the corrected follow-up.",
+      ]
+    : [
+        "Revise it in the whiteboard if you want a corrected follow-up without overwriting the saved original in place.",
+        "Direct mark-wrong, make-temporary, and forget actions are not available yet; pin it for the next turn or revise it in the whiteboard instead.",
+      ];
+
+  return {
+    primaryActionLabel,
+    keepContextLabel: "Pin for next turn",
+    pinnedContextLabel: "Pinned for next turn",
+    scopeLabel,
+    summary,
+    modeSummaries,
+    limitations,
+  };
+}
+
+export function describeLearnedCorrectionModeLabel(mode, scopeLabel = "") {
+  const normalizedMode = String(mode || "").trim().toLowerCase();
+  const temporary = String(scopeLabel || "").trim().toLowerCase() === "temporary in this experiment";
+  switch (normalizedMode) {
+    case "wrong":
+      return "How to mark wrong";
+    case "temporary":
+      return temporary ? "Already temporary" : "How to make temporary";
+    case "forget":
+      return "How to forget";
+    default:
+      return "";
+  }
+}
+
+export function describeScenarioRouteConfidence(confidence) {
+  const numeric = Number(confidence);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return {
+      label: "",
+      badge: "",
+      summary: "",
+    };
+  }
+  if (numeric >= 0.9) {
+    return {
+      label: "Clear fit",
+      badge: "Clear fit",
+      summary: "The navigator saw Scenario Lab as a clear fit for this request.",
+    };
+  }
+  if (numeric >= 0.75) {
+    return {
+      label: "Strong fit",
+      badge: "Strong fit",
+      summary: "The navigator saw Scenario Lab as a strong fit for this request.",
+    };
+  }
+  if (numeric >= 0.55) {
+    return {
+      label: "Possible fit",
+      badge: "Possible fit",
+      summary: "The navigator saw Scenario Lab as a possible fit for this request.",
+    };
+  }
+  return {
+    label: "Tentative fit",
+    badge: "Tentative fit",
+    summary: "Scenario Lab was chosen tentatively for this request.",
+  };
+}
+
+export function describeScenarioBranchConfidence(confidence) {
+  const normalized = String(confidence || "").trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.startsWith("high") || normalized.startsWith("strong")) {
+    return "Stronger case";
+  }
+  if (normalized.startsWith("moderate") || normalized.startsWith("medium") || normalized.startsWith("balanced")) {
+    return "Balanced case";
+  }
+  if (normalized.startsWith("low") || normalized.startsWith("weak") || normalized.startsWith("tentative")) {
+    return "Riskier case";
+  }
+  return String(confidence || "").trim();
+}
+
+export function buildTurnAtAGlanceSummary({
+  recallCount = 0,
+  groundingLabel = "",
+  hasGroundedContext = false,
+  hasBroaderGrounding = false,
+  isBestGuess = false,
+  learnedCount = 0,
+  scenarioLabStatus = "",
+  scenarioLabBranchCount = 0,
+  graphActionSummary = "",
+} = {}) {
+  const normalizedGrounding = String(groundingLabel || "").trim();
+  const normalizedScenarioStatus = String(scenarioLabStatus || "").trim().toLowerCase();
+  const parts = [];
+
+  if (normalizedScenarioStatus === "failed") {
+    parts.push("Scenario Lab fell back to chat.");
+  } else if (normalizedScenarioStatus) {
+    parts.push(
+      scenarioLabBranchCount > 0
+        ? `Scenario Lab prepared ${scenarioLabBranchCount} ${pluralize("branch", scenarioLabBranchCount)}.`
+        : "Scenario Lab ran for this turn.",
+    );
+  } else if (isBestGuess) {
+    parts.push("This answer is a best guess.");
+  } else if (recallCount > 0) {
+    parts.push(`This answer used ${recallCount} recalled ${pluralize("item", recallCount)}.`);
+  } else if ((hasGroundedContext || hasBroaderGrounding) && normalizedGrounding) {
+    parts.push(`This answer used ${normalizedGrounding.toLowerCase()}.`);
+  } else if (graphActionSummary) {
+    parts.push(graphActionSummary);
+  }
+
+  if (learnedCount > 0) {
+    parts.push(`Learned ${learnedCount} ${pluralize("item", learnedCount)} from this turn.`);
+  }
+
+  return parts.join(" ") || "This view explains why the answer happened, what entered Recall, and what changed after the turn.";
+}
+
 function responseModeEvidenceLabel(responseMode, payload) {
   const kind = String(responseMode?.kind || "").trim().toLowerCase();
   const groundingMode = String(responseMode?.groundingMode || responseMode?.grounding_mode || "").trim().toLowerCase();
@@ -148,22 +411,23 @@ function responseModeEvidenceLabel(responseMode, payload) {
     return "Best Guess";
   }
   if (groundingMode === "recall" || groundingMode === "working_memory") {
-    return count > 0 ? `Used ${count} recalled ${pluralize("item", count)}` : "Recall";
+    return count > 0 ? `Used ${count} recalled ${pluralize("item", count)}` : "From earlier";
   }
   if (groundingMode === "whiteboard") {
-    return "Whiteboard";
+    return "Used your draft";
   }
   if (groundingMode === "recent_chat") {
-    return "Recent Chat";
+    return "From recent conversation";
   }
   if (groundingMode === "pending_whiteboard") {
-    return "Prior Whiteboard";
+    return "From your earlier draft";
   }
   if (groundingMode === "mixed_context") {
-    return describeResponseModeLabel(responseMode, count);
+    return describeMixedContextEvidenceLabel(responseModeContextSources(responseMode))
+      || describeResponseModeLabel(responseMode, count);
   }
   if (kind === "grounded") {
-    return count > 0 ? `Used ${count} recalled ${pluralize("item", count)}` : (String(responseMode?.label || "").trim() || "Recall");
+    return count > 0 ? `Used ${count} recalled ${pluralize("item", count)}` : (String(responseMode?.label || "").trim() || "From earlier");
   }
   return null;
 }
@@ -202,6 +466,16 @@ function describeMixedContextLabel(contextSources = []) {
   return labels.join(" + ");
 }
 
+function describeMixedContextEvidenceLabel(contextSources = []) {
+  const labels = contextSources
+    .map((source) => describeContextSourceEvidenceLabel(source))
+    .filter(Boolean);
+  if (!labels.length) {
+    return "";
+  }
+  return labels.join(" + ");
+}
+
 function describeContextSourceLabel(source) {
   switch (String(source || "").trim().toLowerCase()) {
     case "recall":
@@ -218,6 +492,40 @@ function describeContextSourceLabel(source) {
   }
 }
 
+function describeContextSourceEvidenceLabel(source) {
+  switch (String(source || "").trim().toLowerCase()) {
+    case "recall":
+    case "working_memory":
+      return "From earlier";
+    case "whiteboard":
+      return "Used your draft";
+    case "recent_chat":
+      return "Recent conversation";
+    case "pending_whiteboard":
+      return "Earlier draft";
+    default:
+      return "";
+  }
+}
+
+function normalizePinnedContinuityFlag(interpretation) {
+  if (typeof interpretation?.preservePinnedContext === "boolean") {
+    return interpretation.preservePinnedContext;
+  }
+  if (typeof interpretation?.preserveSelectedRecord === "boolean") {
+    return interpretation.preserveSelectedRecord;
+  }
+  return null;
+}
+
+function normalizePinnedContinuityReason(interpretation) {
+  return String(
+    interpretation?.pinnedContextReason
+    || interpretation?.selectedRecordReason
+    || "",
+  ).trim() || "";
+}
+
 export function buildGuidedInspectionSummary({
   responseMode = null,
   scenarioLab = null,
@@ -225,6 +533,7 @@ export function buildGuidedInspectionSummary({
   recalledCount = 0,
   learnedCount = 0,
   libraryCount = 0,
+  includeLibrary = true,
   pinnedTitle = "",
 } = {}) {
   const normalizedRecallCount = Number.isFinite(Number(recallCount))
@@ -234,7 +543,7 @@ export function buildGuidedInspectionSummary({
       : 0;
   const parts = [];
   if (scenarioLab) {
-    const branchCount = Array.isArray(scenarioLab.branches) ? scenarioLab.branches.length : 0;
+    const branchCount = scenarioLabBranchCount(scenarioLab);
     parts.push(
       scenarioLab.status === "failed"
         ? "Scenario Lab: fallback"
@@ -254,8 +563,10 @@ export function buildGuidedInspectionSummary({
   } else {
     parts.push("Recall: none surfaced yet");
   }
-  parts.push(`Learned: ${learnedCount ? `${learnedCount} item${learnedCount === 1 ? "" : "s"}` : "nothing new yet"}`);
-  parts.push(`Library: ${libraryCount} item${libraryCount === 1 ? "" : "s"}`);
+  parts.push(`What I learned: ${learnedCount ? `${learnedCount} item${learnedCount === 1 ? "" : "s"}` : "nothing new yet"}`);
+  if (includeLibrary) {
+    parts.push(`Library: ${libraryCount} item${libraryCount === 1 ? "" : "s"}`);
+  }
   if (pinnedTitle) {
     parts.push(`Pinned: ${pinnedTitle}`);
   }
@@ -325,9 +636,26 @@ function annotateCandidateItems(items = [], recallIds = new Set()) {
   return cloneReasoningItems(items).map((item) => ({
     ...item,
     reasoningStatusLabel: recallIds.has(String(item?.id || "").trim())
-      ? "selected into recall"
-      : "considered but not selected",
+      ? "used for recall"
+      : "not used this turn",
   }));
+}
+
+function humanizeRouteConfidence(confidence) {
+  const numeric = Number(confidence);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return "";
+  }
+  if (numeric >= 0.9) {
+    return "High";
+  }
+  if (numeric >= 0.75) {
+    return "Steady";
+  }
+  if (numeric >= 0.55) {
+    return "Tentative";
+  }
+  return "Low";
 }
 
 function describeReasoningRoute(interpretation, grounding) {
@@ -347,8 +675,8 @@ function describeReasoningRoute(interpretation, grounding) {
         : whiteboardMode === "auto"
           ? "Auto"
           : "";
-  const continuityLabel = interpretation?.preserveSelectedRecord === true
-    ? "Preserved selected context"
+  const continuityLabel = normalizePinnedContinuityFlag(interpretation) === true
+    ? "Preserved pinned context"
     : "";
   const pieces = [reason];
   if (whiteboardLabel) {
@@ -374,23 +702,23 @@ function describeReasoningRequest(userMessage) {
 function describeReasoningCandidates(candidateCounts) {
   const totalCount = Number(candidateCounts?.totalCount || 0);
   if (!totalCount) {
-    return "No candidate context was surfaced before vetting.";
+    return "No supporting items were surfaced before Recall was narrowed.";
   }
   const parts = [
-    `${totalCount} candidate item${totalCount === 1 ? "" : "s"} ${totalCount === 1 ? "was" : "were"} considered before vetting`,
+    `${totalCount} supporting item${totalCount === 1 ? "" : "s"} ${totalCount === 1 ? "was" : "were"} considered before Recall was narrowed`,
   ];
   const detailParts = [];
   if (candidateCounts.conceptCount) {
-    detailParts.push(`${candidateCounts.conceptCount} concept${candidateCounts.conceptCount === 1 ? "" : "s"}`);
+    detailParts.push(`${candidateCounts.conceptCount} idea${candidateCounts.conceptCount === 1 ? "" : "s"}`);
   }
   if (candidateCounts.savedCount) {
-    detailParts.push(`${candidateCounts.savedCount} memory${candidateCounts.savedCount === 1 ? "" : "s"}`);
+    detailParts.push(`${candidateCounts.savedCount} note${candidateCounts.savedCount === 1 ? "" : "s"}`);
   }
   if (candidateCounts.traceCount) {
     detailParts.push(`${candidateCounts.traceCount} memory trace item${candidateCounts.traceCount === 1 ? "" : "s"}`);
   }
   if (candidateCounts.vaultCount) {
-    detailParts.push(`${candidateCounts.vaultCount} reference note${candidateCounts.vaultCount === 1 ? "" : "s"}`);
+    detailParts.push(`${candidateCounts.vaultCount} reference${candidateCounts.vaultCount === 1 ? "" : "s"}`);
   }
   if (detailParts.length) {
     parts.push(`(${detailParts.join(", ")})`);
@@ -405,9 +733,9 @@ function describeReasoningRecall(grounding, recallItems = []) {
       ? recallItems.length
       : 0;
   if (!recallCount) {
-    return "No recalled items were selected into Recall.";
+    return "No recalled items entered Recall.";
   }
-  return `${recallCount} recalled item${recallCount === 1 ? "" : "s"} ${recallCount === 1 ? "was" : "were"} selected into Recall.`;
+  return `${recallCount} recalled item${recallCount === 1 ? "" : "s"} entered Recall.`;
 }
 
 function describeReasoningWorkingMemory(grounding) {
@@ -494,63 +822,63 @@ export function buildReasoningPathInspection({
         ? { label: "Requested", value: humanizeWhiteboardMode(interpretation.requestedWhiteboardMode) }
         : null,
       interpretation?.whiteboardModeSource
-        ? { label: "Decision Source", value: humanizeWhiteboardModeSource(interpretation.whiteboardModeSource) }
+        ? { label: "Chose this from", value: humanizeWhiteboardModeSource(interpretation.whiteboardModeSource) }
         : null,
-      interpretation?.preserveSelectedRecord === true
-        ? { label: "Continuity", value: interpretation.selectedRecordReason || "Preserved selected context" }
+      normalizePinnedContinuityFlag(interpretation) === true
+        ? { label: "Kept in scope", value: normalizePinnedContinuityReason(interpretation) || "Preserved" }
         : null,
       Number.isFinite(Number(interpretation?.confidence)) && Number(interpretation.confidence) > 0
-        ? { label: "Confidence", value: `${Math.round(Number(interpretation.confidence) * 100)}%` }
+        ? { label: "Route confidence", value: humanizeRouteConfidence(interpretation.confidence) }
         : null,
     ]),
     detail: {
       summary: route,
       notes: normalizeStageMeta([
         { label: "Navigator reason", value: String(interpretation?.reason || interpretation?.note || "").trim() || "No navigator reason was returned for this turn." },
-        interpretation?.preserveSelectedRecord === true
-          ? { label: "Continuity rationale", value: interpretation.selectedRecordReason || "Selected context was preserved for continuity." }
+        normalizePinnedContinuityFlag(interpretation) === true
+          ? { label: "Why kept in scope", value: normalizePinnedContinuityReason(interpretation) || "Pinned context was preserved for continuity." }
           : null,
       ]),
     },
   };
   const candidateStage = {
     key: "candidate-context",
-    label: "Candidate context",
+    label: "Considered context",
     text: candidates,
     step: "Step 3",
     meta: normalizeStageMeta([
       candidateCounts.totalCount
-        ? { label: "Candidates", value: `${candidateCounts.totalCount} item${candidateCounts.totalCount === 1 ? "" : "s"}` }
+        ? { label: "Considered", value: `${candidateCounts.totalCount} item${candidateCounts.totalCount === 1 ? "" : "s"}` }
         : null,
     ]),
     detail: {
       summary: candidateCounts.totalCount
-        ? "These were the candidate items pulled up before vetting narrowed them down."
-        : "No candidate context was surfaced before vetting.",
+        ? "These were the supporting items considered before Recall was narrowed down."
+        : "No supporting items were surfaced before Recall was narrowed.",
       groups: [
         {
-          label: "Concept candidates",
+          label: "Ideas considered",
           items: annotateCandidateItems(candidateConcepts, recallIds),
           context: "reasoning-candidate",
-          emptyMessage: "No concept candidates were pulled up.",
+          emptyMessage: "No ideas were considered.",
         },
         {
-          label: "Saved note candidates",
+          label: "Notes considered",
           items: annotateCandidateItems(candidateSavedNotes, recallIds),
           context: "reasoning-candidate",
-          emptyMessage: "No saved-note candidates were pulled up.",
+          emptyMessage: "No notes were considered.",
         },
         {
-          label: "Memory Trace candidates",
+          label: "Memory Trace considered",
           items: annotateCandidateItems(candidateTraceNotes, recallIds),
           context: "reasoning-candidate",
-          emptyMessage: "No memory-trace candidates were pulled up.",
+          emptyMessage: "No Memory Trace items were considered.",
         },
         {
-          label: "Reference note candidates",
+          label: "References considered",
           items: annotateCandidateItems(candidateVaultNotes, recallIds),
           context: "reasoning-candidate",
-          emptyMessage: "No reference-note candidates were pulled up.",
+          emptyMessage: "No references were considered.",
         },
       ],
     },
@@ -566,10 +894,10 @@ export function buildReasoningPathInspection({
     detail: {
       summary: grounding.recallCount
         ? "These recalled items made it through vetting and entered Recall for this answer."
-        : "No recalled items were selected into Recall.",
+        : "No recalled items entered Recall.",
       groups: [
         {
-          label: "Selected recall",
+          label: "Used for recall",
           items: cloneReasoningItems(recallItems),
           context: "reasoning-recall",
           emptyMessage: "No recalled items were selected for this turn.",
@@ -620,7 +948,7 @@ export function buildReasoningPathInspection({
     step: "Step 6",
     meta: normalizeStageMeta([
       !grounding.isIdle ? { label: "Grounding", value: grounding.groundingLabel } : null,
-      { label: "Learned", value: Array.isArray(learnedItems) && learnedItems.length ? `${learnedItems.length} item${learnedItems.length === 1 ? "" : "s"}` : "Nothing learned" },
+      { label: "What I learned", value: Array.isArray(learnedItems) && learnedItems.length ? `${learnedItems.length} item${learnedItems.length === 1 ? "" : "s"}` : "Nothing learned" },
       hasTraceRecord ? { label: "Memory Trace", value: "Recorded" } : null,
     ]),
     detail: {
@@ -632,7 +960,7 @@ export function buildReasoningPathInspection({
       ]),
       groups: [
         {
-          label: "Learned",
+          label: "Saved from this turn",
           items: cloneReasoningItems(learnedItems),
           context: "learned",
           emptyMessage: "No durable item was created by this turn.",
@@ -668,7 +996,7 @@ export function buildReasoningPathInspection({
   );
   const summaryPieces = [route];
   if (candidateCounts.totalCount > 0) {
-    summaryPieces.push(`${candidateCounts.totalCount} candidate item${candidateCounts.totalCount === 1 ? "" : "s"} ${candidateCounts.totalCount === 1 ? "was" : "were"} considered before vetting.`);
+    summaryPieces.push(`${candidateCounts.totalCount} supporting item${candidateCounts.totalCount === 1 ? "" : "s"} ${candidateCounts.totalCount === 1 ? "was" : "were"} considered before Recall was narrowed.`);
   }
   if (grounding.recallCount > 0) {
     summaryPieces.push(`${grounding.recallCount} recalled item${grounding.recallCount === 1 ? "" : "s"} entered Working Memory.`);
@@ -841,13 +1169,13 @@ function buildWorkingMemoryScopeSummary({
           detail: "The previous whiteboard state was carried into the turn.",
         }]
       : []),
-    ...(typeof interpretation?.preserveSelectedRecord === "boolean"
+    ...(typeof normalizePinnedContinuityFlag(interpretation) === "boolean"
       ? [{
-          label: "Selected context preserved",
-          status: interpretation.preserveSelectedRecord ? "Included" : "Excluded",
-          detail: interpretation.preserveSelectedRecord
-            ? interpretation?.selectedRecordReason || "A selected record stayed in scope for continuity."
-            : "No selected record was preserved.",
+          label: "Kept in scope",
+          status: normalizePinnedContinuityFlag(interpretation) ? "Included" : "Excluded",
+          detail: normalizePinnedContinuityFlag(interpretation)
+            ? normalizePinnedContinuityReason(interpretation) || "Pinned context stayed in scope for continuity."
+            : "No pinned context was preserved.",
         }]
       : []),
     {
@@ -870,8 +1198,8 @@ function buildWorkingMemoryScopeSummary({
     ...(hasPriorWhiteboardInScope
       ? [{ label: "Prior whiteboard", value: "Included" }]
       : []),
-    ...(typeof interpretation?.preserveSelectedRecord === "boolean"
-      ? [{ label: "Selected context preserved", value: interpretation.preserveSelectedRecord ? "Included" : "Excluded" }]
+    ...(typeof normalizePinnedContinuityFlag(interpretation) === "boolean"
+      ? [{ label: "Kept in scope", value: normalizePinnedContinuityFlag(interpretation) ? "Included" : "Excluded" }]
       : []),
     { label: "Memory Trace contribution", value: traceCount ? `${traceCount} item${traceCount === 1 ? "" : "s"}` : "None" },
   ]);
@@ -954,13 +1282,13 @@ export function buildReasoningPathStages({
           ? { label: "Requested", value: humanizeWhiteboardMode(interpretation.requestedWhiteboardMode) }
           : null,
         interpretation?.whiteboardModeSource
-          ? { label: "Decision Source", value: humanizeWhiteboardModeSource(interpretation.whiteboardModeSource) }
+          ? { label: "Chose this from", value: humanizeWhiteboardModeSource(interpretation.whiteboardModeSource) }
           : null,
-        interpretation?.preserveSelectedRecord === true
-          ? { label: "Continuity", value: interpretation.selectedRecordReason || "Preserved selected context" }
-          : null,
+      normalizePinnedContinuityFlag(interpretation) === true
+        ? { label: "Kept in scope", value: normalizePinnedContinuityReason(interpretation) || "Preserved" }
+        : null,
         Number.isFinite(Number(interpretation?.confidence)) && Number(interpretation.confidence) > 0
-          ? { label: "Confidence", value: `${Math.round(Number(interpretation.confidence) * 100)}%` }
+          ? { label: "Route confidence", value: humanizeRouteConfidence(interpretation.confidence) }
           : null,
       ]),
     },
@@ -989,7 +1317,7 @@ export function buildReasoningPathStages({
         !grounding.isIdle
           ? { label: "Grounding", value: grounding.groundingLabel }
           : null,
-        { label: "Learned", value: learnedCount ? `${learnedCount} item${learnedCount === 1 ? "" : "s"}` : "Nothing learned" },
+        { label: "What I learned", value: learnedCount ? `${learnedCount} item${learnedCount === 1 ? "" : "s"}` : "Nothing learned" },
         hasTraceRecord ? { label: "Memory Trace", value: "Recorded" } : null,
       ]),
     },
@@ -1022,7 +1350,7 @@ function buildOutcomeSummary({
   }
 
   if (learnedCount > 0) {
-    parts.push(`Learned ${learnedCount} new item${learnedCount === 1 ? "" : "s"} after the answer.`);
+    parts.push(`What I learned saved ${learnedCount} new item${learnedCount === 1 ? "" : "s"} after the answer.`);
   } else if (workspaceUpdate?.status === "updated") {
     parts.push("The whiteboard was updated from this turn.");
   } else if (workspaceUpdate?.status === "draft_ready") {
@@ -1066,13 +1394,13 @@ export function buildChatTurnEvidence(payload) {
     ? payload.scenario_lab
     : null;
   if (payload.mode === "scenario_lab" || scenarioLab?.status === "failed") {
-    evidence.push({ label: "Scenario Lab", tone: "accent" });
+    evidence.push({ label: "Scenario Lab", tone: "accent", emphasis: "strong" });
     if (scenarioLab?.status === "failed") {
-      evidence.push({ label: "Fallback", tone: "warm" });
+      evidence.push({ label: "Back to chat", tone: "warm", emphasis: "strong" });
     } else {
-      const branchCount = Array.isArray(scenarioLab?.branches) ? scenarioLab.branches.length : 0;
+      const branchCount = scenarioLabBranchCount(scenarioLab);
       if (branchCount > 0) {
-        evidence.push({ label: `${branchCount} ${pluralize("branch", branchCount)}`, tone: "soft" });
+        evidence.push({ label: `${branchCount} ${pluralize("branch", branchCount)}`, tone: "soft", emphasis: "quiet" });
       }
     }
   }
@@ -1081,21 +1409,15 @@ export function buildChatTurnEvidence(payload) {
   if (grounding) {
     evidence.push({
       label: grounding,
-      tone: grounding === "Best Guess" ? "warm" : grounding === "Whiteboard" ? "accent" : "soft",
+      tone: grounding === "Best Guess" ? "warm" : "soft",
+      emphasis: grounding === "Best Guess" ? "strong" : "quiet",
     });
   }
 
   const learnedItems = normalizeLearnedItems(payload);
   const learnedLabel = learnedEvidenceLabel(learnedItems);
   if (learnedLabel) {
-    evidence.push({ label: learnedLabel, tone: "success" });
-  }
-
-  const workspaceStatus = String(payload?.workspace_update?.status || "").trim().toLowerCase();
-  if (workspaceStatus === "offered") {
-    evidence.push({ label: "Whiteboard offer", tone: "soft" });
-  } else if (workspaceStatus === "draft_ready") {
-    evidence.push({ label: "Draft ready", tone: "soft" });
+    evidence.push({ label: learnedLabel, tone: "success", emphasis: "strong" });
   }
 
   return evidence;

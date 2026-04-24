@@ -144,6 +144,16 @@ Implementation checklist:
 
 These should usually target the active whiteboard draft when one exists and is in scope.
 
+When the user is clearly referring to a different recently surfaced saved draft rather than the current whiteboard, the system should prefer reopening that saved item over silently continuing the wrong draft.
+
+Implementation checklist:
+
+- the navigator should eventually receive a small continuity frame rather than only free-text recent chat
+- that frame should stay metadata-first and should be small by default
+- the strongest recent saved-item reference should outrank generic recent-whiteboard recency
+- do not dump a long recent-whiteboard history into every navigator call
+- when ambiguity remains meaningful, ask or present a small explicit choice rather than guessing
+
 ## Rule 9: Pending Drafts And Offers Are Non-Durable Until Applied Or Saved
 
 Whiteboard offers and draft proposals should remain pending and inspectable until the user accepts, applies, or saves them.

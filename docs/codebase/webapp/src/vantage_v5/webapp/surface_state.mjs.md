@@ -19,6 +19,7 @@ Canonical surface-state helper for the client.
 - `openVantageSurface()`
 - `closeVantageSurface()`
 - `toggleWhiteboardSurface()`
+- `normalizeRestoredTurnSnapshotState()`
 - `buildTurnSnapshotKey()`
 - `buildScopedTurnSnapshotKey()`
 
@@ -28,4 +29,5 @@ Canonical surface-state helper for the client.
 - Treats that return path as navigation state rather than whiteboard-in-scope state, so opening `Vantage` from the whiteboard does not by itself ground ordinary chat with whiteboard content.
 - `hasWhiteboardActiveContext()` is intentionally narrow and only returns `true` when the current surface is actually `whiteboard`.
 - Also restores that return path from mixed legacy snapshots where `current: "vantage"` survived but only `whiteboardVisible` still described the prior whiteboard context.
+- Provides a small restore-policy helper so workspace-scoped snapshots can restore full inspection state while scope-scoped fallback snapshots keep pinned context and draft continuity, clear stale selected-record state, avoid reopening `Vantage` from an older workspace, and preserve the original turn's `workspaceContextScope`.
 - Separates workspace-specific snapshot keys from scope-wide snapshot keys so unsaved draft continuity and turn-inspection state are less brittle across refreshes.

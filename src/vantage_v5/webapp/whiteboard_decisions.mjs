@@ -40,8 +40,8 @@ function buildLocalDecisionPresentation(localDecision) {
     case "open_record":
       return {
         visible: true,
-        label: "Replace Current Whiteboard?",
-        summary: `Opening ${targetLabel} would replace the current unsaved whiteboard. You can replace it or keep the current draft.`,
+        label: "Open Saved Work?",
+        summary: `Opening ${targetLabel} would switch the whiteboard to that saved version and replace your unsaved draft. You can replace it or keep drafting here.`,
         actions: [
           { id: "replace_current", label: "Replace current", tone: "primary" },
           { id: "cancel_decision", label: "Keep current", tone: "secondary" },
@@ -50,8 +50,8 @@ function buildLocalDecisionPresentation(localDecision) {
     case "open_workspace":
       return {
         visible: true,
-        label: "Open Workspace?",
-        summary: `Opening ${targetLabel} would replace the current unsaved whiteboard. You can replace it or keep the current draft.`,
+        label: "Open Saved Branch?",
+        summary: `Opening ${targetLabel} would switch the whiteboard to that saved branch and replace your unsaved draft. You can replace it or keep drafting here.`,
         actions: [
           { id: "replace_current", label: "Replace current", tone: "primary" },
           { id: "cancel_decision", label: "Keep current", tone: "secondary" },
@@ -60,8 +60,8 @@ function buildLocalDecisionPresentation(localDecision) {
     case "pending_draft_replace":
       return {
         visible: true,
-        label: "Replace Current Whiteboard?",
-        summary: "A new draft is ready, but replacing now would overwrite the current unsaved whiteboard. You can replace it, append it instead, or keep the current draft.",
+        label: "Review New Draft?",
+        summary: "A new draft from earlier work is ready, but replacing now would overwrite your current unsaved whiteboard. You can replace it, append it instead, or keep drafting here.",
         actions: [
           { id: "replace_current", label: "Replace current", tone: "primary" },
           { id: "append_instead", label: "Append instead", tone: "secondary" },
@@ -91,12 +91,12 @@ export function deriveWhiteboardDecisionPresentation({ view = {}, localDecision 
   if (status === "offered") {
     return {
       visible: true,
-      label: "Whiteboard Offer",
-      summary: workspaceUpdate.summary || "Vantage suggested continuing this work in the whiteboard.",
+      label: "Start A Shared Draft?",
+      summary: workspaceUpdate.summary || "Vantage suggested starting a shared draft in the whiteboard so you can shape it there together.",
       actions: [
         {
           id: "open_offer",
-          label: workspaceUpdateHasDraft(workspaceUpdate) ? "Open draft" : "Start draft",
+          label: workspaceUpdateHasDraft(workspaceUpdate) ? "Review draft" : "Start draft",
           tone: "primary",
         },
         { id: "keep_in_chat", label: "Keep in chat", tone: "secondary" },
@@ -106,10 +106,10 @@ export function deriveWhiteboardDecisionPresentation({ view = {}, localDecision 
 
   return {
     visible: true,
-    label: "Whiteboard Draft Ready",
-    summary: workspaceUpdate.summary || "A whiteboard draft is ready to review before it changes the current whiteboard.",
+    label: "Review Whiteboard Draft",
+    summary: workspaceUpdate.summary || "A draft is ready to review before it joins your current whiteboard.",
     actions: [
-      { id: "apply_draft", label: "Replace current", tone: "primary" },
+      { id: "apply_draft", label: "Use this draft", tone: "primary" },
       { id: "append_draft", label: "Append instead", tone: "secondary" },
       { id: "keep_current", label: "Keep current", tone: "secondary" },
     ],

@@ -25,7 +25,7 @@ export function buildTurnPanelGroundingCopy({
   }
 
   if (learnedCount > 0) {
-    metaParts.push(`Learned: ${learnedCount}`);
+    metaParts.push(`What I learned: ${learnedCount}`);
   }
 
   return {

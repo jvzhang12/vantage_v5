@@ -10,6 +10,8 @@ If another document uses these terms differently, this glossary should be treate
 
 For implementation-facing behavioral rules built on top of these definitions, see [semantic-rules.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/semantic-rules.md).
 
+For the small structured continuity payload implemented for the navigator interpreter, see [navigator-continuity-contract.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/navigator-continuity-contract.md).
+
 ## Core Terms
 
 ### Working Memory
@@ -126,11 +128,16 @@ This should answer a narrow question:
 
 Pinning is stronger than opening or inspecting an item.
 
+In the current public client/server seam, `pinned_context_id` / `pinned_context` are the canonical continuity fields, while `selected_record_id` / `selected_record` remain compatibility aliases.
+
 ### Open / Inspect
 
 `Open` or `Inspect` means the user is viewing an item.
 
 Opening an item does not automatically make it part of future Working Memory.
+Inspection selection stays local to the Vantage view unless the user explicitly pins it.
+
+For artifacts, `Inspect` should stay read-only and `Reopen in whiteboard` should be the explicit continuation action.
 
 ### In Scope
 
@@ -142,13 +149,35 @@ This distinction matters especially for:
 
 - whiteboard visibility
 - opened library items
-- selected records
+- pinned context
 
 ### Recent Chat
 
 `Recent Chat` is the bounded short-term conversation history automatically carried into the current turn.
 
 It is part of the current-turn context model, and it can be part of Working Memory, but it should stay conceptually distinct from recalled saved knowledge and from the whiteboard.
+
+### Navigator Continuity Frame
+
+`Navigator Continuity Frame` is the small structured continuity payload implemented for the turn interpreter.
+
+It is not the same thing as `Working Memory`.
+
+Its job is narrower:
+
+- help the navigator resolve what the user is referring to right now
+- help the navigator distinguish current-draft continuation from reopening an older saved draft
+- keep short deictic follow-ups like `that one` or `pull that up on the whiteboard` interpretable
+
+It should stay metadata-first and intentionally small.
+
+Recommended default ingredients are:
+
+- current whiteboard
+- a short recent-whiteboards list
+- the strongest last-turn referenced saved record when confidence is high
+- a small last-turn recall shortlist
+- pending whiteboard update when present
 
 ### Concepts
 
@@ -174,6 +203,9 @@ Examples include:
 - essays
 - comparisons
 - saved whiteboards
+
+Artifacts are durable Library items.
+They should be inspected in `Vantage` and reopened into the `Whiteboard` when the user wants to continue editing from a saved version.
 
 ### Scenario Lab
 
@@ -202,6 +234,7 @@ These distinctions should not drift:
 - `Recall` is the retrieval step or vetted subset that can become part of Working Memory.
 - `Learned` is about what changed this turn, not everything the system considered.
 - `Workspace` is a compatibility term; `Whiteboard` is the intended product term.
+- `Pinned Context` is the canonical continuity noun for the public/client seam; selected-record naming is now a compatibility alias.
 
 ## Product Rules Implied By These Definitions
 

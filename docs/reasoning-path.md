@@ -107,11 +107,12 @@ Reasoning Path should make that explicit instead of hiding it.
 
 Recommended UI interpretation:
 
-- `Working Memory`: the full in-scope generation context behind the answer, including the current user message, recent chat, whiteboard content when in scope, pending whiteboard context when intentionally carried, selected context when preserved, and recalled items
+- `Working Memory`: the full in-scope generation context behind the answer, including the current user message, recent chat, whiteboard content when in scope, pending whiteboard context when intentionally carried, pinned context when preserved, and recalled items
 - `Recall`: the recall-shaped subset exposed today through top-level `recall`, with `working_memory` kept only as a compatibility alias
 - `Memory Trace`: the searchable recent-history layer that can contribute recalled items to Working Memory
 - `Other Grounded Context`: whiteboard, recent chat, pending whiteboard, and other non-retrieval context that was still in scope
 - `Answer Context Summary`: a guided explanation of what supported the answer, not a raw payload viewer
+- the current turn’s `memory_trace_record` can expose structured metadata such as turn mode, trace scope, workspace scope, recalled ids, learned ids, and preserved-context ids for inspection, but that metadata still explains Recall rather than replacing it
 
 ### Whiteboard vs Working Memory
 
@@ -127,7 +128,15 @@ The navigator decides:
 
 - whether the turn stays in chat or enters Scenario Lab
 - whether whiteboard collaboration should be invited or drafted directly
-- whether an explicitly selected record should be preserved for continuity
+- whether explicitly pinned context should be preserved for continuity
+
+The current repository now gives the navigator a small structured continuity frame for recently active whiteboards and last-turn referenced saved items. Newer turns write that referenced-record fact explicitly into Memory Trace; older turns can still fall back to preserved-context or unique-recall reconstruction.
+
+That implemented V1 contract is documented in:
+
+- [docs/navigator-continuity-contract.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/navigator-continuity-contract.md)
+
+The intent is to improve deictic follow-ups such as `pull that up on the whiteboard` without broadening Working Memory or flooding the interpreter with too much context.
 
 Retrieval and vetting happen later.
 
@@ -171,7 +180,7 @@ Shows the routed turn decision already exposed through `turn_interpretation`, in
 - whiteboard decision when relevant
 - reason
 - confidence
-- continuity preservation when a selected record stays in scope
+- continuity preservation when pinned context stays in scope
 
 The stage label is `Route` because the shipped UI uses it as the user-facing summary of where the turn went and why, while the detailed metadata still comes from `turn_interpretation`.
 
@@ -206,8 +215,20 @@ The current UI opens an inline include/exclude table for generation scope. The t
 - `Whiteboard scope hint`: shown separately when `workspace_context_scope` is available
 - `Recent chat`: included or excluded based on `response_mode.context_sources`
 - `Prior whiteboard`: shown only when `pending_whiteboard` was actually in scope
-- `Selected context preserved`: shown only when `interpretation.preserveSelectedRecord` is explicitly boolean
+- `Pinned context preserved`: shown only when `interpretation.preservePinnedContext` is explicitly boolean, with the legacy selected-record alias accepted only for compatibility
 - `Memory Trace contribution`: counts only recalled `memory_trace` items that entered Recall
+
+The turn payload can also expose structured metadata for the current trace record itself, including:
+
+- `turn_mode`
+- `trace_scope`
+- `workspace_scope`
+- `grounding_mode`
+- `recalled_ids`
+- `learned_ids`
+- preserved-context ids when continuity was explicit
+
+That detail supports guided inspection without turning `Memory Trace` into a raw transcript browser or a second Library.
 
 The stage headline should read as scope, not hidden causality. Prefer phrasing like `In scope for generation: Recall + Whiteboard.` over `Working Memory used ...`.
 
@@ -236,11 +257,12 @@ Important incoming fields already exist:
 - `workspace_scope`
 - `workspace_content`
 - `whiteboard_mode`
-- `selected_record_id`
+- `pinned_context_id`
+- `selected_record_id` as a compatibility alias
 - `memory_intent`
 - `pending_workspace_update`
 
-These names are still compatibility-oriented implementation fields. In product terms, `workspace_content` is the live whiteboard buffer and `workspace_scope` is the whiteboard scope hint.
+These names are still compatibility-oriented implementation fields. In product terms, `workspace_content` is the live whiteboard buffer, `workspace_scope` is the whiteboard scope hint, and pinned context is the canonical continuity noun for the public/client seam.
 
 Before interpretation, the server normalizes workspace scope and may carry pending whiteboard context forward when the turn clearly continues it.
 

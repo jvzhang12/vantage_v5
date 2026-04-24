@@ -2,11 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildLearnedCorrectionModel,
   buildMemoryTraceSummary,
   buildReasoningPathInspection,
+  buildTurnAtAGlanceSummary,
   buildChatTurnEvidence,
   buildGuidedInspectionSummary,
+  describeLearnedCorrectionModeLabel,
+  describeScenarioBranchConfidence,
+  describeScenarioRouteConfidence,
+  describeLearnedScopeLabel,
   describeResponseModeLabel,
+  describeRecallReason,
   deriveTurnGrounding,
   deriveWhiteboardLifecycle,
 } from "../src/vantage_v5/webapp/product_identity.mjs";
@@ -25,7 +32,11 @@ test("buildChatTurnEvidence reports recalled items and learned memories from the
 
   assert.deepEqual(
     evidence.map((item) => item.label),
-    ["Used 2 recalled items", "Learned 1 memory"],
+    ["Used 2 recalled items", "Learned 1 note"],
+  );
+  assert.deepEqual(
+    evidence.map((item) => item.emphasis),
+    ["quiet", "strong"],
   );
 });
 
@@ -46,7 +57,7 @@ test("buildChatTurnEvidence trusts canonical working-memory counts over a shorte
   );
 });
 
-test("buildChatTurnEvidence surfaces Scenario Lab identity, branches, and draft readiness without mislabeling it as best guess", () => {
+test("buildChatTurnEvidence surfaces Scenario Lab identity without over-repeating whiteboard draft state in chat", () => {
   const evidence = buildChatTurnEvidence({
     mode: "scenario_lab",
     scenario_lab: {
@@ -63,7 +74,45 @@ test("buildChatTurnEvidence surfaces Scenario Lab identity, branches, and draft 
 
   assert.deepEqual(
     evidence.map((item) => item.label),
-    ["Scenario Lab", "3 branches", "Best Guess", "Draft ready"],
+    ["Scenario Lab", "3 branches", "Best Guess"],
+  );
+  assert.deepEqual(
+    evidence.map((item) => item.emphasis),
+    ["strong", "quiet", "strong"],
+  );
+});
+
+test("buildChatTurnEvidence and guided inspection count branches from the comparison artifact branch index when explicit branches are missing", () => {
+  const payload = {
+    mode: "scenario_lab",
+    scenario_lab: {
+      comparison_artifact: {
+        branch_index: [
+          { workspace_id: "focused-mvp", title: "Focused MVP", label: "focused-mvp", summary: "Launch narrowly to learn quickly." },
+          { workspace_id: "aggressive-launch", title: "Aggressive Launch", label: "aggressive-launch", summary: "Launch broadly and fast." },
+        ],
+      },
+    },
+    response_mode: {
+      kind: "grounded",
+      grounding_mode: "recall",
+      recall_count: 1,
+    },
+  };
+
+  assert.deepEqual(
+    buildChatTurnEvidence(payload).map((item) => item.label),
+    ["Scenario Lab", "2 branches", "Used 1 recalled item"],
+  );
+  assert.equal(
+    buildGuidedInspectionSummary({
+      responseMode: payload.response_mode,
+      scenarioLab: payload.scenario_lab,
+      recallCount: 1,
+      learnedCount: 0,
+      libraryCount: 2,
+    }),
+    "Scenario Lab: 2 branches • Recall: 1 item • What I learned: nothing new yet • Library: 2 items",
   );
 });
 
@@ -81,7 +130,11 @@ test("buildChatTurnEvidence keeps Scenario Lab fallback visible in chat", () => 
 
   assert.deepEqual(
     evidence.map((item) => item.label),
-    ["Scenario Lab", "Fallback", "Best Guess"],
+    ["Scenario Lab", "Back to chat", "Best Guess"],
+  );
+  assert.deepEqual(
+    evidence.map((item) => item.emphasis),
+    ["strong", "strong", "strong"],
   );
 });
 
@@ -100,7 +153,33 @@ test("buildChatTurnEvidence surfaces product-specific grounding labels for white
 
   assert.deepEqual(
     evidence.map((item) => item.label),
-    ["Whiteboard", "Draft ready"],
+    ["Used your draft"],
+  );
+  assert.deepEqual(
+    evidence.map((item) => item.emphasis),
+    ["quiet"],
+  );
+});
+
+test("buildChatTurnEvidence leaves whiteboard offer and draft state to the dedicated whiteboard notice", () => {
+  assert.deepEqual(
+    buildChatTurnEvidence({
+      mode: "chat",
+      workspace_update: {
+        status: "offered",
+      },
+    }),
+    [],
+  );
+
+  assert.deepEqual(
+    buildChatTurnEvidence({
+      mode: "chat",
+      workspace_update: {
+        status: "draft_ready",
+      },
+    }),
+    [],
   );
 });
 
@@ -114,7 +193,7 @@ test("buildChatTurnEvidence uses product-facing labels for prior whiteboard and 
         context_sources: ["pending_whiteboard"],
       },
     }).map((item) => item.label),
-    ["Prior Whiteboard"],
+    ["From your earlier draft"],
   );
 
   assert.deepEqual(
@@ -126,7 +205,7 @@ test("buildChatTurnEvidence uses product-facing labels for prior whiteboard and 
         context_sources: ["working_memory", "recent_chat"],
       },
     }).map((item) => item.label),
-    ["Recall + Recent Chat"],
+    ["From earlier + Recent conversation"],
   );
 });
 
@@ -168,6 +247,158 @@ test("describeResponseModeLabel keeps the guided-inspection badges compact", () 
   );
 });
 
+test("describeRecallReason prefers explicit user-facing recall rationale", () => {
+  assert.equal(
+    describeRecallReason({
+      source: "concept",
+      recall_reason: "This concept matched the user's planning question",
+      reason: "concept: title=2 card=1 body=3",
+    }),
+    "This concept matched the user's planning question.",
+  );
+});
+
+test("describeRecallReason ignores machine scoring text and falls back to product copy", () => {
+  assert.equal(
+    describeRecallReason({
+      source: "artifact",
+      why_recalled: "artifact: title=2 card=1 body=0 metadata=0",
+    }),
+    "A prior work product looked relevant to this request.",
+  );
+  assert.equal(
+    describeRecallReason({
+      source: "vault_note",
+      reason: "vault_note: title=1 card=0 body=2",
+    }),
+    "A reference note looked relevant to this request.",
+  );
+});
+
+test("describeLearnedScopeLabel distinguishes temporary and durable learned items", () => {
+  assert.equal(
+    describeLearnedScopeLabel({ scope: "experiment", durability: "temporary" }),
+    "Temporary in this experiment",
+  );
+  assert.equal(
+    describeLearnedScopeLabel({ scope: "durable", durability: "durable" }),
+    "Saved in your library",
+  );
+});
+
+test("buildLearnedCorrectionModel keeps the first-pass correction loop truthful", () => {
+  const temporary = buildLearnedCorrectionModel({
+    source: "memory",
+    scope: "experiment",
+    durability: "temporary",
+    correction_affordance: { label: "Open in whiteboard" },
+  });
+  assert.equal(temporary.primaryActionLabel, "Revise in whiteboard");
+  assert.equal(temporary.keepContextLabel, "Pin for next turn");
+  assert.equal(temporary.pinnedContextLabel, "Pinned for next turn");
+  assert.equal(temporary.scopeLabel, "Temporary in this experiment");
+  assert.match(temporary.summary, /temporary in this experiment/i);
+  assert.match(temporary.modeSummaries.overview, /whiteboard/i);
+  assert.match(temporary.modeSummaries.wrong, /not direct yet/i);
+  assert.match(temporary.modeSummaries.forget, /not supported/i);
+  assert.equal(temporary.limitations.length, 2);
+
+  const durableComparison = buildLearnedCorrectionModel({
+    source: "artifact",
+    scope: "durable",
+    durability: "durable",
+    scenario_kind: "comparison",
+  });
+  assert.equal(durableComparison.primaryActionLabel, "Continue comparison in whiteboard");
+  assert.equal(durableComparison.keepContextLabel, "Pin for next turn");
+  assert.equal(durableComparison.pinnedContextLabel, "Pinned for next turn");
+  assert.equal(durableComparison.scopeLabel, "Saved in your library");
+  assert.match(durableComparison.summary, /saved in your library/i);
+  assert.match(durableComparison.modeSummaries.temporary, /not direct yet/i);
+  assert.match(durableComparison.modeSummaries.forget, /not supported/i);
+  assert.equal(durableComparison.limitations.length, 2);
+});
+
+test("buildLearnedCorrectionModel ignores misleading explicit labels for the whiteboard action", () => {
+  const corrected = buildLearnedCorrectionModel({
+    source: "concept",
+    scope: "durable",
+    durability: "durable",
+    correction_affordance: {
+      kind: "open_in_whiteboard",
+      label: "Mark wrong",
+    },
+  });
+  assert.equal(corrected.primaryActionLabel, "Revise in whiteboard");
+  assert.equal(corrected.keepContextLabel, "Pin for next turn");
+});
+
+test("describeLearnedCorrectionModeLabel keeps unsupported mutation affordances in helper language", () => {
+  assert.equal(describeLearnedCorrectionModeLabel("wrong", "Saved in your library"), "How to mark wrong");
+  assert.equal(describeLearnedCorrectionModeLabel("temporary", "Saved in your library"), "How to make temporary");
+  assert.equal(describeLearnedCorrectionModeLabel("temporary", "Temporary in this experiment"), "Already temporary");
+  assert.equal(describeLearnedCorrectionModeLabel("forget", "Saved in your library"), "How to forget");
+});
+
+test("describeScenarioRouteConfidence keeps Scenario Lab confidence qualitative and product-facing", () => {
+  assert.deepEqual(describeScenarioRouteConfidence(0.93), {
+    label: "Clear fit",
+    badge: "Clear fit",
+    summary: "The navigator saw Scenario Lab as a clear fit for this request.",
+  });
+  assert.deepEqual(describeScenarioRouteConfidence(0.78), {
+    label: "Strong fit",
+    badge: "Strong fit",
+    summary: "The navigator saw Scenario Lab as a strong fit for this request.",
+  });
+  assert.deepEqual(describeScenarioRouteConfidence(0.58), {
+    label: "Possible fit",
+    badge: "Possible fit",
+    summary: "The navigator saw Scenario Lab as a possible fit for this request.",
+  });
+  assert.deepEqual(describeScenarioRouteConfidence(0.1), {
+    label: "Tentative fit",
+    badge: "Tentative fit",
+    summary: "Scenario Lab was chosen tentatively for this request.",
+  });
+});
+
+test("describeScenarioBranchConfidence softens branch-level confidence wording", () => {
+  assert.equal(describeScenarioBranchConfidence("High"), "Stronger case");
+  assert.equal(describeScenarioBranchConfidence("Moderate"), "Balanced case");
+  assert.equal(describeScenarioBranchConfidence("Low"), "Riskier case");
+  assert.equal(describeScenarioBranchConfidence("Mixed evidence"), "Mixed evidence");
+});
+
+test("buildTurnAtAGlanceSummary keeps the first Vantage summary short and outcome-focused", () => {
+  assert.equal(
+    buildTurnAtAGlanceSummary({
+      recallCount: 2,
+      groundingLabel: "Recall + Recent Chat",
+      hasGroundedContext: true,
+      learnedCount: 1,
+    }),
+    "This answer used 2 recalled items. Learned 1 item from this turn.",
+  );
+
+  assert.equal(
+    buildTurnAtAGlanceSummary({
+      scenarioLabStatus: "ready",
+      scenarioLabBranchCount: 3,
+      learnedCount: 0,
+    }),
+    "Scenario Lab prepared 3 branches.",
+  );
+
+  assert.equal(
+    buildTurnAtAGlanceSummary({
+      scenarioLabStatus: "failed",
+      learnedCount: 1,
+    }),
+    "Scenario Lab fell back to chat. Learned 1 item from this turn.",
+  );
+});
+
 test("buildGuidedInspectionSummary keeps the Vantage header aligned with turn truth", () => {
   assert.equal(
     buildGuidedInspectionSummary({
@@ -180,7 +411,7 @@ test("buildGuidedInspectionSummary keeps the Vantage header aligned with turn tr
       libraryCount: 7,
       pinnedTitle: "Roadmap",
     }),
-    "Scenario Lab: 2 branches • Grounding: Whiteboard • Learned: 1 item • Library: 7 items • Pinned: Roadmap",
+    "Scenario Lab: 2 branches • Grounding: Whiteboard • What I learned: 1 item • Library: 7 items • Pinned: Roadmap",
   );
 });
 
@@ -192,7 +423,20 @@ test("buildGuidedInspectionSummary prefers recalled counts over generic recall l
       learnedCount: 0,
       libraryCount: 4,
     }),
-    "Recall: 3 items • Learned: nothing new yet • Library: 4 items",
+    "Recall: 3 items • What I learned: nothing new yet • Library: 4 items",
+  );
+});
+
+test("buildGuidedInspectionSummary can omit the hidden Library surface", () => {
+  assert.equal(
+    buildGuidedInspectionSummary({
+      responseMode: { kind: "grounded", groundingMode: "working_memory", label: "Recall" },
+      recallCount: 3,
+      learnedCount: 0,
+      libraryCount: 4,
+      includeLibrary: false,
+    }),
+    "Recall: 3 items • What I learned: nothing new yet",
   );
 });
 
@@ -204,7 +448,7 @@ test("buildGuidedInspectionSummary keeps broader grounded context separate from 
       learnedCount: 0,
       libraryCount: 2,
     }),
-    "Grounding: Recent Chat • Learned: nothing new yet • Library: 2 items",
+    "Grounding: Recent Chat • What I learned: nothing new yet • Library: 2 items",
   );
 });
 
@@ -221,7 +465,7 @@ test("buildGuidedInspectionSummary uses product-facing labels for prior whiteboa
       learnedCount: 0,
       libraryCount: 3,
     }),
-    "Grounding: Prior Whiteboard • Learned: nothing new yet • Library: 3 items",
+    "Grounding: Prior Whiteboard • What I learned: nothing new yet • Library: 3 items",
   );
 });
 
@@ -238,7 +482,7 @@ test("buildGuidedInspectionSummary preserves broader grounding when working memo
       learnedCount: 0,
       libraryCount: 5,
     }),
-    "Recall: 2 items • Grounding: Recall + Recent Chat • Learned: nothing new yet • Library: 5 items",
+    "Recall: 2 items • Grounding: Recall + Recent Chat • What I learned: nothing new yet • Library: 5 items",
   );
 });
 
@@ -250,7 +494,7 @@ test("buildGuidedInspectionSummary surfaces best-guess grounding explicitly", ()
       learnedCount: 0,
       libraryCount: 2,
     }),
-    "Grounding: Best Guess • Learned: nothing new yet • Library: 2 items",
+    "Grounding: Best Guess • What I learned: nothing new yet • Library: 2 items",
   );
 });
 
@@ -378,13 +622,13 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
     assert.equal(inspection.groundingLabel, testCase.expectedGrounding, testCase.name);
     assert.equal(inspection.stages[0].label, "Request", testCase.name);
     assert.equal(inspection.stages[1].label, "Route", testCase.name);
-    assert.equal(inspection.stages[2].label, "Candidate context", testCase.name);
-    assert.equal(inspection.stages[2].text, "3 candidate items were considered before vetting (1 concept, 1 memory, 1 reference note).", testCase.name);
+    assert.equal(inspection.stages[2].label, "Considered context", testCase.name);
+    assert.equal(inspection.stages[2].text, "3 supporting items were considered before Recall was narrowed (1 idea, 1 note, 1 reference).", testCase.name);
     assert.equal(inspection.stages[2].detail.groups.length, 4, testCase.name);
     assert.equal(inspection.stages[2].detail.groups[0].items.length, 1, testCase.name);
     assert.equal(inspection.stages[2].detail.groups[2].items.length, 0, testCase.name);
     assert.equal(inspection.stages[3].label, "Recall", testCase.name);
-    assert.equal(inspection.stages[3].text, "2 recalled items were selected into Recall.", testCase.name);
+    assert.equal(inspection.stages[3].text, "2 recalled items entered Recall.", testCase.name);
     assert.equal(inspection.stages[3].detail.groups[0].items.length, 2, testCase.name);
     assert.equal(inspection.stages[4].label, "Working Memory", testCase.name);
     assert.equal(inspection.stages[4].text, testCase.expectedWorkingMemory, testCase.name);
@@ -403,8 +647,8 @@ test("buildReasoningPathInspection surfaces continuity, working-memory scope, an
       requestedWhiteboardMode: "auto",
       resolvedWhiteboardMode: "offer",
       whiteboardModeSource: "interpreter",
-      preserveSelectedRecord: true,
-      selectedRecordReason: "Keep the draft email in continuity.",
+      preservePinnedContext: true,
+      pinnedContextReason: "Keep the draft email in continuity.",
     },
     responseMode: {
       kind: "grounded",
@@ -426,14 +670,19 @@ test("buildReasoningPathInspection surfaces continuity, working-memory scope, an
   assert.match(inspection.stages[1].text, /existing draft should stay in scope/i);
   assert.deepEqual(
     inspection.stages[1].meta.map((item) => item.label),
-    ["Path", "Whiteboard", "Requested", "Decision Source", "Continuity", "Confidence"],
+    ["Path", "Whiteboard", "Requested", "Chose this from", "Kept in scope", "Route confidence"],
   );
-  assert.equal(inspection.stages[2].label, "Candidate context");
-  assert.match(inspection.stages[2].text, /3 candidate items were considered before vetting/);
+  assert.equal(inspection.stages[2].label, "Considered context");
+  assert.match(inspection.stages[2].text, /3 supporting items were considered before Recall was narrowed/);
+  assert.match(inspection.stages[2].text, /1 idea, 1 note, 1 reference/);
   assert.equal(inspection.stages[2].detail.groups.length, 4);
   assert.equal(inspection.stages[2].detail.groups[0].items.length, 1);
+  assert.equal(inspection.stages[2].detail.groups[0].label, "Ideas considered");
+  assert.equal(inspection.stages[2].detail.groups[1].label, "Notes considered");
+  assert.equal(inspection.stages[2].detail.groups[2].label, "Memory Trace considered");
+  assert.equal(inspection.stages[2].detail.groups[3].label, "References considered");
   assert.equal(inspection.stages[3].label, "Recall");
-  assert.match(inspection.stages[3].text, /1 recalled item was selected into Recall\./);
+  assert.match(inspection.stages[3].text, /1 recalled item entered Recall\./);
   assert.equal(inspection.stages[3].detail.groups[0].items.length, 1);
   assert.equal(inspection.stages[4].label, "Working Memory");
   assert.match(inspection.stages[4].text, /In scope for generation: Recall \+ Whiteboard\./);
@@ -444,7 +693,7 @@ test("buildReasoningPathInspection surfaces continuity, working-memory scope, an
       ["Recall", "1 item"],
       ["Whiteboard", "Included"],
       ["Recent chat", "Excluded"],
-      ["Selected context preserved", "Included"],
+      ["Kept in scope", "Included"],
       ["Memory Trace contribution", "None"],
     ],
   );
@@ -455,7 +704,7 @@ test("buildReasoningPathInspection surfaces continuity, working-memory scope, an
       ["Recall", "Included"],
       ["Whiteboard", "Included"],
       ["Recent chat", "Excluded"],
-      ["Selected context preserved", "Included"],
+      ["Kept in scope", "Included"],
       ["Memory Trace contribution", "Excluded"],
     ],
   );
@@ -463,7 +712,7 @@ test("buildReasoningPathInspection surfaces continuity, working-memory scope, an
   assert.equal(inspection.stages[5].label, "Outcome");
   assert.match(inspection.stages[5].text, /A Memory Trace record was captured/i);
   assert.equal(inspection.stages[5].detail.groups.length, 2);
-  assert.match(inspection.summary, /3 candidate items were considered before vetting/);
+  assert.match(inspection.summary, /3 supporting items were considered before Recall was narrowed/);
   assert.match(inspection.summary, /1 recalled item entered Working Memory\./);
 });
 
@@ -493,11 +742,14 @@ test("buildReasoningPathInspection includes memory-trace candidates in candidate
 
   assert.equal(
     inspection.stages[2].text,
-    "4 candidate items were considered before vetting (1 concept, 1 memory, 1 memory trace item, 1 reference note).",
+    "4 supporting items were considered before Recall was narrowed (1 idea, 1 note, 1 memory trace item, 1 reference).",
   );
-  assert.equal(inspection.stages[2].detail.groups[2].label, "Memory Trace candidates");
+  assert.equal(inspection.stages[2].detail.groups[0].label, "Ideas considered");
+  assert.equal(inspection.stages[2].detail.groups[1].label, "Notes considered");
+  assert.equal(inspection.stages[2].detail.groups[2].label, "Memory Trace considered");
+  assert.equal(inspection.stages[2].detail.groups[3].label, "References considered");
   assert.equal(inspection.stages[2].detail.groups[2].items.length, 1);
-  assert.equal(inspection.stages[2].detail.groups[2].items[0].reasoningStatusLabel, "selected into recall");
+  assert.equal(inspection.stages[2].detail.groups[2].items[0].reasoningStatusLabel, "used for recall");
   assert.deepEqual(
     inspection.stages[4].detail.notes.map((item) => [item.label, item.value]),
     [

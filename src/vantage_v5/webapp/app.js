@@ -4,20 +4,28 @@ import {
   isWhiteboardFocused,
   shouldHideChatWorkspaceUpdate,
   workspaceUpdateHasDraft,
-} from "./whiteboard_decisions.mjs?v=20260416-wave1-semantics";
+} from "./whiteboard_decisions.mjs?v=20260421-scenario-fix";
 import {
   buildMemoryTraceSummary,
   buildChatTurnEvidence,
   buildGuidedInspectionSummary,
+  buildLearnedCorrectionModel,
   buildReasoningPathInspection,
+  buildTurnAtAGlanceSummary,
+  describeScenarioBranchConfidence,
+  describeScenarioRouteConfidence,
+  describeLearnedCorrectionModeLabel,
+  describeLearnedScopeLabel,
+  describeRecallReason,
   describeResponseModeLabel,
   deriveTurnGrounding,
   deriveWhiteboardLifecycle,
-} from "./product_identity.mjs?v=20260419-working-memory-scope";
+} from "./product_identity.mjs?v=20260423-simple-composer-pass01";
 import {
   buildWorkspaceContextPayload,
+  resolveWhiteboardReopenTarget,
   shouldCarryPendingWorkspaceUpdate,
-} from "./chat_request.mjs?v=20260419-reasoning-path";
+} from "./chat_request.mjs?v=20260421-deictic-reopen-fix";
 import {
   buildScopedTurnSnapshotKey,
   buildTurnSnapshotKey,
@@ -25,26 +33,33 @@ import {
   hasWhiteboardActiveContext,
   hideWhiteboardSurface,
   normalizeSurfaceState,
+  normalizeRestoredTurnSnapshotState,
   openVantageSurface,
   revealWhiteboardSurface,
   toggleWhiteboardSurface,
-} from "./surface_state.mjs?v=20260419-reasoning-path";
+} from "./surface_state.mjs?v=20260421-scenario-fix";
 import {
   buildWorkspaceSnapshot,
+  reconcileRestoredWorkspaceAfterLoad,
   shouldPreserveUnsavedWorkspace,
-} from "./workspace_state.mjs?v=20260419-reasoning-path";
+} from "./workspace_state.mjs?v=20260421-scenario-fix";
 import {
   buildTurnPanelGroundingCopy,
-} from "./turn_panel_grounding.mjs?v=20260419-reasoning-path";
+} from "./turn_panel_grounding.mjs?v=20260421-scenario-fix";
 import {
   normalizeLearnedItems,
+  normalizeComparisonBranchIndex,
   normalizeRecordId,
   normalizeResponseMode,
   normalizeScenarioLabPayload,
   normalizeTurnPayload,
   normalizeTurnInterpretation,
   normalizeWorkspaceUpdate,
-} from "./turn_payloads.mjs?v=20260419-reasoning-path";
+} from "./turn_payloads.mjs?v=20260421-scenario-fix";
+import {
+  deriveWhiteboardPreviewState,
+  renderRichText,
+} from "./math_render.mjs?v=20260421-calm-state-pass";
 
 const shellEl = document.getElementById("shell");
 const transcriptEl = document.getElementById("transcript");
@@ -54,8 +69,7 @@ const chatSurfaceTitleEl = document.getElementById("chatSurfaceTitle");
 const chatSurfaceSubtitleEl = document.getElementById("chatSurfaceSubtitle");
 const sendButtonEl = document.getElementById("sendButton");
 const seedPromptEl = document.getElementById("seedPrompt");
-const startExperimentButtonEl = document.getElementById("startExperimentButton");
-const endExperimentButtonEl = document.getElementById("endExperimentButton");
+const experimentToggleButtonEl = document.getElementById("experimentToggleButton");
 const experimentBadgeEl = document.getElementById("experimentBadge");
 const whiteboardToggleButtonEl = document.getElementById("whiteboardToggleButton");
 const vantageToggleButtonEl = document.getElementById("vantageToggleButton");
@@ -67,6 +81,7 @@ const workspaceDockEl = document.getElementById("workspaceDock");
 const answerDockEl = document.getElementById("answerDock");
 const scenarioDockEl = document.getElementById("scenarioDock");
 const memoryDockEl = document.getElementById("memoryDock");
+const SHOW_LIBRARY_DOCK = false;
 const workspaceDockLabelEl = document.getElementById("workspaceDockLabel");
 const answerDockLabelEl = document.getElementById("answerDockLabel");
 const scenarioDockLabelEl = document.getElementById("scenarioDockLabel");
@@ -74,6 +89,11 @@ const memoryDockLabelEl = document.getElementById("memoryDockLabel");
 const workspaceEditorEl = document.getElementById("workspaceEditor");
 const workspaceTitleEl = document.getElementById("workspaceTitle");
 const workspaceMetaEl = document.getElementById("workspaceMeta");
+const workspacePreviewSectionEl = document.getElementById("workspacePreviewSection");
+const workspacePreviewEl = document.getElementById("workspacePreview");
+const workspaceArtifactPanelEl = document.getElementById("workspaceArtifactPanel");
+const workspaceArtifactSummaryEl = document.getElementById("workspaceArtifactSummary");
+const workspaceArtifactActionsEl = document.getElementById("workspaceArtifactActions");
 const whiteboardDecisionPanelEl = document.getElementById("whiteboardDecisionPanel");
 const whiteboardDecisionLabelEl = document.getElementById("whiteboardDecisionLabel");
 const whiteboardDecisionSummaryEl = document.getElementById("whiteboardDecisionSummary");
@@ -85,13 +105,16 @@ const statusPillEl = document.getElementById("statusPill");
 const turnTitleEl = document.getElementById("turnTitle");
 const turnMetaEl = document.getElementById("turnMeta");
 const turnIntentEl = document.getElementById("turnIntent");
-const turnActionsEl = document.getElementById("turnActions");
 const turnReasoningPathSectionEl = document.getElementById("turnReasoningPathSection");
 const turnReasoningPathSummaryEl = document.getElementById("turnReasoningPathSummary");
+const turnReasoningPathStateEl = document.getElementById("turnReasoningPathState");
 const turnReasoningPathMetaEl = document.getElementById("turnReasoningPathMeta");
 const turnReasoningPathRailEl = document.getElementById("turnReasoningPathRail");
-const turnReasoningPathDetailEl = document.getElementById("turnReasoningPathDetail");
 const turnNoticeEl = document.getElementById("turnNotice");
+const turnSummaryFactsEl = document.getElementById("turnSummaryFacts");
+const turnWorkingMemorySummaryMetaEl = document.getElementById("turnWorkingMemorySummaryMeta");
+const turnWorkingMemoryNoticeEl = document.getElementById("turnWorkingMemoryNotice");
+const turnWorkingMemoryFactsEl = document.getElementById("turnWorkingMemoryFacts");
 const turnTraceNoticeEl = document.getElementById("turnTraceNotice");
 const workspaceUpdatePanelEl = document.getElementById("workspaceUpdatePanel");
 const workspaceUpdateLabelEl = document.getElementById("workspaceUpdateLabel");
@@ -101,9 +124,16 @@ const scenarioLabSectionEl = document.getElementById("scenarioLabSection");
 const turnWorkingMemoryListEl = document.getElementById("turnWorkingMemoryList");
 const turnTraceListEl = document.getElementById("turnTraceList");
 const turnLearnedListEl = document.getElementById("turnLearnedList");
-const rememberButtonEl = document.getElementById("rememberButton");
-const dontSaveButtonEl = document.getElementById("dontSaveButton");
-const showRelatedButtonEl = document.getElementById("showRelatedButton");
+const turnRecallSectionEl = document.getElementById("turnRecallSection");
+const turnRecallSummaryMetaEl = document.getElementById("turnRecallSummaryMeta");
+const turnTraceSectionEl = document.getElementById("turnTraceSection");
+const turnTraceSummaryMetaEl = document.getElementById("turnTraceSummaryMeta");
+const turnLearnedSectionEl = document.getElementById("turnLearnedSection");
+const turnLearnedSummaryMetaEl = document.getElementById("turnLearnedSummaryMeta");
+const turnLearnedCorrectionPanelEl = document.getElementById("turnLearnedCorrectionPanel");
+const turnLearnedCorrectionMetaEl = document.getElementById("turnLearnedCorrectionMeta");
+const turnLearnedCorrectionSummaryEl = document.getElementById("turnLearnedCorrectionSummary");
+const turnLearnedCorrectionActionsEl = document.getElementById("turnLearnedCorrectionActions");
 const memorySearchEl = document.getElementById("memorySearch");
 const clearSearchButtonEl = document.getElementById("clearSearchButton");
 const refreshConceptsButtonEl = document.getElementById("refreshConceptsButton");
@@ -134,6 +164,14 @@ const TURN_SNAPSHOT_VERSION = 7;
 const COMPOSER_WHITEBOARD_MODES = new Set(["auto", "offer"]);
 
 let hasLoadedHealth = false;
+
+function createEmptyLearnedCorrectionState() {
+  return {
+    itemId: "",
+    source: "",
+    mode: "overview",
+  };
+}
 
 const state = {
   busy: false,
@@ -169,7 +207,9 @@ const state = {
   turnTraceNotes: [],
   turnMemoryTraceRecord: null,
   turnLearned: [],
-  turnReasoningPathStageKey: "candidate-context",
+  learnedCorrection: createEmptyLearnedCorrectionState(),
+  turnReasoningPathStageKey: "",
+  turnReasoningPathExpanded: false,
   candidateConcepts: [],
   candidateSavedNotes: [],
   candidateTraceNotes: [],
@@ -179,8 +219,9 @@ const state = {
   selectedVaultNoteId: "",
   selectionOrigin: "bootstrap",
   memoryQuery: "",
-  notices: [],
+  notice: null,
   noticeCounter: 0,
+  noticeTimeoutId: null,
   workspace: {
     workspaceId: "",
     scope: "durable",
@@ -191,6 +232,11 @@ const state = {
     pinnedToChat: false,
     lifecycle: "ready",
     note: "Whiteboard ready as a separate drafting surface.",
+    latestArtifact: null,
+  },
+  bootRestore: {
+    pending: false,
+    scopeScopedFallback: false,
   },
   pendingWhiteboardDecision: null,
   turn: {
@@ -210,10 +256,10 @@ const state = {
     workspaceContextScope: "excluded",
     workspaceUpdate: null,
     vetting: null,
+    metaAction: null,
     graphAction: null,
     scenarioLab: null,
     interpretation: null,
-    memoryIntent: "idle",
   },
 };
 
@@ -237,8 +283,8 @@ function createIdleTurnState() {
     vetting: null,
     graphAction: null,
     scenarioLab: null,
+    scenarioBranchInspectionWorkspaceId: "",
     interpretation: null,
-    memoryIntent: "idle",
   };
 }
 
@@ -253,7 +299,9 @@ function resetTransientExperimentUiState() {
   state.turnTraceNotes = [];
   state.turnMemoryTraceRecord = null;
   state.turnLearned = [];
-  state.turnReasoningPathStageKey = "candidate-context";
+  state.learnedCorrection = createEmptyLearnedCorrectionState();
+  state.turnReasoningPathStageKey = "";
+  state.turnReasoningPathExpanded = false;
   state.candidateConcepts = [];
   state.candidateSavedNotes = [];
   state.candidateTraceNotes = [];
@@ -263,7 +311,12 @@ function resetTransientExperimentUiState() {
   state.selectedVaultNoteId = "";
   state.selectionOrigin = "bootstrap";
   state.pendingWhiteboardDecision = null;
+  state.bootRestore = {
+    pending: false,
+    scopeScopedFallback: false,
+  };
   state.workspace.lifecycle = "ready";
+  state.workspace.latestArtifact = null;
   state.turn = createIdleTurnState();
 }
 
@@ -315,7 +368,9 @@ function persistTurnSnapshot() {
         turnTraceNotes: state.turnTraceNotes,
         turnMemoryTraceRecord: state.turnMemoryTraceRecord,
         turnLearned: state.turnLearned,
+        learnedCorrection: state.learnedCorrection,
         turnReasoningPathStageKey: state.turnReasoningPathStageKey,
+        turnReasoningPathExpanded: state.turnReasoningPathExpanded,
         candidateConcepts: state.candidateConcepts,
         candidateSavedNotes: state.candidateSavedNotes,
         candidateTraceNotes: state.candidateTraceNotes,
@@ -344,7 +399,9 @@ function persistTurnSnapshot() {
         turnTraceNotes: state.turnTraceNotes,
         turnMemoryTraceRecord: state.turnMemoryTraceRecord,
         turnLearned: state.turnLearned,
+        learnedCorrection: state.learnedCorrection,
         turnReasoningPathStageKey: state.turnReasoningPathStageKey,
+        turnReasoningPathExpanded: state.turnReasoningPathExpanded,
         candidateConcepts: state.candidateConcepts,
         candidateSavedNotes: state.candidateSavedNotes,
         candidateTraceNotes: state.candidateTraceNotes,
@@ -383,7 +440,10 @@ function restoreTurnSnapshot() {
     ) {
       return;
     }
-    state.surface = normalizeSurfaceState(snapshot.surface || snapshot.view || {});
+    const restoredTurnState = normalizeRestoredTurnSnapshotState(snapshot, {
+      scopeScopedFallback: restoredFromScopeScopedKey,
+    });
+    state.surface = restoredTurnState.surface;
     if (snapshot.workspace && typeof snapshot.workspace === "object") {
       state.workspace = {
         ...state.workspace,
@@ -408,16 +468,20 @@ function restoreTurnSnapshot() {
       assistantMessage: snapshot.turn?.assistantMessage || "",
       mode: snapshot.turn?.mode || "idle",
       responseMode: normalizeResponseMode(snapshot.turn?.responseMode, Array.isArray(snapshot.turnWorkingMemory) ? snapshot.turnWorkingMemory.length : 0),
+      workspaceContextScope: restoredTurnState.workspaceContextScope,
       workspaceUpdate: restoredWorkspaceUpdate,
       vetting: snapshot.turn?.vetting || null,
+      metaAction: snapshot.turn?.metaAction || null,
       graphAction: snapshot.turn?.graphAction || null,
       scenarioLab: snapshot.turn?.scenarioLab || null,
+      scenarioBranchInspectionWorkspaceId: restoredFromScopeScopedKey
+        ? ""
+        : snapshot.turn?.scenarioBranchInspectionWorkspaceId || "",
       interpretation: normalizeTurnInterpretation(snapshot.turn?.interpretation || null),
-      memoryIntent: snapshot.turn?.memoryIntent || "idle",
     };
-    state.selectedConceptId = snapshot.selectedConceptId || "";
-    state.selectedVaultNoteId = snapshot.selectedVaultNoteId || "";
-    state.selectionOrigin = snapshot.selectionOrigin || "bootstrap";
+    state.selectedConceptId = restoredTurnState.selectedConceptId;
+    state.selectedVaultNoteId = restoredTurnState.selectedVaultNoteId;
+    state.selectionOrigin = restoredTurnState.selectionOrigin;
     state.turnConcepts = Array.isArray(snapshot.turnConcepts) ? snapshot.turnConcepts : [];
     state.turnSavedNotes = Array.isArray(snapshot.turnSavedNotes) ? snapshot.turnSavedNotes : [];
     state.turnVaultNotes = Array.isArray(snapshot.turnVaultNotes) ? snapshot.turnVaultNotes : [];
@@ -427,24 +491,34 @@ function restoreTurnSnapshot() {
       ? snapshot.turnMemoryTraceRecord
       : null;
     state.turnLearned = Array.isArray(snapshot.turnLearned) ? snapshot.turnLearned : [];
-    state.turnReasoningPathStageKey = snapshot.turnReasoningPathStageKey || "candidate-context";
+    state.learnedCorrection = restoredFromScopeScopedKey
+      ? createEmptyLearnedCorrectionState()
+      : (snapshot.learnedCorrection && typeof snapshot.learnedCorrection === "object"
+          ? {
+            itemId: String(snapshot.learnedCorrection.itemId || "").trim(),
+            source: String(snapshot.learnedCorrection.source || "").trim(),
+            mode: String(snapshot.learnedCorrection.mode || "overview").trim() || "overview",
+          }
+          : createEmptyLearnedCorrectionState());
+    state.turnReasoningPathStageKey = snapshot.turnReasoningPathStageKey || "";
+    state.turnReasoningPathExpanded = snapshot.turnReasoningPathExpanded === true;
     state.candidateConcepts = Array.isArray(snapshot.candidateConcepts) ? snapshot.candidateConcepts : [];
     state.candidateSavedNotes = Array.isArray(snapshot.candidateSavedNotes) ? snapshot.candidateSavedNotes : [];
     state.candidateTraceNotes = Array.isArray(snapshot.candidateTraceNotes) ? snapshot.candidateTraceNotes : [];
     state.candidateVaultNotes = Array.isArray(snapshot.candidateVaultNotes) ? snapshot.candidateVaultNotes : [];
-    state.pinnedContext = snapshot.pinnedContext && typeof snapshot.pinnedContext === "object"
-      ? {
-          id: snapshot.pinnedContext.id || "",
-          kind: snapshot.pinnedContext.kind || "concept",
-        }
-      : null;
+    state.pinnedContext = restoredTurnState.pinnedContext;
     state.catalogConcepts = mergeConceptCollections(state.catalogConcepts, state.turnConcepts);
     state.catalogConcepts = mergeConceptCollections(state.catalogConcepts, state.candidateConcepts);
     state.catalogSavedNotes = mergeMemoryCollections(state.catalogSavedNotes, state.turnSavedNotes);
     state.catalogSavedNotes = mergeMemoryCollections(state.catalogSavedNotes, state.candidateSavedNotes);
     state.catalogVaultNotes = mergeMemoryCollections(state.catalogVaultNotes, state.turnVaultNotes);
     state.catalogVaultNotes = mergeMemoryCollections(state.catalogVaultNotes, state.candidateVaultNotes);
+    syncLearnedCorrectionState({ persist: false });
     rebuildConceptCatalog();
+    state.bootRestore = {
+      pending: true,
+      scopeScopedFallback: restoredFromScopeScopedKey,
+    };
   } catch {
     // Ignore invalid snapshots and let the current session rebuild the turn state.
   }
@@ -473,12 +547,38 @@ closeVantageButtonEl.addEventListener("click", () => {
   closeVantage();
 });
 
-startExperimentButtonEl.addEventListener("click", async () => {
-  await startExperiment();
-});
+if (turnReasoningPathSectionEl) {
+  turnReasoningPathSectionEl.addEventListener("toggle", () => {
+    const expanded = turnReasoningPathSectionEl.open === true;
+    if (state.turnReasoningPathExpanded === expanded) {
+      return;
+    }
+    state.turnReasoningPathExpanded = expanded;
+    persistTurnSnapshot();
+    renderTurnPanel();
+  });
+}
 
-endExperimentButtonEl.addEventListener("click", async () => {
-  await endExperiment();
+if (turnLearnedCorrectionPanelEl && turnLearnedCorrectionMetaEl) {
+  turnLearnedCorrectionPanelEl.addEventListener("toggle", () => {
+    if (turnLearnedCorrectionPanelEl.hidden) {
+      turnLearnedCorrectionMetaEl.textContent = "Collapsed";
+      return;
+    }
+    const activeMode = String(state.learnedCorrection?.mode || "overview").trim() || "overview";
+    turnLearnedCorrectionMetaEl.textContent = turnLearnedCorrectionPanelEl.open
+      ? (describeLearnedCorrectionModeLabel(activeMode, describeLearnedScopeLabel(getLearnedCorrectionItem()))
+          || "Expanded")
+      : "Collapsed";
+  });
+}
+
+experimentToggleButtonEl.addEventListener("click", async () => {
+  if (state.experiment.active) {
+    await endExperiment();
+    return;
+  }
+  await startExperiment();
 });
 
 composerEl.addEventListener("submit", async (event) => {
@@ -506,37 +606,6 @@ promoteWorkspaceButtonEl.addEventListener("click", async () => {
 
 hideWhiteboardButtonEl.addEventListener("click", () => {
   hideWhiteboard();
-});
-
-rememberButtonEl.addEventListener("click", () => {
-  state.turn.memoryIntent = "remember";
-  renderTurnPanel();
-  pushNotice("Next-turn memory set", "The next turn will be marked to remember.", "success");
-});
-
-dontSaveButtonEl.addEventListener("click", () => {
-  state.turn.memoryIntent = "skip";
-  renderTurnPanel();
-  pushNotice("Next-turn memory set", "The next turn will be marked not to save.", "warning");
-});
-
-showRelatedButtonEl.addEventListener("click", () => {
-  const selectedMemory = getSelectedMemoryItem();
-  const seed = state.turn.userMessage || state.turn.assistantMessage || selectedMemory?.title || state.workspace.title;
-  memorySearchEl.value = seed;
-  state.memoryQuery = seed;
-  renderMemoryPanel();
-  const visible = getVisibleMemoryItems(seed);
-  if (visible.concepts.length) {
-    selectConcept(visible.concepts[0].id, { silent: true, source: "user" });
-  } else if (visible.savedNotes.length) {
-    selectConcept(visible.savedNotes[0].id, { silent: true, source: "user" });
-  } else if (visible.vaultNotes.length) {
-    selectVaultNote(visible.vaultNotes[0].id, { silent: true, source: "user" });
-  }
-  pushNotice("Related notes opened", "The library is filtered now so you can inspect related notes immediately.", "info");
-  openVantage({ focus: "library" });
-  memoryDockEl.open = true;
 });
 
 pinSelectedContextButtonEl.addEventListener("click", () => {
@@ -575,7 +644,37 @@ window.addEventListener("focus", () => {
   }
 });
 
-boot();
+window.addEventListener("error", (event) => {
+  const message = event?.error?.message || event?.message || "Unexpected startup error.";
+  statusPillEl.textContent = "Error";
+  pushNotice("UI error", message, "warning");
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event?.reason;
+  const message = reason instanceof Error ? reason.message : String(reason || "Unexpected startup error.");
+  statusPillEl.textContent = "Error";
+  pushNotice("UI error", message, "warning");
+});
+
+void boot().catch((error) => {
+  const message = error instanceof Error ? error.message : String(error || "Unexpected startup error.");
+  statusPillEl.textContent = "Error";
+  pushNotice("UI error", message, "warning");
+  addMessage("system", `UI startup failed: ${message}`);
+});
+
+function buildDefaultSystemMessage() {
+  const experimentLine = state.experiment.active
+    ? "You're currently in experiment mode, so temporary notes stay in this session."
+    : "You're currently in durable mode, so saved memories and work products can stay in your library.";
+  return [
+    "Hi, I'm Vantage.",
+    "I help manage context so our work stays inspectable and reusable. Chat with me naturally, open Vantage when you want to see what shaped an answer, move drafts into the whiteboard, save or publish useful work products, and ask me to use Scenario Lab when you want to compare branches or explore tradeoffs.",
+    experimentLine,
+    "Let me know if you have any questions about how the system works. Otherwise, let's get going.",
+  ].join("\n\n");
+}
 
 async function boot() {
   await loadHealth();
@@ -585,7 +684,7 @@ async function boot() {
   renderComposerMode();
   renderViewState();
   if (!transcriptEl.children.length) {
-    addMessage("system", "Ready. Chat naturally. Open Vantage when you want guided inspection, and bring up the whiteboard when you want a shared draft.");
+    addMessage("system", buildDefaultSystemMessage());
   }
   renderWorkspaceMeta();
   renderTurnPanel();
@@ -622,7 +721,37 @@ async function loadHealth() {
 }
 
 async function loadWorkspace({ preserveDirty = false } = {}) {
+  const bootRestore = state.bootRestore.pending
+    ? { ...state.bootRestore }
+    : null;
+  state.bootRestore.pending = false;
+
   if (preserveDirty && state.workspace.dirty) {
+    if (bootRestore) {
+      const reconciliation = reconcileRestoredWorkspaceAfterLoad({
+        currentWorkspace: state.workspace,
+        incomingWorkspace: state.workspace,
+        preserveDirty: true,
+        scopeScopedFallback: bootRestore.scopeScopedFallback,
+        surface: state.surface,
+        selectedConceptId: state.selectedConceptId,
+        selectedVaultNoteId: state.selectedVaultNoteId,
+        selectionOrigin: state.selectionOrigin,
+      });
+      state.surface = reconciliation.surface;
+      state.selectedConceptId = reconciliation.selectedConceptId;
+      state.selectedVaultNoteId = reconciliation.selectedVaultNoteId;
+      state.selectionOrigin = reconciliation.selectionOrigin;
+      state.bootRestore = {
+        pending: false,
+        scopeScopedFallback: false,
+      };
+      state.workspace.note = "Kept the unsaved whiteboard draft in place.";
+      persistTurnSnapshot();
+      renderWorkspaceMeta();
+      renderViewState();
+      return;
+    }
     state.workspace.note = "Kept the unsaved whiteboard draft in place.";
     persistTurnSnapshot();
     renderWorkspaceMeta();
@@ -630,7 +759,25 @@ async function loadWorkspace({ preserveDirty = false } = {}) {
   }
   try {
     const { payload } = await fetchJson("/api/workspace");
+    const reconciliation = bootRestore
+      ? reconcileRestoredWorkspaceAfterLoad({
+          currentWorkspace: state.workspace,
+          incomingWorkspace: payload || {},
+          preserveDirty,
+          scopeScopedFallback: bootRestore.scopeScopedFallback,
+          surface: state.surface,
+          selectedConceptId: state.selectedConceptId,
+          selectedVaultNoteId: state.selectedVaultNoteId,
+          selectionOrigin: state.selectionOrigin,
+        })
+      : null;
     const applied = applyWorkspacePayload(payload || {}, { preserveDirty });
+    if (reconciliation) {
+      state.surface = reconciliation.surface;
+      state.selectedConceptId = reconciliation.selectedConceptId;
+      state.selectedVaultNoteId = reconciliation.selectedVaultNoteId;
+      state.selectionOrigin = reconciliation.selectionOrigin;
+    }
     state.workspace.note = applied
       ? payload?.scope === "experiment"
         ? "Temporary experiment whiteboard loaded."
@@ -641,8 +788,18 @@ async function loadWorkspace({ preserveDirty = false } = {}) {
     state.workspace.note = error instanceof Error ? error.message : "Whiteboard unavailable.";
     workspaceMetaEl.textContent = state.workspace.note;
     pushNotice("Whiteboard unavailable", state.workspace.note, "warning");
+  } finally {
+    if (bootRestore) {
+      state.bootRestore = {
+        pending: false,
+        scopeScopedFallback: false,
+      };
+    }
   }
   renderWorkspaceMeta();
+  if (bootRestore) {
+    renderViewState();
+  }
 }
 
 async function refreshRuntimeStatus({ refreshCatalog = true, preserveDirtyWorkspace = false } = {}) {
@@ -695,6 +852,13 @@ async function endExperiment() {
     pushNotice("No experiment active", "You are already in durable mode.", "info");
     return;
   }
+  const confirmed = window.confirm(
+    "End experiment mode and return to durable mode? Temporary notes from this experiment will be discarded. Saved or published durable work products will remain available.",
+  );
+  if (!confirmed) {
+    pushNotice("Experiment kept", "Experiment mode is still active.", "info");
+    return;
+  }
   const canProceed = await confirmExperimentTransition("end the experiment");
   if (!canProceed) {
     return;
@@ -719,18 +883,14 @@ function renderExperimentStatus({ nexusEnabled } = { nexusEnabled: false }) {
   if (state.mode === "offline") {
     statusPillEl.textContent = "Offline";
   } else if (state.experiment.active) {
-    statusPillEl.textContent = nexusEnabled
-      ? state.mode === "openai" ? "OpenAI + Lab + Library" : "Fallback + Lab + Library"
-      : state.mode === "openai" ? "OpenAI + Lab" : "Fallback + Lab";
-    experimentBadgeEl.textContent = `Experiment mode. Temporary notes stay only in this session${state.experiment.savedNoteCount ? ` • ${state.experiment.savedNoteCount} temporary notes` : ""}.`;
+    statusPillEl.textContent = "Experiment mode";
+    experimentBadgeEl.textContent = `Experiment mode. Temporary notes stay in this session${state.experiment.savedNoteCount ? ` • ${state.experiment.savedNoteCount} temporary notes` : ""}.`;
   } else {
-    statusPillEl.textContent = nexusEnabled
-      ? state.mode === "openai" ? "OpenAI + Library" : "Fallback + Library"
-      : state.mode === "openai" ? "OpenAI" : "Fallback";
-    experimentBadgeEl.textContent = "Durable mode. Notes persist unless you start an experiment.";
+    statusPillEl.textContent = state.mode === "offline" ? "Offline" : "Connected";
+    experimentBadgeEl.textContent = "Durable by default. Use an experiment for temporary notes.";
   }
-  startExperimentButtonEl.disabled = state.busy || state.experiment.active;
-  endExperimentButtonEl.disabled = state.busy || !state.experiment.active;
+  experimentToggleButtonEl.disabled = state.busy;
+  experimentToggleButtonEl.textContent = state.experiment.active ? "End experiment" : "Start experiment";
 }
 
 function openVantage({ focus = "turn" } = {}) {
@@ -814,18 +974,39 @@ function renderSurfaceStatus() {
     vantageSummaryEl.textContent = buildVantageSummary();
   }
   renderChatSurfaceCopy();
+  renderWorkspacePreview();
+}
+
+function renderWorkspacePreview() {
+  if (!workspacePreviewSectionEl || !workspacePreviewEl) {
+    return;
+  }
+  const content = String(state.workspace.content || "");
+  const previewState = deriveWhiteboardPreviewState(content);
+  if (!previewState.visible) {
+    workspacePreviewSectionEl.hidden = true;
+    workspacePreviewEl.innerHTML = "";
+    return;
+  }
+  workspacePreviewSectionEl.hidden = false;
+  renderRichText(workspacePreviewEl, content, {
+    emptyText: "A rendered preview will appear here when the draft includes math or code.",
+  });
+  workspacePreviewSectionEl.classList.toggle("whiteboard-preview--math", previewState.hasMath);
+  workspacePreviewSectionEl.classList.toggle("whiteboard-preview--code", previewState.hasCode);
 }
 
 function buildVantageSummary() {
   const grounding = currentTurnGrounding();
-  return buildGuidedInspectionSummary({
+  return `Start here: ${buildGuidedInspectionSummary({
     responseMode: grounding.responseMode,
     scenarioLab: state.turn.scenarioLab,
     recallCount: grounding.recallCount,
     learnedCount: grounding.learnedCount,
     libraryCount: state.allConcepts.length + state.allSavedNotes.length + state.allVaultNotes.length,
+    includeLibrary: SHOW_LIBRARY_DOCK,
     pinnedTitle: getPinnedMemoryItem()?.title || "",
-  });
+  })}`;
 }
 
 function currentTurnGrounding() {
@@ -838,27 +1019,29 @@ function currentTurnGrounding() {
 
 function renderChatSurfaceCopy() {
   const surface = normalizeSurfaceState(state.surface);
-  const vantageOpen = surface.current === "vantage";
   const whiteboardFocused = isWhiteboardFocused(surface);
 
   if (chatSurfaceTitleEl) {
-    chatSurfaceTitleEl.textContent = whiteboardFocused ? "Chat" : "Chat first.";
+    chatSurfaceTitleEl.hidden = true;
+    chatSurfaceTitleEl.textContent = whiteboardFocused ? "Chat" : "";
   }
   if (chatSurfaceSubtitleEl) {
-    chatSurfaceSubtitleEl.hidden = whiteboardFocused;
-    chatSurfaceSubtitleEl.textContent = whiteboardFocused
-      ? "Keep the conversation moving here while the whiteboard stays center stage for drafting."
-      : "Ask naturally. Open Vantage when you want to inspect the turn path or the library. Bring up the whiteboard when you want a shared draft.";
+    chatSurfaceSubtitleEl.hidden = true;
+    chatSurfaceSubtitleEl.textContent = "";
   }
   if (experimentBadgeEl) {
-    experimentBadgeEl.hidden = whiteboardFocused;
+    experimentBadgeEl.hidden = true;
+  }
+  if (messageInputEl) {
+    messageInputEl.placeholder = whiteboardFocused
+      ? "Ask about this draft..."
+      : "Ask anything.";
   }
   seedPromptEl.hidden = whiteboardFocused;
-  startExperimentButtonEl.hidden = whiteboardFocused;
-  endExperimentButtonEl.hidden = whiteboardFocused;
+  experimentToggleButtonEl.hidden = true;
   whiteboardToggleButtonEl.hidden = whiteboardFocused;
-  statusPillEl.hidden = whiteboardFocused;
-  vantageToggleButtonEl.textContent = whiteboardFocused ? "Open Vantage" : vantageButtonLabel(surface);
+  statusPillEl.hidden = true;
+  vantageToggleButtonEl.textContent = whiteboardFocused ? "Vantage" : vantageButtonLabel(surface);
 }
 
 function whiteboardButtonLabel(surface) {
@@ -878,9 +1061,6 @@ function whiteboardButtonLabel(surface) {
   }
   if (workspaceUpdate?.status === "offered") {
     return workspaceUpdateHasDraft(workspaceUpdate) ? "Review draft" : "Open whiteboard";
-  }
-  if ((state.workspace.content || "").trim()) {
-    return "Resume draft";
   }
   return "Whiteboard";
 }
@@ -906,6 +1086,15 @@ async function confirmExperimentTransition(actionLabel) {
   return true;
 }
 
+function normalizeWorkspaceContinuityContent(value) {
+  return String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/g, ""))
+    .join("\n")
+    .trim();
+}
+
 function applyWorkspacePayload(payload, { preserveDirty = false } = {}) {
   if (shouldPreserveUnsavedWorkspace({
     currentWorkspace: state.workspace,
@@ -914,6 +1103,16 @@ function applyWorkspacePayload(payload, { preserveDirty = false } = {}) {
   })) {
     return false;
   }
+  const currentWorkspaceId = state.workspace.workspaceId || "";
+  const nextWorkspaceId = payload?.workspace_id || "";
+  const currentWorkspaceScope = state.workspace.scope || "durable";
+  const nextWorkspaceScope = payload?.scope || currentWorkspaceScope || "durable";
+  const currentWorkspaceContent = normalizeWorkspaceContinuityContent(state.workspace.content || "");
+  const nextWorkspaceContent = normalizeWorkspaceContinuityContent(payload?.content || "");
+  const preserveLatestArtifact = Boolean(currentWorkspaceId)
+    && nextWorkspaceId === currentWorkspaceId
+    && nextWorkspaceScope === currentWorkspaceScope
+    && nextWorkspaceContent === currentWorkspaceContent;
   state.workspace.workspaceId = payload?.workspace_id || "";
   state.workspace.scope = payload?.scope || state.workspace.scope || "durable";
   state.workspace.title = payload?.title || "Whiteboard";
@@ -921,6 +1120,7 @@ function applyWorkspacePayload(payload, { preserveDirty = false } = {}) {
   state.workspace.savedContent = state.workspace.content;
   state.workspace.dirty = false;
   state.workspace.lifecycle = state.workspace.workspaceId ? "saved_whiteboard" : "ready";
+  state.workspace.latestArtifact = preserveLatestArtifact ? state.workspace.latestArtifact : null;
   workspaceTitleEl.textContent = state.workspace.title;
   workspaceEditorEl.value = state.workspace.content;
   return true;
@@ -970,7 +1170,23 @@ async function loadConceptCatalog({ silent = false } = {}) {
 async function sendMessage(message) {
   setBusy(true);
   try {
-    const selectedContextId = getSelectedMemoryIdForChat();
+    if (await handleLocalExperimentModeMessage(message)) {
+      return;
+    }
+    const pinnedContextId = getPinnedContextIdForChat();
+    const whiteboardReopenTarget = resolveWhiteboardReopenTarget({
+      message,
+      pinnedItem: getPinnedMemoryItem(),
+      recalledItems: state.turnWorkingMemory,
+      learnedItems: state.turnLearned,
+    });
+    if (whiteboardReopenTarget) {
+      await handleDeicticWhiteboardReopen({
+        target: whiteboardReopenTarget,
+        message,
+      });
+      return;
+    }
     const workspaceContext = buildWorkspaceContextPayload({
       surface: state.surface,
       workspace: state.workspace,
@@ -985,8 +1201,7 @@ async function sendMessage(message) {
         history: state.history,
         ...workspaceContext,
         whiteboard_mode: state.composer.whiteboardMode,
-        selected_record_id: selectedContextId,
-        memory_intent: state.turn.memoryIntent,
+        pinned_context_id: pinnedContextId,
         pending_workspace_update: buildPendingWorkspaceContext(message),
       }),
     });
@@ -1013,6 +1228,186 @@ async function sendMessage(message) {
   }
 }
 
+async function handleLocalExperimentModeMessage(message) {
+  const normalized = normalizeUserText(message);
+  if (!normalized.includes("experiment mode") && !normalized.includes("experiment")) {
+    return false;
+  }
+  const asksAboutSwitching = /\b(can|could|how|what|where|is there|do i)\b/.test(normalized)
+    && /\b(switch|exit|leave|end|turn off|durable mode)\b/.test(normalized);
+  const asksToEnd = /\b(end|exit|leave|switch out of|turn off|stop)\b/.test(normalized)
+    && /\bexperiment(?: mode)?\b/.test(normalized);
+  const isQuestion = /^(can|could|how|what|where|is|do|does|should|would)\b/.test(normalized)
+    || String(message || "").includes("?");
+  if (!asksAboutSwitching && !asksToEnd) {
+    return false;
+  }
+
+  if (asksAboutSwitching || isQuestion) {
+    const response = state.experiment.active
+      ? "Yes. You're currently in experiment mode. I can switch you back to durable mode, but ending the experiment discards temporary notes from this session. If you want to do that, say `end experiment mode` and I'll confirm before switching."
+      : "You're already in durable mode. Saved memories and work products can stay available across sessions.";
+    addMessage("assistant", response);
+    state.history.push({
+      user_message: message,
+      assistant_message: response,
+    });
+    state.turn = createIdleTurnState();
+    renderTurnPanel();
+    return true;
+  }
+
+  if (!state.experiment.active) {
+    const response = "You're already in durable mode. There isn't an active experiment to end.";
+    addMessage("assistant", response);
+    state.history.push({
+      user_message: message,
+      assistant_message: response,
+    });
+    state.turn = createIdleTurnState();
+    renderTurnPanel();
+    return true;
+  }
+
+  await endExperiment();
+  const response = state.experiment.active
+    ? "Experiment mode is still active."
+    : "You're now back in durable mode. Temporary notes from the experiment were discarded.";
+  addMessage("assistant", response);
+  state.history.push({
+    user_message: message,
+    assistant_message: response,
+  });
+  state.turn = createIdleTurnState();
+  renderTurnPanel();
+  return true;
+}
+
+function normalizeUserText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}\s']/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function ensureReopenTargetAvailable(target) {
+  if (!target?.id || getConceptById(target.id)) {
+    return;
+  }
+  if (String(target.source || "").trim().toLowerCase() === "concept") {
+    upsertSessionConcept(target);
+    return;
+  }
+  upsertSessionSavedNote(target);
+}
+
+function recordLocalWhiteboardReopenTurn({ message, assistantMessage, target, queued = false } = {}) {
+  const normalizedTarget = normalizeMemoryItem(target, "turn-recall");
+  state.turn = {
+    ...createIdleTurnState(),
+    userMessage: message || "",
+    assistantMessage: assistantMessage || "",
+    mode: "local_action",
+    responseMode: normalizeResponseMode(
+      {
+        kind: "grounded",
+        label: queued ? "Recall" : "Recall + Whiteboard",
+        note: queued
+          ? "Supported by the recalled item while the whiteboard replacement waits for your decision."
+          : "Supported by the recalled item and the reopened whiteboard.",
+        grounding_mode: queued ? "recall" : "mixed_context",
+        grounding_sources: queued ? ["recall"] : ["recall", "whiteboard"],
+        context_sources: queued ? ["recall"] : ["recall", "whiteboard"],
+        recall_count: normalizedTarget.id ? 1 : 0,
+        working_memory_count: normalizedTarget.id ? 1 : 0,
+      },
+      normalizedTarget.id ? 1 : 0,
+    ),
+    workspaceContextScope: queued ? "excluded" : "requested",
+    workspaceUpdate: null,
+    vetting: null,
+    graphAction: queued
+      ? null
+      : {
+          type: "open_saved_item_into_workspace",
+          record_id: normalizedTarget.id,
+          record_title: normalizedTarget.title,
+          source: normalizedTarget.source,
+        },
+    scenarioLab: null,
+    scenarioBranchInspectionWorkspaceId: "",
+    interpretation: normalizeTurnInterpretation(
+      queued
+        ? {
+            mode: "chat",
+            confidence: 1,
+            reason: "The message referred to the previously recalled item, but reopening it would replace the current unsaved whiteboard, so a replace-or-keep decision was queued instead.",
+            requested_whiteboard_mode: "auto",
+            resolved_whiteboard_mode: "draft",
+            whiteboard_mode_source: "request",
+          }
+        : {
+            mode: "chat",
+            confidence: 1,
+            reason: "The message explicitly asked to pull the previously recalled item into the whiteboard, so the client reopened that saved item directly.",
+            requested_whiteboard_mode: "auto",
+            resolved_whiteboard_mode: "draft",
+            whiteboard_mode_source: "request",
+          },
+    ),
+  };
+  state.turnReasoningPathStageKey = "";
+  state.turnReasoningPathExpanded = false;
+  state.turnWorkingMemory = normalizedTarget.id ? [normalizedTarget] : [];
+  state.turnTraceNotes = [];
+  state.turnMemoryTraceRecord = null;
+  state.turnLearned = [];
+  state.learnedCorrection = createEmptyLearnedCorrectionState();
+  state.candidateConcepts = [];
+  state.candidateSavedNotes = [];
+  state.candidateTraceNotes = [];
+  state.candidateVaultNotes = [];
+  state.turnConcepts = [];
+  state.turnSavedNotes = [];
+  state.turnVaultNotes = [];
+  if (normalizedTarget.id) {
+    selectConcept(normalizedTarget.id, { silent: true, source: "user" });
+  }
+  persistTurnSnapshot();
+  renderTurnPanel();
+  renderMemoryPanel();
+}
+
+async function handleDeicticWhiteboardReopen({ target, message } = {}) {
+  ensureReopenTargetAvailable(target);
+  const status = await openConceptIntoWorkspace(target?.id);
+  if (status !== "opened" && status !== "queued") {
+    return;
+  }
+  const assistantMessage = status === "queued"
+    ? `I found ${target.title}. Opening it would replace the current whiteboard, so I left a replace-or-keep decision for you.`
+    : `I pulled ${target.title} into the whiteboard so we can continue from that saved draft.`;
+  addMessage("assistant", assistantMessage, {
+    evidence: [
+      {
+        label: status === "queued" ? "Whiteboard decision" : "Opened in whiteboard",
+        tone: "soft",
+      },
+    ],
+  });
+  state.history.push({
+    user_message: message || "",
+    assistant_message: assistantMessage,
+  });
+  recordLocalWhiteboardReopenTurn({
+    message,
+    assistantMessage,
+    target,
+    queued: status === "queued",
+  });
+}
+
 function applyChatPayload(payload) {
   const candidateMemory = normalizeMemoryPayload(payload.candidate_memory, "turn-candidate");
   const turnMemory = normalizeMemoryPayload(payload.memory, "turn");
@@ -1035,12 +1430,14 @@ function applyChatPayload(payload) {
     workspaceContextScope: normalizedTurnPayload.workspaceContextScope,
     workspaceUpdate: normalizedTurnPayload.workspaceUpdate,
     vetting: payload.vetting || null,
+    metaAction: payload.meta_action || null,
     graphAction: payload.graph_action || null,
     scenarioLab: normalizedTurnPayload.scenarioLab,
+    scenarioBranchInspectionWorkspaceId: "",
     interpretation: normalizeTurnInterpretation(payload.turn_interpretation),
-    memoryIntent: "idle",
   };
-  state.turnReasoningPathStageKey = "candidate-context";
+  state.turnReasoningPathStageKey = "";
+  state.turnReasoningPathExpanded = false;
   state.candidateConcepts = normalizeConceptList(payload.candidate_concepts || [], "concept");
   state.candidateSavedNotes = candidateMemory.savedNotes;
   state.candidateTraceNotes = normalizeWorkingMemoryItems(payload.candidate_trace_notes || [], "candidate-trace");
@@ -1054,6 +1451,7 @@ function applyChatPayload(payload) {
     ? normalizeMemoryItem(normalizedTurnPayload.memoryTraceRecord, "turn-trace-record")
     : null;
   state.turnLearned = learnedItems;
+  syncLearnedCorrectionState({ persist: false });
   state.catalogConcepts = mergeConceptCollections(state.catalogConcepts, state.turnConcepts);
   state.catalogConcepts = mergeConceptCollections(state.catalogConcepts, state.candidateConcepts);
   state.catalogSavedNotes = mergeMemoryCollections(state.catalogSavedNotes, state.turnSavedNotes);
@@ -1087,7 +1485,7 @@ function applyChatPayload(payload) {
   }
 
   if (payload.mode === "scenario_lab") {
-    const branchCount = Array.isArray(payload.scenario_lab?.branches) ? payload.scenario_lab.branches.length : 0;
+    const branchCount = scenarioLabBranchCount(payload.scenario_lab);
     state.workspace.note = buildScenarioLabOutcomeCopy(branchCount, hasScenarioComparisonArtifact(payload.scenario_lab));
     answerDockEl.open = true;
     scenarioDockEl.open = true;
@@ -1136,21 +1534,6 @@ function absorbGraphNotices(payload) {
       }
     }
   }
-  if (payload.workspace_update?.summary) {
-    const offer = ["offered", "draft_ready"].includes(payload.workspace_update?.status);
-    notices.push({
-      title: offer ? "Whiteboard ready" : "Whiteboard updated",
-      message: payload.workspace_update.summary,
-      tone: offer ? "info" : "success",
-    });
-  }
-  if (payload.graph_action) {
-    notices.push({
-      title: "Saved action",
-      message: describeGraphAction(payload.graph_action),
-      tone: "success",
-    });
-  }
   const createdRecord = normalizeLearnedItems(payload)[0] || null;
   if (createdRecord) {
     const isConcept = String(createdRecord.source || createdRecord.kind || createdRecord.type || "").toLowerCase() === "concept";
@@ -1164,18 +1547,14 @@ function absorbGraphNotices(payload) {
         upsertSessionSavedNote(savedItem);
       }
       rebuildConceptCatalog();
-      notices.push({
-        title: isConcept ? "Concept added" : savedNoteBucket(savedItem) === "artifact" ? "Artifact added" : "Memory added",
-        message: isConcept
-          ? `${savedItem.title} was added to the concept KB.`
-          : `${savedItem.title} was added to the durable library.`,
-        tone: "success",
-      });
       renderMemoryPanel();
     }
   }
-  for (const note of notices) {
-    pushNotice(note.title, note.message, note.tone);
+  const primaryNotice = notices.find((note) => note.tone === "warning")
+    || notices.find((note) => note.tone === "success")
+    || notices[0];
+  if (primaryNotice) {
+    pushNotice(primaryNotice.title, primaryNotice.message, primaryNotice.tone);
   }
 }
 
@@ -1200,13 +1579,16 @@ async function saveWorkspace() {
     state.workspace.savedContent = state.workspace.content;
     state.workspace.dirty = false;
     state.workspace.lifecycle = "saved_whiteboard";
-    state.workspace.note = "Saved whiteboard written to disk.";
+    state.workspace.note = "Saved to the whiteboard library.";
+    state.workspace.latestArtifact = payload?.artifact_snapshot
+      ? normalizeMemoryItem(payload.artifact_snapshot, "session")
+      : state.workspace.latestArtifact;
     workspaceTitleEl.textContent = state.workspace.title;
     persistTurnSnapshot();
     renderWorkspaceMeta();
     pushNotice("Whiteboard saved", `${state.workspace.title} was written to disk.`, "success");
     if (payload?.artifact_snapshot) {
-      const snapshot = normalizeMemoryItem(payload.artifact_snapshot, "session");
+      const snapshot = state.workspace.latestArtifact;
       if (snapshot.id) {
         upsertSessionSavedNote(snapshot);
         rebuildConceptCatalog();
@@ -1214,7 +1596,7 @@ async function saveWorkspace() {
       }
     }
     if (payload?.graph_action) {
-      pushNotice("Artifact iteration saved", describeGraphAction(payload.graph_action), "success");
+      pushNotice("Work product iteration saved", describeGraphAction(payload.graph_action), "success");
     }
   } catch (error) {
     pushNotice("Save failed", error instanceof Error ? error.message : String(error), "warning");
@@ -1257,6 +1639,9 @@ async function promoteWorkspaceToConcept() {
       rebuildConceptCatalog();
       selectConcept(savedItem.id, { silent: true });
       state.workspace.lifecycle = isConcept ? state.workspace.lifecycle : "promoted_artifact";
+      if (!isConcept) {
+        state.workspace.latestArtifact = savedItem;
+      }
       state.workspace.note = isConcept
         ? `Concept preview: ${savedItem.title}.`
         : `Promoted artifact: ${savedItem.title}.`;
@@ -1365,7 +1750,7 @@ async function openConceptIntoWorkspace(conceptId) {
   const concept = getConceptById(conceptId);
   if (!concept) {
     pushNotice("Item unavailable", "That concept, memory, or artifact is not in the local catalog.", "warning");
-    return;
+    return "missing";
   }
   if (state.workspace.dirty) {
     queueWhiteboardDecision({
@@ -1374,16 +1759,16 @@ async function openConceptIntoWorkspace(conceptId) {
       targetLabel: concept.title,
       targetTypeLabel: concept.type === "concept" ? "concept" : itemInspectorLabel(concept).toLowerCase(),
     });
-    return;
+    return "queued";
   }
-  await performOpenConceptIntoWorkspace(conceptId);
+  return await performOpenConceptIntoWorkspace(conceptId);
 }
 
 async function performOpenConceptIntoWorkspace(conceptId) {
   const concept = getConceptById(conceptId);
   if (!concept) {
     pushNotice("Item unavailable", "That concept, memory, or artifact is not in the local catalog.", "warning");
-    return;
+    return "missing";
   }
   setBusy(true);
   try {
@@ -1399,27 +1784,29 @@ async function performOpenConceptIntoWorkspace(conceptId) {
     if (typeof payload.content === "string") {
       state.workspace.workspaceId = payload.workspace_id || concept.id;
       applyWorkspaceDraft(payload.content, payload.title || concept.title, {
-        note: `Opened ${concept.title}.`,
+        note: `Started from saved material: ${concept.title}.`,
         markDirty: false,
       });
       persistTurnSnapshot();
       pushNotice("Whiteboard opened", `${concept.title} was loaded into the whiteboard.`, "success");
       clearWhiteboardDecision();
       revealWhiteboard();
-      return;
+      return "opened";
     }
 
     const draft = buildConceptWorkspaceDraft(concept);
     applyWorkspaceDraft(draft, concept.title, {
-      note: `Draft opened from ${concept.title}. Save to keep it.`,
+      note: `Started a new draft from ${concept.title}. Save when you're ready.`,
       markDirty: true,
     });
     persistTurnSnapshot();
     pushNotice("Whiteboard opened", `${concept.title} is now in the whiteboard as a draft.`, "success");
     clearWhiteboardDecision();
     revealWhiteboard();
+    return "opened";
   } catch (error) {
     pushNotice("Open failed", error instanceof Error ? error.message : String(error), "warning");
+    return "failed";
   } finally {
     setBusy(false);
   }
@@ -1453,7 +1840,7 @@ async function performOpenWorkspace(workspaceId) {
       throw new Error(payload?.detail || `Open failed with status ${response.status}`);
     }
     applyWorkspacePayload(payload || {});
-    state.workspace.note = `Opened scenario branch ${payload?.title || workspaceId}.`;
+    state.workspace.note = `Opened from saved branch ${payload?.title || workspaceId}.`;
     persistTurnSnapshot();
     renderWorkspaceMeta();
     pushNotice("Whiteboard opened", `${payload?.title || workspaceId} is now the active whiteboard.`, "success");
@@ -1472,7 +1859,8 @@ function applyWorkspaceDraft(content, title, { note, markDirty }) {
   state.workspace.savedContent = markDirty ? state.workspace.savedContent : content;
   state.workspace.dirty = markDirty || content !== state.workspace.savedContent;
   state.workspace.lifecycle = state.workspace.dirty ? "transient_draft" : "saved_whiteboard";
-  state.workspace.note = note || "Whiteboard updated.";
+  state.workspace.note = note || "Updated your current draft.";
+  state.workspace.latestArtifact = null;
   workspaceTitleEl.textContent = state.workspace.title;
   workspaceEditorEl.value = content;
   renderWorkspaceMeta();
@@ -1487,7 +1875,8 @@ function startFreshWorkspaceDraft(content, title, { note, markDirty = true } = {
   state.workspace.savedContent = markDirty ? "" : content;
   state.workspace.dirty = markDirty || content !== state.workspace.savedContent;
   state.workspace.lifecycle = state.workspace.dirty ? "transient_draft" : "saved_whiteboard";
-  state.workspace.note = note || "Started a fresh whiteboard draft.";
+  state.workspace.note = note || "Started a new draft.";
+  state.workspace.latestArtifact = null;
   workspaceTitleEl.textContent = state.workspace.title;
   workspaceEditorEl.value = content;
   renderWorkspaceMeta();
@@ -1512,6 +1901,7 @@ function prepareWorkspaceForWhiteboardOffer() {
   state.workspace.savedContent = "";
   state.workspace.dirty = false;
   state.workspace.lifecycle = "ready";
+  state.workspace.latestArtifact = null;
   workspaceTitleEl.textContent = state.workspace.title;
   workspaceEditorEl.value = "";
 }
@@ -1545,7 +1935,7 @@ async function applyPendingWorkspaceUpdate(mode, { bypassDirtyCheck = false } = 
 
   if (mode === "replace" && shouldForkWorkspaceForDraft(workspaceUpdate)) {
     startFreshWorkspaceDraft(workspaceUpdate.content, workspaceUpdate.title || state.workspace.title, {
-      note: "Opened this draft as a fresh whiteboard. Save it when you're ready.",
+      note: "Started a new draft from earlier work. Save when you're ready.",
       markDirty: true,
     });
     revealWhiteboard();
@@ -1563,8 +1953,8 @@ async function applyPendingWorkspaceUpdate(mode, { bypassDirtyCheck = false } = 
     : workspaceUpdate.content;
   const nextTitle = mode === "replace" ? (workspaceUpdate.title || state.workspace.title) : state.workspace.title;
   const note = mode === "append"
-    ? "Draft appended from this turn. Save the whiteboard when you're ready."
-    : "Draft pulled into the whiteboard from this turn. Save the whiteboard when you're ready.";
+    ? "Updated your draft by appending this turn's changes. Save when you're ready."
+    : "Updated your draft with this turn's changes. Save when you're ready.";
 
   applyWorkspaceDraft(nextContent, nextTitle, { note, markDirty: true });
   revealWhiteboard();
@@ -1610,7 +2000,7 @@ async function acceptPendingWorkspaceOffer() {
   if (!pendingWorkspaceUpdate) {
     prepareWorkspaceForWhiteboardOffer();
     revealWhiteboard();
-    state.workspace.note = "Whiteboard ready. Continue there to draft this work product.";
+    state.workspace.note = "Started a new draft. Continue here so we can shape it together.";
     renderWorkspaceMeta();
     return;
   }
@@ -1619,12 +2009,12 @@ async function acceptPendingWorkspaceOffer() {
     prepareWorkspaceForWhiteboardOffer();
   }
   revealWhiteboard();
-  state.workspace.note = "Opening the whiteboard so we can draft this work product together.";
+  state.workspace.note = "Opening a shared draft in the whiteboard.";
   renderWorkspaceMeta();
 
   setBusy(true);
   try {
-    const selectedContextId = getSelectedMemoryIdForChat();
+    const pinnedContextId = getPinnedContextIdForChat();
     const workspaceContext = buildWorkspaceContextPayload({
       surface: state.surface,
       workspace: state.workspace,
@@ -1637,8 +2027,7 @@ async function acceptPendingWorkspaceOffer() {
         history: state.history,
         ...workspaceContext,
         pending_workspace_update: pendingWorkspaceUpdate,
-        selected_record_id: selectedContextId,
-        memory_intent: state.turn.memoryIntent,
+        pinned_context_id: pinnedContextId,
       }),
     });
     if (!response.ok) {
@@ -1689,13 +2078,13 @@ function autoApplyWorkspaceDraft(workspaceUpdate) {
   }
   if (shouldForkWorkspaceForDraft(workspaceUpdate)) {
     startFreshWorkspaceDraft(workspaceUpdate.content, workspaceUpdate.title || state.workspace.title, {
-      note: "Draft opened as a fresh whiteboard from this turn. Save it when you're ready.",
+      note: "Started a new draft from this turn's earlier work. Save when you're ready.",
       markDirty: true,
     });
   } else {
     const nextTitle = workspaceUpdate.title || state.workspace.title;
     applyWorkspaceDraft(workspaceUpdate.content, nextTitle, {
-      note: "Draft pulled into the whiteboard from this turn. Save the whiteboard when you're ready.",
+      note: "Updated your draft with this turn's changes. Save when you're ready.",
       markDirty: true,
     });
   }
@@ -1703,7 +2092,7 @@ function autoApplyWorkspaceDraft(workspaceUpdate) {
     ...workspaceUpdate,
     decision: "applied",
   };
-  pushNotice("Whiteboard drafted", "The accepted draft was pulled into the whiteboard for editing.", "success");
+  pushNotice("Whiteboard drafted", "The draft is ready in the whiteboard for editing.", "success");
   return true;
 }
 
@@ -1725,7 +2114,7 @@ function syncWorkspaceFromEditor() {
   state.workspace.content = workspaceEditorEl.value;
   state.workspace.dirty = state.workspace.content !== state.workspace.savedContent;
   state.workspace.lifecycle = state.workspace.dirty ? "transient_draft" : "saved_whiteboard";
-  state.workspace.note = state.workspace.dirty ? "Transient draft with unsaved changes." : "Saved whiteboard.";
+  state.workspace.note = state.workspace.dirty ? "Unsaved changes in this draft." : "Saved whiteboard.";
   persistTurnSnapshot();
   renderWorkspaceMeta();
 }
@@ -1755,14 +2144,73 @@ function renderWorkspaceMeta() {
     : lifecycle.panelLabel;
   saveWorkspaceButtonEl.disabled = state.busy;
   promoteWorkspaceButtonEl.disabled = state.busy || !workspaceEditorEl.value.trim();
+  renderWorkspaceArtifactCue();
   renderWhiteboardDecisionPanel();
   renderSurfaceStatus();
+}
+
+function renderWorkspaceArtifactCue() {
+  if (!workspaceArtifactPanelEl || !workspaceArtifactSummaryEl || !workspaceArtifactActionsEl) {
+    return;
+  }
+  workspaceArtifactActionsEl.innerHTML = "";
+  const latestArtifact = state.workspace.latestArtifact;
+  if (!latestArtifact?.id) {
+    workspaceArtifactPanelEl.hidden = true;
+    return;
+  }
+
+  const lifecycleLabel = artifactLifecycleLabel(latestArtifact);
+  workspaceArtifactPanelEl.hidden = false;
+  workspaceArtifactSummaryEl.textContent = [
+    `Latest ${lifecycleLabel}: ${latestArtifact.title || "Saved work product"}`,
+    latestArtifact.card || "",
+    state.workspace.dirty
+      ? "You have unsaved changes since this saved version."
+      : "Inspect it in Vantage or reopen it here when you want to continue from the saved version.",
+  ].filter(Boolean).join(" • ");
+
+  const inspectButton = createActionButton("Inspect work product", "secondary");
+  inspectButton.disabled = state.busy;
+  inspectButton.addEventListener("click", () => {
+    inspectWorkspaceLatestArtifact();
+  });
+
+  const reopenButton = createActionButton("Reopen in whiteboard", "secondary");
+  reopenButton.disabled = state.busy;
+  reopenButton.addEventListener("click", async () => {
+    await reopenWorkspaceLatestArtifact();
+  });
+
+  workspaceArtifactActionsEl.append(inspectButton, reopenButton);
+}
+
+function inspectWorkspaceLatestArtifact() {
+  const latestArtifact = state.workspace.latestArtifact;
+  if (!latestArtifact?.id) {
+    return;
+  }
+  upsertSessionSavedNote(latestArtifact);
+  openVantage({ focus: "library" });
+  memoryDockEl.open = true;
+  selectConcept(latestArtifact.id, { silent: true, source: "whiteboard" });
+  renderViewState();
+  renderMemoryPanel();
+}
+
+async function reopenWorkspaceLatestArtifact() {
+  const latestArtifact = state.workspace.latestArtifact;
+  if (!latestArtifact?.id) {
+    return;
+  }
+  upsertSessionSavedNote(latestArtifact);
+  await openConceptIntoWorkspace(latestArtifact.id);
 }
 
 function renderTurnPanel() {
   const scenarioLab = state.turn.scenarioLab;
   const scenarioLabFailed = scenarioLab?.status === "failed";
-  const scenarioBranchCount = Array.isArray(scenarioLab?.branches) ? scenarioLab.branches.length : 0;
+  const scenarioBranchCount = scenarioLabBranchCount(scenarioLab);
   const grounding = currentTurnGrounding();
   const {
     responseMode,
@@ -1777,7 +2225,6 @@ function renderTurnPanel() {
   });
   const workspaceUpdate = state.turn.workspaceUpdate;
   const interpretation = state.turn.interpretation;
-  const nextTurnIntent = state.turn.memoryIntent || "idle";
   const reasoningPath = buildReasoningPathInspection({
     userMessage: state.turn.userMessage,
     interpretation,
@@ -1796,7 +2243,7 @@ function renderTurnPanel() {
     graphAction: state.turn.graphAction,
   });
 
-  turnTitleEl.textContent = "What Influenced This Response?";
+  turnTitleEl.textContent = "This turn";
   if (scenarioLab && !scenarioLabFailed && !recallCount && !learnedCount) {
     turnMetaEl.textContent = hasGroundedContext || isBestGuess
       ? `Scenario Lab • Grounding: ${groundingCopy.groundingLabel}`
@@ -1806,45 +2253,33 @@ function renderTurnPanel() {
   }
   answerDockLabelEl.textContent = groundingCopy.answerDockLabel;
   turnIntentEl.textContent = groundingCopy.turnIntentLabel;
-  turnActionsEl.hidden = false;
 
-  const notes = [];
-  if (scenarioLab && !scenarioLabFailed) {
-    notes.push(
-      scenarioBranchCount
-        ? `Scenario Lab ran separately and produced ${scenarioBranchCount} branch${scenarioBranchCount === 1 ? "" : "es"}. Open the Scenario Lab panel for the recommendation, branch tradeoffs, and ${hasScenarioComparisonArtifact(scenarioLab) ? "saved comparison artifact" : "branch details"}.`
-        : "Scenario Lab ran separately for this turn. Open the Scenario Lab panel to inspect its recommendation and branches.",
-    );
-  }
-  if (responseMode.note) {
-    notes.push(responseMode.note);
-  }
-  if (scenarioLabFailed) {
-    const errorMessage = scenarioLab?.error?.message || "Scenario Lab could not complete this turn.";
-    notes.push(`${errorMessage} Vantage answered in chat instead.`);
-  }
-  if (state.turn.vetting?.rationale) {
-    notes.push(state.turn.vetting.rationale);
-  }
-  if (learnedCount) {
-    notes.push(`Learned ${learnedCount} new item${learnedCount === 1 ? "" : "s"} after the answer.`);
-  } else if (state.turn.graphAction) {
-    notes.push(describeGraphAction(state.turn.graphAction));
-  }
-  turnNoticeEl.textContent = notes.filter(Boolean).join(" ")
-    || "Recall, response path, and Learned items for the last turn will appear here once a response is available.";
+  turnNoticeEl.textContent = buildTurnAtAGlanceSummary({
+    recallCount,
+    groundingLabel: groundingCopy.groundingLabel,
+    hasGroundedContext,
+    hasBroaderGrounding: grounding.hasBroaderGrounding,
+    isBestGuess,
+    learnedCount,
+    scenarioLabStatus: scenarioLabFailed ? "failed" : (scenarioLab ? "ready" : ""),
+    scenarioLabBranchCount: scenarioBranchCount,
+    graphActionSummary: learnedCount ? "" : describeGraphAction(state.turn.graphAction),
+  });
 
-  renderReasoningPathPanel(reasoningPath, interpretation);
+  renderTurnSummaryFacts({ grounding, scenarioLab, scenarioLabFailed });
+  renderWorkingMemoryPanel({
+    grounding,
+    interpretation,
+    workspaceContextScope: state.turn.workspaceContextScope,
+  });
+
   renderWorkspaceUpdatePanel(workspaceUpdate, { hidden: Boolean(scenarioLab && !scenarioLabFailed) });
-  renderMemoryTracePanel();
-  renderWhiteboardDecisionPanel();
-  updateNextTurnIntentButtons(nextTurnIntent);
-  renderScenarioLabPanel(scenarioLab);
   renderMemoryGroup(
     turnWorkingMemoryListEl,
+    // Legacy name: `turnWorkingMemory` still holds the recalled subset only.
     state.turnWorkingMemory,
     "turn",
-    "No recalled items were selected for this turn.",
+    "Nothing entered Recall for this turn.",
   );
   renderMemoryGroup(
     turnLearnedListEl,
@@ -1852,19 +2287,322 @@ function renderTurnPanel() {
     "learned",
     "Nothing new was learned from this turn.",
   );
+  renderMemoryTracePanel();
+  renderReasoningPathPanel(reasoningPath, interpretation);
+  renderLearnedCorrectionPanel();
+  updateTurnSupportHierarchy({
+    recallCount,
+    learnedCount,
+    traceCount: state.turnTraceNotes.length,
+    hasTraceRecord: Boolean(state.turnMemoryTraceRecord?.id),
+  });
+  renderWhiteboardDecisionPanel();
+  renderScenarioLabPanel(scenarioLab);
   renderSurfaceStatus();
+}
+
+function updateTurnSupportHierarchy({
+  recallCount = 0,
+  learnedCount = 0,
+  traceCount = 0,
+  hasTraceRecord = false,
+} = {}) {
+  if (turnRecallSummaryMetaEl) {
+    turnRecallSummaryMetaEl.textContent = recallCount > 0
+      ? `${recallCount} item${recallCount === 1 ? "" : "s"} entered`
+      : "Nothing entered";
+  }
+  if (turnRecallSectionEl) {
+    turnRecallSectionEl.open = recallCount > 0;
+  }
+
+  const continuityCount = traceCount + (hasTraceRecord ? 1 : 0);
+  if (turnTraceSummaryMetaEl) {
+    turnTraceSummaryMetaEl.textContent = continuityCount > 0
+      ? `${continuityCount} recent item${continuityCount === 1 ? "" : "s"}`
+      : "Quiet";
+  }
+  if (turnTraceSectionEl) {
+    turnTraceSectionEl.open = recallCount === 0 && learnedCount === 0 && continuityCount > 0;
+  }
+
+  if (turnLearnedSummaryMetaEl) {
+    turnLearnedSummaryMetaEl.textContent = learnedCount > 0
+      ? `${learnedCount} saved item${learnedCount === 1 ? "" : "s"}`
+      : "Nothing new yet";
+  }
+  if (turnLearnedSectionEl) {
+    turnLearnedSectionEl.open = learnedCount > 0;
+  }
+}
+
+function renderTurnSummaryFacts({
+  grounding,
+  scenarioLab,
+  scenarioLabFailed,
+} = {}) {
+  if (!turnSummaryFactsEl) {
+    return;
+  }
+  turnSummaryFactsEl.innerHTML = "";
+
+  const recallCount = Number.isFinite(Number(grounding?.recallCount))
+    ? Number(grounding.recallCount)
+    : 0;
+  const learnedCount = Number.isFinite(Number(grounding?.learnedCount))
+    ? Number(grounding.learnedCount)
+    : 0;
+  const groundingLabel = String(grounding?.groundingLabel || "").trim() || "Idle";
+
+  if (recallCount > 0) {
+    turnSummaryFactsEl.append(
+      createMiniMeta("Recall", `${recallCount} item${recallCount === 1 ? "" : "s"}`),
+    );
+  }
+  if (grounding?.hasBroaderGrounding || grounding?.hasGroundedContext || grounding?.isBestGuess) {
+    turnSummaryFactsEl.append(
+      createMiniMeta("Working Memory", groundingLabel),
+    );
+  }
+  if (learnedCount > 0) {
+    turnSummaryFactsEl.append(
+      createMiniMeta("Learned", `${learnedCount} item${learnedCount === 1 ? "" : "s"}`),
+    );
+  }
+  if (scenarioLab) {
+    const branchCount = scenarioLabBranchCount(scenarioLab);
+    turnSummaryFactsEl.append(
+      createMiniMeta(
+        "Scenario Lab",
+        scenarioLabFailed
+          ? "Back in chat"
+          : branchCount > 0
+            ? `${branchCount} branch${branchCount === 1 ? "" : "es"}`
+            : "Ready",
+      ),
+    );
+  }
+  if (!turnSummaryFactsEl.childNodes.length) {
+    turnSummaryFactsEl.append(
+      createMiniMeta("Status", "Idle"),
+    );
+  }
+}
+
+function renderWorkingMemoryPanel({
+  grounding = null,
+  interpretation = null,
+  workspaceContextScope = "excluded",
+} = {}) {
+  if (!turnWorkingMemoryNoticeEl || !turnWorkingMemoryFactsEl) {
+    return;
+  }
+  if (turnWorkingMemorySummaryMetaEl) {
+    turnWorkingMemorySummaryMetaEl.textContent = buildWorkingMemorySummaryMeta({
+      grounding,
+    });
+  }
+  turnWorkingMemoryNoticeEl.textContent = buildWorkingMemoryNotice({
+    grounding,
+    interpretation,
+    workspaceContextScope,
+  });
+  turnWorkingMemoryFactsEl.innerHTML = "";
+
+  const recallCount = Number.isFinite(Number(grounding?.recallCount))
+    ? Number(grounding.recallCount)
+    : 0;
+  const sourceLabels = workingMemorySourceLabels(grounding);
+  const whiteboardScopeLabel = humanizeWorkingMemoryScope(workspaceContextScope);
+  const keptInScope = interpretation?.preservePinnedContext ?? interpretation?.preserveSelectedRecord;
+  const keptInScopeReason = String(
+    interpretation?.pinnedContextReason || interpretation?.selectedRecordReason || "",
+  ).trim();
+  const inScopeLabel = buildWorkingMemorySummaryMeta({
+    grounding,
+  });
+
+  turnWorkingMemoryFactsEl.append(
+    createMiniMeta("In scope", inScopeLabel),
+    createMiniMeta("Recall", recallCount > 0 ? `${recallCount} item${recallCount === 1 ? "" : "s"} surfaced` : "None surfaced"),
+  );
+  if (sourceLabels.length) {
+    turnWorkingMemoryFactsEl.append(
+      createMiniMeta("Broader context", sourceLabels.join(", ")),
+    );
+  }
+  if (whiteboardScopeLabel && sourceLabels.includes("Whiteboard")) {
+    turnWorkingMemoryFactsEl.append(
+      createMiniMeta("Whiteboard scope", whiteboardScopeLabel),
+    );
+  }
+  if (keptInScope === true) {
+    turnWorkingMemoryFactsEl.append(
+      createMiniMeta("Kept in scope", keptInScopeReason || "Pinned context"),
+    );
+  }
+  if (grounding?.isBestGuess) {
+    turnWorkingMemoryFactsEl.append(
+      createMiniMeta("Response", "Best Guess"),
+    );
+  }
+}
+
+function buildWorkingMemoryNotice({
+  grounding = null,
+  interpretation = null,
+  workspaceContextScope = "excluded",
+} = {}) {
+  const recallCount = Number.isFinite(Number(grounding?.recallCount))
+    ? Number(grounding.recallCount)
+    : 0;
+  const sourceLabels = workingMemorySourceLabels(grounding);
+  const whiteboardScopeLabel = humanizeWorkingMemoryScope(workspaceContextScope);
+  const keptInScope = interpretation?.preservePinnedContext ?? interpretation?.preserveSelectedRecord;
+  const pieces = [];
+
+  if (grounding?.isBestGuess) {
+    pieces.push("Working Memory stayed minimal for this turn.");
+    pieces.push("The answer was generated from the current request only, without surfaced Recall or broader grounded context.");
+  } else {
+    const included = [];
+    if (recallCount > 0) {
+      included.push("Recall");
+    }
+    included.push(...sourceLabels);
+    if (recallCount > 0 && sourceLabels.length) {
+      pieces.push(`Working Memory combined ${joinReadableList(included)} for generation.`);
+      pieces.push("The recalled items below are only the retrieved subset that surfaced into this turn.");
+    } else if (recallCount > 0) {
+      pieces.push("Working Memory for this answer came from Recall.");
+      pieces.push("The recalled items below are the retrieved subset that surfaced into this turn.");
+    } else if (sourceLabels.length) {
+      pieces.push(`Working Memory came from ${joinReadableList(sourceLabels)}.`);
+      pieces.push("No separate Recall items surfaced for this turn.");
+    } else if (grounding?.hasGroundedContext && grounding?.groundingLabel && grounding.groundingLabel !== "Idle") {
+      pieces.push(`Working Memory stayed grounded in ${grounding.groundingLabel}.`);
+      pieces.push("The turn payload did not expose a more detailed Working Memory source mix.");
+    } else {
+      pieces.push("Working Memory held the current request only.");
+      pieces.push("No additional context was in scope for generation.");
+    }
+  }
+
+  if (whiteboardScopeLabel && sourceLabels.includes("Whiteboard")) {
+    pieces.push(`Whiteboard scope was ${whiteboardScopeLabel.toLowerCase()}.`);
+  }
+  if (keptInScope === true) {
+    pieces.push("Pinned context stayed in scope for this turn.");
+  }
+  return pieces.join(" ");
+}
+
+function buildWorkingMemorySummaryMeta({
+  grounding = null,
+} = {}) {
+  const recallCount = Number.isFinite(Number(grounding?.recallCount))
+    ? Number(grounding.recallCount)
+    : 0;
+  const sourceLabels = workingMemorySourceLabels(grounding);
+  const parts = [];
+  if (recallCount > 0) {
+    parts.push("Recall");
+  }
+  parts.push(...sourceLabels);
+  if (parts.length) {
+    return parts.join(" + ");
+  }
+  if (grounding?.isBestGuess) {
+    return "Current request only";
+  }
+  if (grounding?.groundingLabel && grounding.groundingLabel !== "Idle") {
+    return grounding.groundingLabel;
+  }
+  return "Current request only";
+}
+
+function workingMemorySourceLabels(grounding = null) {
+  const labels = new Set();
+  for (const source of Array.isArray(grounding?.groundingSources) ? grounding.groundingSources : []) {
+    const normalized = normalizeWorkingMemorySource(source);
+    const label = describeWorkingMemorySource(normalized);
+    if (label) {
+      labels.add(label);
+    }
+  }
+  if (!labels.size) {
+    const fallbackLabel = describeWorkingMemorySource(grounding?.groundingMode);
+    if (fallbackLabel) {
+      labels.add(fallbackLabel);
+    }
+  }
+  return [...labels];
+}
+
+function normalizeWorkingMemorySource(source) {
+  const normalized = String(source || "").trim().toLowerCase();
+  return normalized === "working_memory" ? "recall" : normalized;
+}
+
+function describeWorkingMemorySource(source) {
+  switch (normalizeWorkingMemorySource(source)) {
+    case "whiteboard":
+      return "Whiteboard";
+    case "recent_chat":
+      return "Recent Chat";
+    case "pending_whiteboard":
+      return "Prior Whiteboard";
+    default:
+      return "";
+  }
+}
+
+function humanizeWorkingMemoryScope(scope) {
+  switch (String(scope || "").trim().toLowerCase()) {
+    case "visible":
+      return "Visible";
+    case "pinned":
+      return "Pinned";
+    case "requested":
+      return "Requested";
+    case "auto":
+      return "Auto";
+    default:
+      return "";
+  }
+}
+
+function joinReadableList(items = []) {
+  const cleaned = items.filter(Boolean);
+  if (!cleaned.length) {
+    return "";
+  }
+  if (cleaned.length === 1) {
+    return cleaned[0];
+  }
+  if (cleaned.length === 2) {
+    return `${cleaned[0]} and ${cleaned[1]}`;
+  }
+  return `${cleaned.slice(0, -1).join(", ")}, and ${cleaned[cleaned.length - 1]}`;
 }
 
 function renderReasoningPathPanel(reasoningPath, interpretation, { hidden = false } = {}) {
   turnReasoningPathSectionEl.hidden = hidden || !reasoningPath?.visible;
+  turnReasoningPathSectionEl.open = Boolean(state.turnReasoningPathExpanded) && !turnReasoningPathSectionEl.hidden;
   turnReasoningPathMetaEl.innerHTML = "";
   turnReasoningPathRailEl.innerHTML = "";
   if (turnReasoningPathSectionEl.hidden || !reasoningPath) {
+    if (turnReasoningPathStateEl) {
+      turnReasoningPathStateEl.textContent = "Collapsed";
+    }
     return;
   }
 
   turnReasoningPathSummaryEl.textContent = reasoningPath.summary
     || "Vantage assembled a compact path for this turn.";
+  if (turnReasoningPathStateEl) {
+    turnReasoningPathStateEl.textContent = state.turnReasoningPathExpanded ? "Expanded" : "Collapsed";
+  }
 
   const pathMode = interpretation?.mode ? humanizeInterpretationMode(interpretation.mode) : "Chat";
   turnReasoningPathMetaEl.append(
@@ -1877,25 +2615,26 @@ function renderReasoningPathPanel(reasoningPath, interpretation, { hidden = fals
   }
   if (typeof interpretation?.confidence === "number" && Number.isFinite(interpretation.confidence) && interpretation.confidence > 0) {
     turnReasoningPathMetaEl.append(
-      createMiniMeta("Confidence", `${Math.round(interpretation.confidence * 100)}%`),
+      createMiniMeta("Route confidence", humanizeRouteConfidence(interpretation.confidence)),
     );
   }
-  if (interpretation?.preserveSelectedRecord === true) {
+  const preservesPinnedContext = interpretation?.preservePinnedContext ?? interpretation?.preserveSelectedRecord;
+  if (preservesPinnedContext === true) {
     turnReasoningPathMetaEl.append(
-      createMiniMeta("Continuity", "Preserved selected context"),
+      createMiniMeta("Kept in scope", interpretation?.pinnedContextReason || interpretation?.selectedRecordReason || "Preserved"),
     );
   }
   if (interpretation?.whiteboardModeSource === "composer") {
     turnReasoningPathMetaEl.append(
-      createMiniMeta("Decision source", "Composer"),
+      createMiniMeta("Chose this from", "Composer"),
     );
   } else if (interpretation?.whiteboardModeSource === "request") {
     turnReasoningPathMetaEl.append(
-      createMiniMeta("Decision source", "User request"),
+      createMiniMeta("Chose this from", "User request"),
     );
   } else if (interpretation?.whiteboardModeSource === "interpreter") {
     turnReasoningPathMetaEl.append(
-      createMiniMeta("Decision source", "Interpreter"),
+      createMiniMeta("Chose this from", "Interpreter"),
     );
   }
 
@@ -1916,6 +2655,7 @@ function createReasoningPathCard(stage) {
     state.turnReasoningPathStageKey = state.turnReasoningPathStageKey === stage.key
       ? ""
       : stage.key;
+    state.turnReasoningPathExpanded = true;
     persistTurnSnapshot();
     renderTurnPanel();
   });
@@ -2139,17 +2879,17 @@ function renderWorkspaceUpdatePanel(workspaceUpdate, { hidden = false } = {}) {
   }
 
   workspaceUpdateLabelEl.textContent = workspaceUpdate.status === "offered"
-    ? "Whiteboard Offer"
-    : "Whiteboard Draft Ready";
+    ? "Start a shared draft?"
+    : "Review whiteboard draft";
   workspaceUpdateSummaryEl.textContent = workspaceUpdate.summary || (
     workspaceUpdate.status === "offered"
-      ? "Vantage suggested continuing this work in the whiteboard."
-      : "A whiteboard draft is ready for review."
+      ? "Vantage suggested moving this work into the whiteboard so a shared draft can start there."
+      : "A draft is ready to review before it enters the whiteboard."
   );
 
   if (workspaceUpdate.status === "offered") {
     const draftButton = createActionButton(
-      workspaceUpdateHasDraft(workspaceUpdate) ? "Review in whiteboard" : "Open whiteboard",
+      workspaceUpdateHasDraft(workspaceUpdate) ? "Review draft" : "Start draft",
       "primary",
     );
     draftButton.disabled = state.busy;
@@ -2165,7 +2905,7 @@ function renderWorkspaceUpdatePanel(workspaceUpdate, { hidden = false } = {}) {
     return;
   }
 
-  const applyButton = createActionButton("Apply to whiteboard", "primary");
+  const applyButton = createActionButton("Use this draft", "primary");
   applyButton.disabled = state.busy || !workspaceUpdateHasDraft(workspaceUpdate);
   applyButton.addEventListener("click", async () => {
     await handleWhiteboardDecisionAction("apply_draft");
@@ -2211,18 +2951,6 @@ function renderWhiteboardDecisionPanel() {
   }
 }
 
-function updateNextTurnIntentButtons(intent) {
-  const mapping = [
-    [rememberButtonEl, intent === "remember"],
-    [dontSaveButtonEl, intent === "skip"],
-    [showRelatedButtonEl, false],
-  ];
-  for (const [button, active] of mapping) {
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-  }
-}
-
 function renderScenarioLabPanel(scenarioLab) {
   scenarioDockEl.hidden = !scenarioLab;
   scenarioLabSectionEl.hidden = !scenarioLab;
@@ -2245,12 +2973,14 @@ function renderScenarioLabPanel(scenarioLab) {
 
   const heroSummary = document.createElement("p");
   heroSummary.className = "scenario-lab__hero-copy";
+  const heroRecommendation = document.createElement("p");
+  heroRecommendation.className = "scenario-lab__recommendation";
 
   const heroMeta = document.createElement("div");
   heroMeta.className = "scenario-lab__hero-meta";
 
   if (scenarioLab.status === "failed") {
-    scenarioDockLabelEl.textContent = "Fallback";
+    scenarioDockLabelEl.textContent = "Back in chat";
     heroSummary.textContent = scenarioLab.reason
       || "Scenario Lab was selected for this turn but could not complete.";
     heroMeta.append(createBadge("fallback", "warm"));
@@ -2289,28 +3019,34 @@ function renderScenarioLabPanel(scenarioLab) {
   } = grounding;
   const responseModeNote = responseMode.note || currentGroundingLabel || "";
   const navigatorReason = scenarioLab.navigator?.reason || scenarioLab.navigator?.note || scenarioLab.reason || "";
-  const confidence = typeof scenarioLab.navigator?.confidence === "number"
-    ? `Navigator confidence: ${Math.round(scenarioLab.navigator.confidence * 100)}%.`
-    : "";
+  const confidence = describeScenarioRouteConfidence(scenarioLab.navigator?.confidence);
   const comparisonArtifact = scenarioLab.comparisonArtifact
     || (scenarioLab.comparison_artifact && typeof scenarioLab.comparison_artifact === "object"
       ? scenarioLab.comparison_artifact
       : null);
   const artifactDetails = comparisonArtifact ? deriveScenarioArtifactDetails(comparisonArtifact) : null;
+  const comparisonBranchRoster = Array.isArray(artifactDetails?.branchIndex) ? artifactDetails.branchIndex : [];
   const sharedAssumptions = scenarioLab.sharedAssumptions || artifactDetails?.sharedAssumptions || [];
   const tradeoffs = scenarioLab.tradeoffs || artifactDetails?.tradeoffs || [];
   const nextSteps = scenarioLab.nextSteps || artifactDetails?.nextSteps || [];
   const summary = [
     scenarioLab.summary || "Scenario Lab ran as a separate reasoning mode for this turn.",
-    "Alternate branches stay separate from the turn context and surface here as a comparison-first review.",
-    confidence,
+    comparisonArtifact
+      ? "The saved comparison hub is the durable revisit hub for this Scenario Lab turn."
+      : "Alternate branches stay separate from the turn context and surface here as a comparison-first review.",
+    confidence.summary,
   ].filter(Boolean).join(" ");
   const recommendation = scenarioLab.recommendation
     || artifactDetails?.recommendation
     || "A recommendation was not returned for this Scenario Lab run.";
 
   heroSummary.textContent = summary;
-  const branchCount = Array.isArray(scenarioLab.branches) ? scenarioLab.branches.length : 0;
+  heroRecommendation.textContent = recommendation;
+  const branchCount = Number.isFinite(Number(scenarioLab.branchCount))
+    ? Number(scenarioLab.branchCount)
+    : Array.isArray(scenarioLab.branches)
+      ? scenarioLab.branches.length
+      : comparisonBranchRoster.length;
   scenarioDockLabelEl.textContent = branchCount
     ? `${branchCount} ${branchCount === 1 ? "branch" : "branches"} ready`
     : comparisonArtifact
@@ -2318,22 +3054,18 @@ function renderScenarioLabPanel(scenarioLab) {
       : "Scenario review";
   heroMeta.append(createBadge("Reasoning mode", "accent"));
   heroMeta.append(createBadge(branchCount ? `${branchCount} ${branchCount === 1 ? "branch" : "branches"}` : "No branches", "soft"));
-  if (typeof scenarioLab.navigator?.confidence === "number") {
-    heroMeta.append(createBadge(`${Math.round(scenarioLab.navigator.confidence * 100)}% confidence`, "soft"));
+  if (confidence.badge) {
+    heroMeta.append(createBadge(confidence.badge, "soft"));
   }
   if (comparisonArtifact) {
-    heroMeta.append(createBadge("Comparison artifact", "success"));
+    heroMeta.append(createBadge("Comparison hub", "success"));
+  }
+  if (comparisonBranchRoster.length) {
+    heroMeta.append(createBadge(`${comparisonBranchRoster.length} branches indexed`, "soft"));
   }
 
   const overviewGrid = document.createElement("div");
   overviewGrid.className = "scenario-lab__overview-grid";
-  overviewGrid.append(
-    createScenarioOverviewCard({
-      label: "Comparison question",
-      body: scenarioQuestionText(scenarioLab),
-      tone: "question",
-    }),
-  );
   if (sharedAssumptions.length) {
     overviewGrid.append(
       createScenarioOverviewCard({
@@ -2363,7 +3095,7 @@ function renderScenarioLabPanel(scenarioLab) {
   }
 
   const whyLabel = document.createElement("div");
-  whyLabel.className = "section-label";
+  whyLabel.className = "section-label section-label--subtle";
   whyLabel.textContent = "Why Scenario Lab ran";
 
   const whyNotice = document.createElement("div");
@@ -2371,7 +3103,7 @@ function renderScenarioLabPanel(scenarioLab) {
   whyNotice.textContent = navigatorReason || "Scenario Lab ran because this turn asked for alternate branches or comparative planning.";
 
   const groundingSectionLabelEl = document.createElement("div");
-  groundingSectionLabelEl.className = "section-label";
+  groundingSectionLabelEl.className = "section-label section-label--subtle";
   groundingSectionLabelEl.textContent = "Grounding";
 
   const groundingNotice = document.createElement("div");
@@ -2383,40 +3115,12 @@ function renderScenarioLabPanel(scenarioLab) {
         ? "No grounded context was used for this Scenario Lab turn."
         : "Grounding details were not returned for this Scenario Lab turn.");
 
-  const groundingMeta = document.createElement("div");
-  groundingMeta.className = "scenario-lab__grounding-meta";
-  groundingMeta.append(
-    createMiniMeta("grounding", currentGroundingLabel),
-    createMiniMeta("recall", String(recallCount)),
-    createMiniMeta("learned", String(learnedCount)),
-  );
-
-  const recommendationLabel = document.createElement("div");
-  recommendationLabel.className = "section-label";
-  recommendationLabel.textContent = "Recommendation";
-
-  const recommendationNotice = document.createElement("div");
-  recommendationNotice.className = "turn-notice scenario-lab__recommendation";
-  recommendationNotice.textContent = recommendation;
-
-  const recommendationMeta = document.createElement("div");
-  recommendationMeta.className = "scenario-lab__grounding-meta";
-  if (tradeoffs.length) {
-    recommendationMeta.append(createMiniMeta("tradeoffs", String(tradeoffs.length)));
-  }
-  if (nextSteps.length) {
-    recommendationMeta.append(createMiniMeta("next steps", String(nextSteps.length)));
-  }
-  if (comparisonArtifact?.branch_workspace_ids?.length) {
-    recommendationMeta.append(createMiniMeta("branches linked", String(comparisonArtifact.branch_workspace_ids.length)));
-  }
-
   const branchLabel = document.createElement("div");
   branchLabel.className = "section-label";
-  branchLabel.textContent = "Branch paths";
+  branchLabel.textContent = "Linked branches";
 
   const branchList = document.createElement("div");
-  branchList.className = "concept-list compact";
+  branchList.className = "concept-list compact scenario-lab__branch-list";
 
   const branches = Array.isArray(scenarioLab.branches) ? scenarioLab.branches : [];
   if (branches.length) {
@@ -2432,35 +3136,90 @@ function renderScenarioLabPanel(scenarioLab) {
 
   const artifactLabel = document.createElement("div");
   artifactLabel.className = "section-label";
-  artifactLabel.textContent = "Comparison artifact";
+  artifactLabel.textContent = "Durable comparison hub";
 
   const artifactList = document.createElement("div");
-  artifactList.className = "concept-list compact";
+  artifactList.className = "concept-list compact scenario-lab__artifact-list";
   if (comparisonArtifact) {
     artifactList.appendChild(createScenarioArtifactCard(comparisonArtifact));
   } else {
     const empty = document.createElement("div");
     empty.className = "empty-note";
-    empty.textContent = "No comparison artifact was saved for this turn.";
+    empty.textContent = "No comparison hub was saved for this turn.";
     artifactList.appendChild(empty);
   }
 
-  scenarioLabSectionEl.append(
-    hero,
-    overviewGrid,
-    whyLabel,
-    whyNotice,
-    groundingSectionLabelEl,
-    groundingNotice,
-    groundingMeta,
-    recommendationLabel,
-    recommendationNotice,
-    recommendationMeta,
-    branchLabel,
-    branchList,
-    artifactLabel,
+  const artifactSection = document.createElement("section");
+  artifactSection.className = "scenario-lab__section scenario-lab__section--artifact";
+  artifactSection.append(
+    createScenarioSectionLead({
+      label: artifactLabel.textContent,
+      summary: comparisonArtifact
+        ? "Start here. The comparison hub is the durable anchor for this Scenario Lab run, with the recommendation and linked branch roster kept together."
+        : "No durable comparison hub was saved for this turn.",
+      metaItems: comparisonArtifact
+        ? [
+            { label: "Role", value: "Durable anchor" },
+            { label: "Linked branches", value: String(comparisonBranchRoster.length || branchCount || 0) },
+          ]
+        : [],
+    }),
     artifactList,
   );
+
+  const branchSection = document.createElement("section");
+  branchSection.className = "scenario-lab__section scenario-lab__section--branches";
+  branchSection.append(
+    createScenarioSectionLead({
+      label: branchLabel.textContent,
+      summary: branchCount
+        ? `${branchCount} branch${branchCount === 1 ? "" : "es"} explore the same question from different directions. Use the hub above as the durable reference point, then compare the fuller branch details here.`
+        : "No scenario branches were returned for this turn.",
+      metaItems: branchCount
+        ? [
+            { label: "Branch set", value: `${branchCount} ready` },
+            comparisonArtifact ? { label: "Hub", value: "Saved comparison" } : null,
+          ].filter(Boolean)
+        : [],
+    }),
+    branchList,
+  );
+
+  const supportSection = document.createElement("section");
+  supportSection.className = "scenario-lab__section scenario-lab__section--support";
+  const supportGrid = document.createElement("div");
+  supportGrid.className = "scenario-lab__secondary-grid";
+  supportGrid.append(
+    createScenarioSupportCard({
+      label: whyLabel.textContent,
+      summary: whyNotice.textContent,
+    }),
+    createScenarioSupportCard({
+      label: groundingSectionLabelEl.textContent,
+      summary: groundingNotice.textContent,
+    }),
+  );
+  supportSection.append(
+    createScenarioSectionLead({
+      label: "Supporting context",
+      summary: "These notes explain why Scenario Lab ran and what grounded the turn. They stay secondary to the comparison itself.",
+    }),
+    supportGrid,
+  );
+
+  const primaryStack = document.createElement("section");
+  primaryStack.className = "scenario-lab__primary-stack";
+  if (overviewGrid.childNodes.length) {
+    primaryStack.append(overviewGrid);
+  }
+  primaryStack.append(artifactSection, branchSection);
+
+  scenarioLabSectionEl.append(
+    hero,
+    primaryStack,
+    supportSection,
+  );
+  hero.append(heroEyebrow, heroTitle, heroSummary, heroRecommendation, heroMeta);
 }
 
 function renderMemoryPanel() {
@@ -2482,52 +3241,52 @@ function renderMemoryPanel() {
   conceptsTitleEl.textContent = query ? "Search results" : "What Else Exists In The Library?";
   conceptsCountEl.textContent = query
     ? `${visibleItems} shown · ${totalItems} total`
-    : `${totalConcepts} concepts · ${totalMemories} memories · ${totalArtifacts} artifacts · ${totalVaultNotes} references`;
-  conceptsSummaryEl.textContent = `Concepts: ${visibleConcepts.length}`;
+    : `${totalConcepts} ideas · ${totalMemories} notes · ${totalArtifacts} work products · ${totalVaultNotes} references`;
+  conceptsSummaryEl.textContent = `Ideas: ${visibleConcepts.length}`;
   memoriesSummaryEl.textContent = `Memories: ${visibleMemories.length}`;
-  artifactsSummaryEl.textContent = `Artifacts: ${visibleArtifacts.length}`;
+  artifactsSummaryEl.textContent = `Work products: ${visibleArtifacts.length}`;
   vaultNotesSummaryEl.textContent = `References: ${visibleVaultNotes.length}`;
   conceptsHintEl.textContent = query
-    ? "Filtered knowledge concepts"
+    ? "Filtered ideas"
     : state.experiment.active
-      ? "Temporary experiment concepts first, then durable concepts"
-      : "Durable reasoning concepts";
+      ? "Temporary experiment ideas first, then saved ideas"
+      : "Saved reusable ideas";
   memoriesHintEl.textContent = query
-    ? "Filtered continuity notes"
+    ? "Filtered notes"
     : state.experiment.active
-      ? "Temporary experiment memories first, then durable memories"
-      : "Durable continuity notes";
+      ? "Temporary experiment notes first, then saved notes"
+      : "Saved notes";
   artifactsHintEl.textContent = query
     ? "Filtered work products and snapshots"
     : state.experiment.active
-      ? "Temporary experiment artifacts first, then durable artifacts"
-      : "Durable work products and snapshots";
-  vaultNotesHintEl.textContent = query ? "Filtered read-only reference notes" : "Read-only reference notes";
+      ? "Temporary experiment work products first, then saved work products"
+      : "Saved work products and snapshots";
+  vaultNotesHintEl.textContent = query ? "Filtered read-only references" : "Read-only references";
   memoryDockLabelEl.textContent = `${totalItems} items`;
 
   renderMemoryGroup(
     conceptListEl,
     visibleConcepts,
     "memory",
-    query ? "No concepts matched that search. Try a title, phrase, or id." : "No concepts found yet.",
+    query ? "No ideas matched that search. Try a title, phrase, or id." : "No ideas found yet.",
   );
   renderMemoryGroup(
     memoryListEl,
     visibleMemories,
     "memory",
-    query ? "No memories matched that search. Try a title, phrase, or id." : "No memories found yet.",
+    query ? "No notes matched that search. Try a title, phrase, or id." : "No notes found yet.",
   );
   renderMemoryGroup(
     artifactListEl,
     visibleArtifacts,
     "memory",
-    query ? "No artifacts matched that search. Try a title, phrase, or id." : "No artifacts found yet.",
+    query ? "No work products matched that search. Try a title, phrase, or id." : "No work products found yet.",
   );
   renderMemoryGroup(
     vaultNoteListEl,
     visibleVaultNotes,
     "memory",
-    query ? "No reference notes matched that search. Try a path, label, or excerpt." : "No reference notes found yet.",
+    query ? "No references matched that search. Try a path, label, or excerpt." : "No references found yet.",
   );
 
   renderMemoryInspector();
@@ -2550,8 +3309,8 @@ function splitSavedNotesByBucket(items) {
 function renderPinnedContextBar() {
   const pinnedItem = getPinnedMemoryItem();
   nextTurnContextStatusEl.textContent = pinnedItem
-    ? `${pinnedItem.title} is pinned as next-turn context until you clear it.`
-    : "Selection only opens something in review. Pin an item here to keep it in the next-turn context.";
+    ? `${pinnedItem.title} is pinned for the next turn until you clear it.`
+    : "Selection only opens something in review. Pin an item here to keep it in context until you clear it.";
   pinSelectedContextButtonEl.disabled = state.busy || !getSelectedMemoryItem();
   clearPinnedContextButtonEl.disabled = state.busy || !pinnedItem;
   renderSurfaceStatus();
@@ -2578,7 +3337,7 @@ function renderMemoryInspector() {
   if (!item) {
     const empty = document.createElement("div");
     empty.className = "empty-note";
-    empty.textContent = "Select something in the library to review it here. Selection alone does not change next-turn context.";
+    empty.textContent = "Select something from What I used, What I learned, or the library to review it here. Selection alone does not keep it in scope for the next turn.";
     conceptInspectorEl.appendChild(empty);
     return;
   }
@@ -2587,6 +3346,8 @@ function renderMemoryInspector() {
   wrap.className = "inspector-shell";
   if (item.isVaultNote) {
     wrap.classList.add("inspector-shell--vault");
+  } else if (savedNoteBucket(item) === "artifact") {
+    wrap.classList.add("inspector-shell--artifact");
   }
 
   const header = document.createElement("div");
@@ -2620,37 +3381,70 @@ function renderMemoryInspector() {
   if (item.path || item.filename) {
     meta.append(createMiniMeta("path", item.path || item.filename));
   }
+  if (!item.isVaultNote && savedNoteBucket(item) === "artifact") {
+    meta.append(createMiniMeta("origin", artifactOriginLabel(item)));
+    meta.append(createMiniMeta("lifecycle", artifactLifecycleLabel(item)));
+  }
+  if (isTurnLearnedItem(item)) {
+    const learnedCorrection = buildLearnedCorrectionModel(item);
+    meta.append(createMiniMeta("saved as", learnedCorrection.scopeLabel || describeLearnedScopeLabel(item)));
+    meta.append(createMiniMeta("correction path", learnedCorrection.primaryActionLabel || "Revise in whiteboard"));
+  }
 
-  const summary = document.createElement("p");
+  const summary = document.createElement("div");
   summary.className = "inspector-summary";
-  summary.textContent = item.card || (item.isVaultNote
+  renderRichText(summary, item.card || (item.isVaultNote
     ? "This reference note has no excerpt yet."
     : item.type === "concept"
       ? "This concept has no summary card yet."
       : savedNoteBucket(item) === "artifact"
         ? "This artifact has no summary card yet."
-        : "This memory has no summary card yet.");
+        : "This memory has no summary card yet."), { compact: true });
+
+  const lifecycle = document.createElement("p");
+  lifecycle.className = "inspector-lifecycle";
+  if (!item.isVaultNote && savedNoteBucket(item) === "artifact") {
+    renderRichText(lifecycle, artifactLifecycleDescription(item));
+  }
+
+  const learnedReasonText = isTurnLearnedItem(item)
+    ? describeLearnedReason(item)
+    : "";
+  const learnedCorrection = isTurnLearnedItem(item)
+    ? buildLearnedCorrectionModel(item)
+    : null;
+  const learnedReason = document.createElement("p");
+  learnedReason.className = "inspector-lifecycle";
+  if (learnedReasonText) {
+    learnedReason.textContent = `Saved because: ${learnedReasonText}`;
+  }
 
   const body = document.createElement("div");
   body.className = "inspector-body";
   const bodyLabel = document.createElement("div");
   bodyLabel.className = "inspector-body-label";
-  bodyLabel.textContent = item.isVaultNote ? "Reference note excerpt" : itemInspectorLabel(item);
-  const bodyText = document.createElement("pre");
+  bodyLabel.textContent = item.isVaultNote
+    ? "Reference note excerpt"
+    : isScenarioComparisonArtifact(item)
+      ? "Comparison hub contents"
+      : savedNoteBucket(item) === "artifact"
+        ? "Work product contents"
+        : itemInspectorLabel(item);
+  const bodyText = document.createElement("div");
   bodyText.className = "inspector-pre";
-  bodyText.textContent = item.body || (item.isVaultNote
+  renderRichText(bodyText, item.body || (item.isVaultNote
       ? "Full reference note text is not available in this build. The memory panel has loaded the read-only excerpt."
       : item.type === "concept"
-        ? "Full concept text is not available in this build. The inspector has loaded the summary card and current excerpt."
+        ? "Full idea text is not available in this build. The inspector has loaded the summary card and current excerpt."
         : savedNoteBucket(item) === "artifact"
-          ? "Full artifact text is not available in this build. The inspector has loaded the current summary card and excerpt."
-          : "Full memory text is not available in this build. The inspector has loaded the current summary card and excerpt.");
+          ? "Full work product text is not available in this build. The inspector has loaded the current summary card and excerpt."
+          : "Full note text is not available in this build. The inspector has loaded the current summary card and excerpt."));
   body.append(bodyLabel, bodyText);
 
   const footer = document.createElement("div");
   footer.className = "inspector-actions";
   const pinButton = createActionButton(
-    isPinnedMemoryItem(item) ? "Unpin context" : "Pin as context",
+    isPinnedMemoryItem(item) ? "Unpin next-turn scope" : "Pin for next turn",
     "secondary",
   );
   pinButton.addEventListener("click", () => {
@@ -2670,7 +3464,13 @@ function renderMemoryInspector() {
     memoryDockEl.open = true;
   });
   if (!item.isVaultNote) {
-    const openButton = createActionButton("Open into workspace", "primary");
+    const openButton = createActionButton(
+      learnedCorrection?.primaryActionLabel
+        || (savedNoteBucket(item) === "artifact"
+          ? (isScenarioComparisonArtifact(item) ? "Continue comparison in whiteboard" : "Continue in whiteboard")
+          : "Edit in whiteboard"),
+      "primary",
+    );
     openButton.addEventListener("click", async () => {
       await openConceptIntoWorkspace(item.id);
     });
@@ -2679,7 +3479,42 @@ function renderMemoryInspector() {
     footer.append(pinButton, relatedButton);
   }
 
-  wrap.append(header, meta, summary, body, footer);
+  const correctionGuidance = learnedCorrection
+    ? document.createElement("section")
+    : null;
+  if (correctionGuidance) {
+    correctionGuidance.className = "inspector-guidance";
+    const guidanceLabel = document.createElement("div");
+    guidanceLabel.className = "inspector-body-label";
+    guidanceLabel.textContent = "Correction options";
+
+    const guidanceSummary = document.createElement("p");
+    guidanceSummary.className = "inspector-guidance-copy";
+    guidanceSummary.textContent = learnedCorrection.summary;
+
+    const guidanceList = document.createElement("ul");
+    guidanceList.className = "inspector-guidance-list";
+    for (const limitation of learnedCorrection.limitations) {
+      const guidanceItem = document.createElement("li");
+      guidanceItem.className = "inspector-guidance-item";
+      guidanceItem.textContent = limitation;
+      guidanceList.append(guidanceItem);
+    }
+
+    correctionGuidance.append(guidanceLabel, guidanceSummary, guidanceList);
+  }
+
+  wrap.append(header, meta, summary);
+  if (learnedReasonText || (!item.isVaultNote && savedNoteBucket(item) === "artifact")) {
+    wrap.append(lifecycle);
+  }
+  if (learnedReasonText) {
+    wrap.append(learnedReason);
+  }
+  if (correctionGuidance) {
+    wrap.append(correctionGuidance);
+  }
+  wrap.append(body, footer);
   conceptInspectorEl.appendChild(wrap);
 }
 
@@ -2715,6 +3550,23 @@ function humanizeInterpretationWhiteboardMode(mode) {
   }
 }
 
+function humanizeRouteConfidence(confidence) {
+  const numeric = Number(confidence);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return "Unknown";
+  }
+  if (numeric >= 0.9) {
+    return "High";
+  }
+  if (numeric >= 0.75) {
+    return "Steady";
+  }
+  if (numeric >= 0.55) {
+    return "Tentative";
+  }
+  return "Low";
+}
+
 
 function savedNoteBucket(item) {
   const fields = [
@@ -2734,6 +3586,253 @@ function savedNoteBucket(item) {
   return "memory";
 }
 
+function isTurnLearnedItem(item) {
+  if (!item?.id) {
+    return false;
+  }
+  return state.turnLearned.some((candidate) => candidate?.id === item.id && candidate?.source === item.source);
+}
+
+function normalizeLearnedReasonText(value) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (!text) {
+    return "";
+  }
+  return text.endsWith(".") ? text : `${text}.`;
+}
+
+function describeLearnedReason(item) {
+  const provided = normalizeLearnedReasonText(
+    item?.learnedReason
+    || item?.learned_reason
+    || item?.whyLearned
+    || item?.why_learned
+    || item?.saveReason
+    || item?.save_reason
+    || item?.rationale,
+  );
+  if (provided) {
+    return provided;
+  }
+  if (state.turnLearned.length === 1 && isTurnLearnedItem(item)) {
+    const turnRationale = normalizeLearnedReasonText(
+      state.turn?.metaAction?.rationale
+      || state.turn?.graphAction?.summary,
+    );
+    if (turnRationale) {
+      return turnRationale;
+    }
+  }
+  if (artifactLifecycleValue(item) === "whiteboard_snapshot") {
+    return "This draft iteration was saved so you can revisit the whiteboard work later.";
+  }
+  if (artifactLifecycleValue(item) === "comparison_hub") {
+    return "This comparison was saved so you can reopen the scenario branches later.";
+  }
+  if (artifactLifecycleValue(item) === "promoted_artifact") {
+    return "This whiteboard work was promoted into a reusable work product.";
+  }
+  if (item?.type === "concept" || item?.source === "concept") {
+    return "Vantage saved this as a reusable idea from the turn.";
+  }
+  if (savedNoteBucket(item) === "artifact") {
+    return "Vantage saved this as work you made during the turn.";
+  }
+  if (item?.source === "memory") {
+    return "Vantage saved this as something to remember later.";
+  }
+  return "";
+}
+
+function buildLearnedCorrectionHint(item, correctionModel) {
+  if (!correctionModel) {
+    return "";
+  }
+  if (isPinnedMemoryItem(item)) {
+    return `Correction path: ${correctionModel.primaryActionLabel}. This item is already pinned for the next turn.`;
+  }
+  return `Correction path: ${correctionModel.primaryActionLabel} or pin it for the next turn.`;
+}
+
+function getLearnedCorrectionItem() {
+  if (!state.learnedCorrection?.itemId) {
+    return null;
+  }
+  return state.turnLearned.find((candidate) => candidate?.id === state.learnedCorrection.itemId
+    && candidate?.source === state.learnedCorrection.source) || null;
+}
+
+function syncLearnedCorrectionState({ persist = false } = {}) {
+  if (!state.turnLearned.length) {
+    state.learnedCorrection = createEmptyLearnedCorrectionState();
+    if (persist) {
+      persistTurnSnapshot();
+    }
+    return null;
+  }
+  const current = getLearnedCorrectionItem();
+  if (current) {
+    return current;
+  }
+  const first = state.turnLearned[0];
+  state.learnedCorrection = {
+    itemId: first.id,
+    source: first.source || "",
+    mode: "overview",
+  };
+  if (persist) {
+    persistTurnSnapshot();
+  }
+  return first;
+}
+
+function setLearnedCorrectionTarget(item, { mode = "", persist = true } = {}) {
+  if (!item?.id || !isTurnLearnedItem(item)) {
+    return;
+  }
+  const sameItem = state.learnedCorrection?.itemId === item.id
+    && state.learnedCorrection?.source === (item.source || "");
+  state.learnedCorrection = {
+    itemId: item.id,
+    source: item.source || "",
+    mode: mode || (sameItem ? state.learnedCorrection.mode || "overview" : "overview"),
+  };
+  if (persist) {
+    persistTurnSnapshot();
+  }
+}
+
+function setLearnedCorrectionMode(mode, { persist = true } = {}) {
+  const item = syncLearnedCorrectionState({ persist: false });
+  if (!item) {
+    return;
+  }
+  state.learnedCorrection = {
+    itemId: item.id,
+    source: item.source || "",
+    mode: String(mode || "overview").trim() || "overview",
+  };
+  if (persist) {
+    persistTurnSnapshot();
+  }
+}
+
+function renderLearnedCorrectionPanel() {
+  if (
+    !turnLearnedCorrectionPanelEl
+    || !turnLearnedCorrectionSummaryEl
+    || !turnLearnedCorrectionActionsEl
+  ) {
+    return;
+  }
+  turnLearnedCorrectionActionsEl.innerHTML = "";
+  if (!state.turnLearned.length) {
+    turnLearnedCorrectionPanelEl.hidden = true;
+    turnLearnedCorrectionPanelEl.open = false;
+    turnLearnedCorrectionSummaryEl.textContent = "";
+    if (turnLearnedCorrectionMetaEl) {
+      turnLearnedCorrectionMetaEl.textContent = "Collapsed";
+    }
+    return;
+  }
+
+  const item = syncLearnedCorrectionState({ persist: false });
+  const correctionModel = buildLearnedCorrectionModel(item);
+  const activeMode = String(state.learnedCorrection?.mode || "overview").trim() || "overview";
+  const summaryText = correctionModel?.modeSummaries?.[activeMode]
+    || correctionModel?.summary
+    || "Direct correction works through the whiteboard.";
+  const title = item?.title || item?.id || "This learned item";
+  const summary = isPinnedMemoryItem(item) && activeMode === "overview"
+    ? `${title}: ${summaryText} It is currently pinned for the next turn.`
+    : `${title}: ${summaryText}`;
+  turnLearnedCorrectionSummaryEl.textContent = summary;
+  turnLearnedCorrectionPanelEl.hidden = false;
+  turnLearnedCorrectionPanelEl.open = activeMode !== "overview";
+  if (turnLearnedCorrectionMetaEl) {
+    turnLearnedCorrectionMetaEl.textContent = activeMode === "overview"
+      ? "Collapsed"
+      : describeLearnedCorrectionModeLabel(activeMode, correctionModel?.scopeLabel) || "Expanded";
+  }
+
+  const openButton = createActionButton(correctionModel?.primaryActionLabel || "Revise in whiteboard", "primary");
+  openButton.addEventListener("click", async () => {
+    setLearnedCorrectionMode("overview");
+    await openConceptIntoWorkspace(item.id);
+  });
+
+  const pinButton = createActionButton(
+    isPinnedMemoryItem(item)
+      ? (correctionModel?.pinnedContextLabel || "Pinned for next turn")
+      : (correctionModel?.keepContextLabel || "Pin for next turn"),
+    "secondary",
+  );
+  if (isPinnedMemoryItem(item)) {
+    pinButton.classList.add("is-active");
+  }
+  pinButton.addEventListener("click", () => {
+    setLearnedCorrectionMode("overview");
+    if (isPinnedMemoryItem(item)) {
+      clearPinnedContext();
+    } else {
+      pinMemoryItemForNextTurn(item);
+    }
+  });
+
+  const wrongButton = createActionButton(
+    describeLearnedCorrectionModeLabel("wrong", correctionModel?.scopeLabel) || "How to mark wrong",
+    "secondary",
+  );
+  if (activeMode === "wrong") {
+    wrongButton.classList.add("is-active");
+  }
+  wrongButton.addEventListener("click", () => {
+    setLearnedCorrectionMode("wrong");
+    renderTurnPanel();
+  });
+
+  const temporaryButton = createActionButton(
+    describeLearnedCorrectionModeLabel("temporary", correctionModel?.scopeLabel)
+      || (correctionModel?.scopeLabel === "Temporary in this experiment" ? "Already temporary" : "How to make temporary"),
+    "secondary",
+  );
+  if (activeMode === "temporary") {
+    temporaryButton.classList.add("is-active");
+  }
+  temporaryButton.disabled = correctionModel?.scopeLabel === "Temporary in this experiment";
+  temporaryButton.addEventListener("click", () => {
+    setLearnedCorrectionMode("temporary");
+    renderTurnPanel();
+  });
+
+  const forgetButton = createActionButton(
+    describeLearnedCorrectionModeLabel("forget", correctionModel?.scopeLabel) || "How to forget",
+    "secondary",
+  );
+  if (activeMode === "forget") {
+    forgetButton.classList.add("is-active");
+  }
+  forgetButton.addEventListener("click", () => {
+    setLearnedCorrectionMode("forget");
+    renderTurnPanel();
+  });
+
+  turnLearnedCorrectionActionsEl.append(openButton, pinButton, wrongButton, temporaryButton, forgetButton);
+}
+
+function learnedTypeLabel(item) {
+  if (item?.type === "concept" || item?.source === "concept") {
+    return "Idea";
+  }
+  if (savedNoteBucket(item) === "artifact") {
+    return "Work product";
+  }
+  if (item?.source === "memory") {
+    return "Note";
+  }
+  return "Saved item";
+}
+
 function itemTypeLabel(item) {
   if (item?.source === "memory_trace" || item?.type === "memory_trace") {
     return "memory trace";
@@ -2742,9 +3841,9 @@ function itemTypeLabel(item) {
     return "reference";
   }
   if (item?.type === "concept") {
-    return "concept";
+    return "insight";
   }
-  return savedNoteBucket(item) === "artifact" ? "artifact" : "memory";
+  return savedNoteBucket(item) === "artifact" ? "work product" : "memory";
 }
 
 function itemInspectorLabel(item) {
@@ -2755,9 +3854,12 @@ function itemInspectorLabel(item) {
     return "Reference note";
   }
   if (item?.type === "concept") {
-    return "Concept";
+    return "Reusable insight";
   }
-  return savedNoteBucket(item) === "artifact" ? "Artifact" : "Memory";
+  if (isScenarioComparisonArtifact(item)) {
+    return "Comparison hub";
+  }
+  return savedNoteBucket(item) === "artifact" ? "Work product" : "Memory";
 }
 
 function itemSourceSectionLabel(item) {
@@ -2765,15 +3867,110 @@ function itemSourceSectionLabel(item) {
     return "Memory Trace";
   }
   if (item?.isVaultNote) {
-    return item.sourceLabel || "Reference Notes";
+    return item.sourceLabel || "Reference notes";
   }
   if (item?.type === "concept") {
-    return "Concept KB";
+    return "Reusable insights";
+  }
+  if (isScenarioComparisonArtifact(item)) {
+    return "Comparison hubs";
   }
   if (item?.source === "session") {
-    return savedNoteBucket(item) === "artifact" ? "Staged artifact" : "Staged memory";
+    return savedNoteBucket(item) === "artifact" ? "Staged work product" : "Staged memory";
   }
-  return savedNoteBucket(item) === "artifact" ? "Artifacts" : "Memories";
+  return savedNoteBucket(item) === "artifact" ? "Work products" : "Memories";
+}
+
+function isScenarioComparisonArtifact(item) {
+  return savedNoteBucket(item) === "artifact"
+    && String(item?.scenarioKind || item?.scenario_kind || "").toLowerCase() === "comparison";
+}
+
+function artifactLifecycleValue(item) {
+  return String(item?.artifactLifecycle || item?.artifact_lifecycle || "").trim().toLowerCase();
+}
+
+function artifactOriginValue(item) {
+  return String(item?.artifactOrigin || item?.artifact_origin || "").trim().toLowerCase();
+}
+
+function artifactLifecycleLabel(item) {
+  switch (artifactLifecycleValue(item)) {
+    case "comparison_hub":
+      return "comparison hub";
+    case "whiteboard_snapshot":
+      return "saved whiteboard";
+    case "promoted_artifact":
+      return "promoted artifact";
+    default:
+      return isScenarioComparisonArtifact(item) ? "comparison hub" : "artifact";
+  }
+}
+
+function artifactOriginLabel(item) {
+  switch (artifactOriginValue(item)) {
+    case "scenario_lab":
+      return "Scenario Lab";
+    case "whiteboard":
+      return "Whiteboard";
+    case "library":
+      return "Library";
+    default:
+      if (isScenarioComparisonArtifact(item)) {
+        return "Scenario Lab";
+      }
+      if (item?.source === "session") {
+        return "Session";
+      }
+      if (Array.isArray(item?.comes_from) && item.comes_from.length) {
+        return "Derived item";
+      }
+      return "Library";
+  }
+}
+
+function artifactLifecycleDescription(item) {
+  switch (artifactLifecycleValue(item)) {
+    case "comparison_hub":
+      return "Durable Scenario Lab comparison in the Library. Inspect it here read-only, or reopen it in the whiteboard when you want to continue from the saved comparison.";
+    case "whiteboard_snapshot":
+      return "Saved whiteboard in the Library. Inspect it here read-only, or reopen it in the whiteboard when you want to continue from this saved snapshot.";
+    case "promoted_artifact":
+      return "Promoted artifact in the Library. Inspect it here read-only, or reopen it in the whiteboard when you want to continue from the promoted version.";
+    default:
+      return "Durable work product in the Library. Inspect it here read-only, or reopen it in the whiteboard when you want to continue from the saved version.";
+  }
+}
+
+function lineageSummary(item) {
+  const revisionParentId = item?.revisionParentId || item?.revision_parent_id || "";
+  const derivedFromId = item?.derivedFromId || item?.derived_from_id || "";
+  const comesFrom = Array.isArray(item?.comes_from) ? item.comes_from : [];
+  if (revisionParentId) {
+    return `Revision of ${revisionParentId}.`;
+  }
+  if (!derivedFromId) {
+    return "";
+  }
+  switch (artifactLifecycleValue(item)) {
+    case "comparison_hub": {
+      const relatedCount = Math.max(comesFrom.length - 1, 0);
+      return relatedCount
+        ? `Comparison hub anchored on ${derivedFromId} with ${relatedCount} related branch${relatedCount === 1 ? "" : "es"}.`
+        : `Comparison hub anchored on ${derivedFromId}.`;
+    }
+    case "whiteboard_snapshot":
+      return `Saved from whiteboard ${derivedFromId}.`;
+    case "promoted_artifact":
+      return `Promoted from whiteboard ${derivedFromId}.`;
+    default:
+      break;
+  }
+  if (isScenarioComparisonArtifact(item) && comesFrom.length > 1) {
+    const relatedCount = comesFrom.length - 1;
+    return `Derived from ${derivedFromId} with ${relatedCount} related branch${relatedCount === 1 ? "" : "es"}.`;
+  }
+  return `Derived from ${derivedFromId}.`;
 }
 
 function createMemoryCard(item, context) {
@@ -2805,29 +4002,64 @@ function createMemoryCard(item, context) {
   title.className = "concept-title";
   title.textContent = item.title || item.id;
 
-  const summary = document.createElement("p");
+  const summary = document.createElement("div");
   summary.className = "concept-card-text";
-  summary.textContent = item.card || (item.isVaultNote
+  renderRichText(summary, item.card || (item.isVaultNote
     ? "No reference note excerpt available."
     : item.source === "memory_trace" || item.type === "memory_trace"
       ? "No memory trace summary available."
     : item.type === "concept"
       ? "No concept card available."
-      : "No saved note card available.");
+      : "No saved note card available."), { compact: true });
+
+  const recallReasonText = shouldShowRecallReason(item, context)
+    ? describeRecallReason(item)
+    : "";
+  const recallReason = recallReasonText
+    ? document.createElement("p")
+    : null;
+  if (recallReason) {
+    recallReason.className = "concept-card-text concept-card-text--secondary concept-card-text--reason";
+    recallReason.textContent = `Why recalled: ${recallReasonText}`;
+  }
+
+  const learnedReasonText = context === "learned"
+    ? describeLearnedReason(item)
+    : "";
+  const learnedCorrection = context === "learned"
+    ? buildLearnedCorrectionModel(item)
+    : null;
+  const learnedReason = learnedReasonText
+    ? document.createElement("p")
+    : null;
+  if (learnedReason) {
+    learnedReason.className = "concept-card-text concept-card-text--secondary concept-card-text--reason";
+    learnedReason.textContent = `Saved because: ${learnedReasonText}`;
+  }
+  const learnedCorrectionHintText = context === "learned"
+    ? buildLearnedCorrectionHint(item, learnedCorrection)
+    : "";
+  const learnedCorrectionHint = learnedCorrectionHintText
+    ? document.createElement("p")
+    : null;
+  if (learnedCorrectionHint) {
+    learnedCorrectionHint.className = "concept-card-text concept-card-text--secondary concept-card-text--hint";
+    learnedCorrectionHint.textContent = learnedCorrectionHintText;
+  }
 
   const meta = document.createElement("div");
   meta.className = "concept-meta-row";
   if (context === "turn") {
-    meta.append(createBadge("used this turn", "accent"));
+    meta.append(createBadge("entered Recall", "accent"));
   } else if (context === "reasoning-candidate") {
     meta.append(
       createBadge(
-        item.reasoningStatusLabel || "candidate",
-        item.reasoningStatusLabel === "selected into recall" ? "accent" : "soft",
+        item.reasoningStatusLabel || "considered",
+        item.reasoningStatusLabel === "used for recall" ? "accent" : "soft",
       ),
     );
   } else if (context === "reasoning-recall") {
-    meta.append(createBadge("selected into recall", "accent"));
+    meta.append(createBadge("used for recall", "accent"));
   } else if (context === "trace") {
     meta.append(
       createBadge(
@@ -2839,6 +4071,8 @@ function createMemoryCard(item, context) {
     );
   } else if (context === "learned") {
     meta.append(createBadge("learned this turn", "success"));
+    meta.append(createBadge(learnedCorrection?.scopeLabel || describeLearnedScopeLabel(item), "soft"));
+    meta.append(createBadge(learnedTypeLabel(item), "soft"));
   }
   if (isPinnedMemoryItem(item)) {
     meta.append(createBadge("pinned context", "success"));
@@ -2846,7 +4080,7 @@ function createMemoryCard(item, context) {
   if (item.isVaultNote) {
     meta.append(createBadge("read-only", "warm"));
   } else if (item.type === "concept" && item.source !== "session") {
-    meta.append(createBadge("concept kb", "accent"));
+    meta.append(createBadge("idea library", "accent"));
   } else if (item.source === "session") {
     meta.append(createBadge(savedNoteBucket(item) === "artifact" ? "staged artifact" : "staged memory", "warm"));
   }
@@ -2859,15 +4093,35 @@ function createMemoryCard(item, context) {
   if (item.status) {
     meta.append(createBadge(item.status, "soft"));
   }
+  if (savedNoteBucket(item) === "artifact" && !item.isVaultNote) {
+    meta.append(createBadge(artifactLifecycleLabel(item), isScenarioComparisonArtifact(item) ? "accent" : "soft"));
+  }
+  if (item.lineageKind === "revision" || item.revisionParentId || item.revision_parent_id) {
+    meta.append(createBadge("revision", "soft"));
+  } else if ((item.derivedFromId || item.derived_from_id) && !isScenarioComparisonArtifact(item)) {
+    meta.append(createBadge("derived", "soft"));
+  }
   if ((item.links_to || []).length) {
     meta.append(createBadge(`${item.links_to.length} links`, "soft"));
   }
 
+  const lineageText = lineageSummary(item);
+  const lineage = lineageText
+    ? document.createElement("p")
+    : null;
+  if (lineage) {
+    lineage.className = "concept-card-text concept-card-text--secondary";
+    lineage.textContent = lineageText;
+  }
+
   const actions = document.createElement("div");
   actions.className = "concept-actions";
-  const inspectButton = createActionButton("Inspect", "secondary");
+  const inspectButton = createActionButton(context === "learned" ? "Review" : "Inspect", "secondary");
   inspectButton.addEventListener("click", (event) => {
     event.stopPropagation();
+    if (context === "learned") {
+      setLearnedCorrectionTarget(item, { mode: "overview" });
+    }
     if (item.source === "memory_trace") {
       pushNotice("Memory Trace item", "Memory Trace items stay inspectable inside this turn and do not open in the library inspector.", "info");
       return;
@@ -2883,17 +4137,49 @@ function createMemoryCard(item, context) {
     && context !== "reasoning-candidate"
     && context !== "reasoning-recall";
   if (canOpenItem) {
-    const openButton = createActionButton("Open", "primary");
+    const openButton = createActionButton(
+      context === "learned"
+        ? (learnedCorrection?.primaryActionLabel || "Revise in whiteboard")
+        : (savedNoteBucket(item) === "artifact"
+            ? (isScenarioComparisonArtifact(item) ? "Reopen comparison" : "Reopen")
+            : "Open"),
+      "primary",
+    );
     openButton.addEventListener("click", async (event) => {
       event.stopPropagation();
+      if (context === "learned") {
+        setLearnedCorrectionTarget(item, { mode: "overview" });
+      }
       await openConceptIntoWorkspace(item.id);
     });
-    actions.append(openButton, inspectButton);
+    if (context === "learned") {
+      const keepButton = createActionButton(
+        isPinnedMemoryItem(item)
+          ? (learnedCorrection?.pinnedContextLabel || "Pinned for next turn")
+          : (learnedCorrection?.keepContextLabel || "Pin for next turn"),
+        "secondary",
+      );
+      keepButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setLearnedCorrectionTarget(item, { mode: "overview" });
+        if (isPinnedMemoryItem(item)) {
+          clearPinnedContext();
+        } else {
+          pinMemoryItemForNextTurn(item);
+        }
+      });
+      actions.append(openButton, keepButton, inspectButton);
+    } else {
+      actions.append(openButton, inspectButton);
+    }
   } else {
     actions.append(inspectButton);
   }
 
   article.addEventListener("click", () => {
+    if (context === "learned") {
+      setLearnedCorrectionTarget(item, { mode: "overview" });
+    }
     if (item.source === "memory_trace") {
       pushNotice("Memory Trace item", "Memory Trace items stay inspectable inside this turn and do not open in the library inspector.", "info");
       return;
@@ -2905,7 +4191,20 @@ function createMemoryCard(item, context) {
     }
   });
 
-  article.append(top, title, summary, meta, actions);
+  article.append(top, title, summary);
+  if (recallReason) {
+    article.append(recallReason);
+  }
+  if (learnedReason) {
+    article.append(learnedReason);
+  }
+  if (learnedCorrectionHint) {
+    article.append(learnedCorrectionHint);
+  }
+  if (lineage) {
+    article.append(lineage);
+  }
+  article.append(meta, actions);
   return article;
 }
 
@@ -2916,17 +4215,23 @@ function createConceptCard(concept, context) {
 function createScenarioBranchCard(branch) {
   const detailsModel = deriveScenarioBranchDetails(branch);
   const isActiveWhiteboard = state.workspace.workspaceId === branch.workspace_id;
+  const isInspectingDetails = state.turn.scenarioBranchInspectionWorkspaceId === branch.workspace_id;
   const article = document.createElement("article");
   article.className = "concept-card concept-card--turn scenario-lab__branch-card";
+  article.dataset.scenarioBranchWorkspaceId = branch.workspace_id || "";
+  article.tabIndex = -1;
   if (isActiveWhiteboard) {
     article.classList.add("scenario-lab__branch-card--active");
+  }
+  if (isInspectingDetails) {
+    article.classList.add("scenario-lab__branch-card--inspecting");
   }
 
   const top = document.createElement("div");
   top.className = "concept-header";
   const type = document.createElement("span");
   type.className = "concept-type";
-  type.textContent = "scenario branch";
+  type.textContent = "branch";
   const id = document.createElement("span");
   id.className = "concept-id";
   id.textContent = humanizeScenarioLabel(branch.label, isActiveWhiteboard ? "Active whiteboard" : "Whiteboard ready");
@@ -2943,11 +4248,14 @@ function createScenarioBranchCard(branch) {
   const meta = document.createElement("div");
   meta.className = "concept-meta-row";
   meta.append(createBadge("scenario branch", "accent"));
+  if (isInspectingDetails) {
+    meta.append(createBadge("detail focus", "success"));
+  }
   if (isActiveWhiteboard) {
     meta.append(createBadge("active whiteboard", "success"));
   }
   if (branch.confidence) {
-    meta.append(createBadge(branch.confidence, "soft"));
+    meta.append(createBadge(describeScenarioBranchConfidence(branch.confidence), "soft"));
   }
   if (branch.status) {
     meta.append(createBadge(branch.status, "soft"));
@@ -2959,36 +4267,19 @@ function createScenarioBranchCard(branch) {
     details.append(createMiniMeta("question", detailsModel.question));
   }
   if (detailsModel.confidence) {
-    details.append(createMiniMeta("confidence", detailsModel.confidence));
+    details.append(createMiniMeta("confidence", describeScenarioBranchConfidence(detailsModel.confidence)));
   }
   if (branch.riskSummary || branch.risk_summary) {
     details.append(createMiniMeta("headline risk", branch.riskSummary || branch.risk_summary));
   }
-  details.append(createMiniMeta("revisit action", isActiveWhiteboard ? "Already active in whiteboard" : "Reopen this branch in the whiteboard"));
 
   const signals = document.createElement("div");
   signals.className = "scenario-lab__signal-grid";
   appendScenarioListBlock(signals, "Shared assumptions", detailsModel.sharedAssumptions);
+  appendScenarioListBlock(signals, "Risks", detailsModel.risks);
   appendScenarioListBlock(signals, "Preserved assumptions", detailsModel.preservedAssumptions);
   appendScenarioListBlock(signals, "Changed assumptions", detailsModel.changedAssumptions);
-  appendScenarioListBlock(signals, "Risks", detailsModel.risks);
   appendScenarioListBlock(signals, "Open questions", detailsModel.openQuestions);
-
-  const actions = document.createElement("div");
-  actions.className = "concept-actions scenario-lab__card-actions";
-  const openButton = createActionButton(isActiveWhiteboard ? "Already active in whiteboard" : "Revisit in whiteboard", "primary");
-  openButton.disabled = isActiveWhiteboard;
-  openButton.addEventListener("click", async (event) => {
-    event.stopPropagation();
-    await openWorkspace(branch.workspace_id);
-  });
-  actions.append(openButton);
-
-  const actionHint = document.createElement("p");
-  actionHint.className = "scenario-lab__action-hint";
-  actionHint.textContent = isActiveWhiteboard
-    ? "This branch is already the current whiteboard."
-    : "Revisit opens this branch as the active whiteboard without pinning it into future turns.";
 
   article.append(top, title, summary, meta);
   if (details.children.length) {
@@ -2997,18 +4288,14 @@ function createScenarioBranchCard(branch) {
   if (signals.children.length) {
     article.append(signals);
   }
-  article.append(actionHint, actions);
   return article;
 }
 
 function createScenarioArtifactCard(artifact) {
-  const linkedBranchCount = Array.isArray(artifact?.branchWorkspaceIds)
-    ? artifact.branchWorkspaceIds.length
-    : Array.isArray(artifact?.branch_workspace_ids)
-      ? artifact.branch_workspace_ids.length
-      : 0;
   const item = normalizeMemoryItem(artifact, "scenario-artifact");
   const detailsModel = deriveScenarioArtifactDetails(item);
+  const branchRoster = Array.isArray(detailsModel.branchIndex) ? detailsModel.branchIndex : [];
+  const linkedBranchCount = branchRoster.length || (Array.isArray(item.branchWorkspaceIds) ? item.branchWorkspaceIds.length : 0);
   const isSelected = item.id === state.selectedConceptId;
   const article = document.createElement("article");
   article.className = "concept-card scenario-lab__artifact-card";
@@ -3020,10 +4307,10 @@ function createScenarioArtifactCard(artifact) {
   top.className = "concept-header";
   const type = document.createElement("span");
   type.className = "concept-type";
-  type.textContent = "saved comparison";
+  type.textContent = "comparison hub";
   const id = document.createElement("span");
   id.className = "concept-id";
-  id.textContent = isSelected ? "Open in review" : "Ready for review";
+  id.textContent = isSelected ? "Open in review" : "Durable revisit hub";
   top.append(type, id);
 
   const title = document.createElement("h3");
@@ -3032,14 +4319,20 @@ function createScenarioArtifactCard(artifact) {
 
   const summary = document.createElement("p");
   summary.className = "concept-card-text";
-  summary.textContent = item.card || detailsModel.summary || "Saved comparison ready to inspect or open in the whiteboard.";
+  summary.textContent = item.card || detailsModel.summary || "Saved comparison ready to inspect or reopen in the whiteboard.";
+
+  let recommendationLead = null;
+  if (detailsModel.recommendation) {
+    recommendationLead = document.createElement("p");
+    recommendationLead.className = "concept-card-text concept-card-text--secondary scenario-lab__artifact-recommendation";
+    recommendationLead.textContent = detailsModel.recommendation;
+  }
 
   const meta = document.createElement("div");
   meta.className = "concept-meta-row";
-  meta.append(createBadge("learned this turn", "success"));
-  meta.append(createBadge("comparison artifact", "accent"));
+  meta.append(createBadge("comparison hub", "accent"));
   if (linkedBranchCount) {
-    meta.append(createBadge(`${linkedBranchCount} branches linked`, "soft"));
+    meta.append(createBadge(`${linkedBranchCount} branches indexed`, "soft"));
   }
   if (item.status) {
     meta.append(createBadge(item.status, "soft"));
@@ -3048,8 +4341,8 @@ function createScenarioArtifactCard(artifact) {
   const lifecycle = document.createElement("div");
   lifecycle.className = "scenario-lab__artifact-lifecycle";
   lifecycle.textContent = isSelected
-    ? "This artifact is open in review now. Inspecting it does not pin it into future turns."
-    : "Saved this turn and ready for revisit. Open it in the whiteboard to continue from the comparison artifact, or inspect it in review.";
+    ? "This comparison is open in review now. Its recommendation and linked branch roster remain the durable anchor for this Scenario Lab run."
+    : "Saved this turn as the durable anchor for this Scenario Lab run. Review the recommendation and linked branch roster here, then inspect or reopen individual branches as needed.";
 
   const signals = document.createElement("div");
   signals.className = "scenario-lab__signal-grid";
@@ -3057,31 +4350,118 @@ function createScenarioArtifactCard(artifact) {
   appendScenarioListBlock(signals, "Tradeoffs", detailsModel.tradeoffs);
   appendScenarioListBlock(signals, "Next steps", detailsModel.nextSteps);
 
+  const branchHub = document.createElement("div");
+  branchHub.className = "scenario-lab__hub-roster";
+  for (const branch of branchRoster) {
+    branchHub.append(createScenarioHubBranchCard(branch));
+  }
+
   const actions = document.createElement("div");
   actions.className = "concept-actions scenario-lab__card-actions";
-  const openButton = createActionButton("Open in whiteboard", "primary");
-  openButton.addEventListener("click", async (event) => {
-    event.stopPropagation();
-    await openConceptIntoWorkspace(item.id);
-  });
-  const inspectButton = createActionButton(isSelected ? "Inspecting in review" : "Inspect in review", "secondary");
+  const inspectButton = createActionButton(isSelected ? "Inspecting comparison" : "Inspect comparison", "secondary");
   inspectButton.disabled = isSelected;
   inspectButton.addEventListener("click", (event) => {
     event.stopPropagation();
     selectConcept(item.id);
   });
-  actions.append(openButton, inspectButton);
+  const openButton = createActionButton("Reopen comparison in whiteboard", "secondary");
+  openButton.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await openConceptIntoWorkspace(item.id);
+  });
+  actions.append(inspectButton, openButton);
 
   article.addEventListener("click", () => {
     selectConcept(item.id);
   });
 
-  article.append(top, title, summary, meta, lifecycle);
+  article.append(top, title, summary);
+  if (recommendationLead) {
+    article.append(recommendationLead);
+  }
+  article.append(meta, lifecycle);
   if (signals.children.length) {
     article.append(signals);
   }
+  if (branchHub.children.length) {
+    article.append(branchHub);
+  }
   article.append(actions);
   return article;
+}
+
+function createScenarioHubBranchCard(branch) {
+  const workspaceId = branch?.workspace_id || branch?.workspaceId || "";
+  const isActiveWhiteboard = Boolean(workspaceId) && state.workspace.workspaceId === workspaceId;
+  const row = document.createElement("div");
+  row.className = "scenario-lab__hub-branch";
+
+  const copy = document.createElement("div");
+  copy.className = "scenario-lab__hub-branch-copy";
+
+  const title = document.createElement("p");
+  title.className = "scenario-lab__hub-branch-title";
+  title.textContent = branch.title || workspaceId || "Scenario branch";
+
+  const summary = document.createElement("p");
+  summary.className = "scenario-lab__hub-branch-summary";
+  summary.textContent = branch.summary || "Reopen this branch from the comparison hub.";
+
+  const meta = document.createElement("div");
+  meta.className = "scenario-lab__branch-meta";
+  if (branch.label) {
+    meta.append(createBadge(humanizeScenarioLabel(branch.label, branch.label), "soft"));
+  }
+  meta.append(createBadge(isActiveWhiteboard ? "active whiteboard" : "linked branch", isActiveWhiteboard ? "success" : "soft"));
+
+  copy.append(title, summary, meta);
+  row.append(copy);
+
+  if (workspaceId) {
+    const actions = document.createElement("div");
+    actions.className = "scenario-lab__hub-branch-actions";
+    const inspectButton = createActionButton(
+      state.turn.scenarioBranchInspectionWorkspaceId === workspaceId ? "Inspecting details" : "Inspect details",
+      "secondary",
+    );
+    inspectButton.disabled = state.turn.scenarioBranchInspectionWorkspaceId === workspaceId;
+    inspectButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      inspectScenarioBranchDetails(workspaceId);
+    });
+    const openButton = createActionButton(isActiveWhiteboard ? "Already open" : "Reopen branch", "secondary");
+    openButton.disabled = isActiveWhiteboard;
+    openButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await openWorkspace(workspaceId);
+    });
+    actions.append(inspectButton, openButton);
+    row.append(actions);
+  }
+
+  return row;
+}
+
+function inspectScenarioBranchDetails(workspaceId) {
+  if (!workspaceId) {
+    return;
+  }
+  state.turn.scenarioBranchInspectionWorkspaceId = workspaceId;
+  state.surface = openVantageSurface(state.surface);
+  scenarioDockEl.open = true;
+  persistTurnSnapshot();
+  renderViewState();
+  renderTurnPanel();
+  window.requestAnimationFrame(() => {
+    const branchCard = Array.from(
+      scenarioLabSectionEl.querySelectorAll("[data-scenario-branch-workspace-id]"),
+    ).find((node) => node.dataset.scenarioBranchWorkspaceId === workspaceId);
+    if (!branchCard) {
+      return;
+    }
+    branchCard.scrollIntoView({ behavior: "smooth", block: "center" });
+    branchCard.focus({ preventScroll: true });
+  });
 }
 
 function selectConcept(conceptId, { silent = false, source = "user" } = {}) {
@@ -3095,16 +4475,20 @@ function selectConcept(conceptId, { silent = false, source = "user" } = {}) {
   state.selectedConceptId = concept.id;
   state.selectedVaultNoteId = "";
   state.selectionOrigin = source;
+  if (isTurnLearnedItem(concept)) {
+    setLearnedCorrectionTarget(concept, { persist: false });
+  }
   persistTurnSnapshot();
   if (!silent) {
     const label = concept.type === "concept"
-      ? "Concept selected"
+      ? "Idea selected"
       : savedNoteBucket(concept) === "artifact"
-        ? "Artifact selected"
-        : "Memory selected";
+        ? "Work product selected"
+        : "Note selected";
     pushNotice(label, `${concept.title} is now open in review.`, "info");
   }
   renderMemoryPanel();
+  renderTurnPanel();
 }
 
 function selectVaultNote(vaultNoteId, { silent = false, source = "user" } = {}) {
@@ -3123,12 +4507,13 @@ function selectVaultNote(vaultNoteId, { silent = false, source = "user" } = {}) 
     pushNotice("Reference note selected", `${note.title} is now open in review.`, "info");
   }
   renderMemoryPanel();
+  renderTurnPanel();
 }
 
 function pinSelectedMemoryForNextTurn() {
   const item = getSelectedMemoryItem();
   if (!item) {
-    pushNotice("Nothing selected", "Inspect a concept, saved note, or reference note before pinning it for the next turn.", "info");
+    pushNotice("Nothing selected", "Inspect an idea, note, or reference note before pinning it for the next turn.", "info");
     return;
   }
   pinMemoryItemForNextTurn(item);
@@ -3144,6 +4529,7 @@ function pinMemoryItemForNextTurn(item) {
   };
   persistTurnSnapshot();
   renderMemoryPanel();
+  renderTurnPanel();
   pushNotice("Context pinned", `${item.title} will stay in pinned context until you clear it.`, "success");
 }
 
@@ -3154,6 +4540,7 @@ function clearPinnedContext({ silent = false } = {}) {
   state.pinnedContext = null;
   persistTurnSnapshot();
   renderMemoryPanel();
+  renderTurnPanel();
   if (!silent) {
     pushNotice("Pinned context cleared", "No library item is pinned for upcoming turns.", "info");
   }
@@ -3198,8 +4585,12 @@ function getSelectedMemoryId() {
   return state.selectedConceptId || state.selectedVaultNoteId || null;
 }
 
-function getSelectedMemoryIdForChat() {
+function getPinnedContextIdForChat() {
   return state.pinnedContext?.id || null;
+}
+
+function getSelectedMemoryIdForChat() {
+  return getPinnedContextIdForChat();
 }
 
 function getConceptById(conceptId) {
@@ -3444,6 +4835,9 @@ function normalizeConcept(concept, source) {
     status: concept.status || "active",
     links_to: Array.isArray(concept.links_to) ? concept.links_to : Array.isArray(concept.linksTo) ? concept.linksTo : [],
     comes_from: Array.isArray(concept.comes_from) ? concept.comes_from : [],
+    derived_from_id: concept.derived_from_id || concept.derivedFromId || null,
+    revision_parent_id: concept.revision_parent_id || concept.revisionParentId || null,
+    lineage_kind: concept.lineage_kind || concept.lineageKind || (Array.isArray(concept.comes_from) && concept.comes_from.length ? "provenance" : "none"),
     filename: concept.filename || "",
     source: concept.source || source,
     score: concept.score ?? null,
@@ -3474,6 +4868,26 @@ function normalizeMemoryItem(item, source) {
   const card = item.card || item.summary || item.description || item.note_card || item.snippet || item.excerpt || normalized.card;
   const status = item.status || (isVaultNote ? "read-only" : normalized.status);
   const explicitType = String(item.type || item.kind || item.record_kind || "").trim();
+  const scenarioPayload = item.scenario && typeof item.scenario === "object" ? item.scenario : null;
+  const scenarioKind = String(item.scenario_kind || scenarioPayload?.scenario_kind || "").trim().toLowerCase();
+  const branchIndex = Array.isArray(item.branchIndex)
+    ? item.branchIndex
+    : Array.isArray(item.branch_index)
+      ? item.branch_index
+      : Array.isArray(scenarioPayload?.branch_index)
+        ? scenarioPayload.branch_index
+        : Array.isArray(scenarioPayload?.branchIndex)
+          ? scenarioPayload.branchIndex
+          : [];
+  const branchWorkspaceIds = Array.isArray(item.branchWorkspaceIds)
+    ? item.branchWorkspaceIds
+    : Array.isArray(item.branch_workspace_ids)
+      ? item.branch_workspace_ids
+      : Array.isArray(scenarioPayload?.branch_workspace_ids)
+        ? scenarioPayload.branch_workspace_ids
+        : Array.isArray(scenarioPayload?.branchWorkspaceIds)
+          ? scenarioPayload.branchWorkspaceIds
+          : [];
   return {
     ...normalized,
     id: normalizeRecordId(item, path || normalized.id),
@@ -3484,8 +4898,13 @@ function normalizeMemoryItem(item, source) {
     card: card || (isVaultNote ? body.slice(0, 160) : ""),
     body,
     status,
+    scope: item.scope || "",
+    durability: item.durability || "",
     links_to: Array.isArray(item.links_to) ? item.links_to : Array.isArray(item.linksTo) ? item.linksTo : normalized.links_to,
     comes_from: Array.isArray(item.comes_from) ? item.comes_from : normalized.comes_from,
+    derived_from_id: item.derived_from_id || item.derivedFromId || normalized.derived_from_id || null,
+    revision_parent_id: item.revision_parent_id || item.revisionParentId || normalized.revision_parent_id || null,
+    lineage_kind: item.lineage_kind || item.lineageKind || normalized.lineage_kind || (Array.isArray(item.comes_from) && item.comes_from.length ? "provenance" : "none"),
     filename: item.filename || normalized.filename || "",
     path,
     source: item.source || normalized.source || source,
@@ -3498,9 +4917,52 @@ function normalizeMemoryItem(item, source) {
     score: item.score ?? item.rank ?? normalized.score,
     tags: Array.isArray(item.tags) ? item.tags : [],
     provenance: item.provenance || item.source_meta || item.metadata || null,
+    recallReason: item.recall_reason || item.recallReason || item.why_recalled || item.whyRecalled || item.user_reason || item.userReason || "",
+    recall_reason: item.recall_reason || item.recallReason || item.why_recalled || item.whyRecalled || item.user_reason || item.userReason || "",
+    learnedReason: item.learned_reason || item.learnedReason || item.why_learned || item.whyLearned || item.save_reason || item.saveReason || item.rationale || "",
+    learned_reason: item.learned_reason || item.learnedReason || item.why_learned || item.whyLearned || item.save_reason || item.saveReason || item.rationale || "",
+    whyLearned: item.why_learned || item.whyLearned || item.learned_reason || item.learnedReason || "",
+    why_learned: item.why_learned || item.whyLearned || item.learned_reason || item.learnedReason || "",
+    scope: item.scope || normalized.scope || "",
+    durability: item.durability || normalized.durability || "",
+    correctionAffordance: item.correction_affordance || item.correctionAffordance || null,
+    correction_affordance: item.correction_affordance || item.correctionAffordance || null,
+    debugReason: item.reason || item.debug_reason || item.debugReason || "",
+    scenario: scenarioPayload,
+    scenarioKind,
+    scenario_kind: scenarioKind,
+    branchIndex,
+    branchWorkspaceIds,
+    artifact_lifecycle: item.artifact_lifecycle || item.artifactLifecycle || "",
+    artifact_origin: item.artifact_origin || item.artifactOrigin || "",
     libraryBucket: isVaultNote ? "reference" : savedNoteBucket({ kind: item.kind, type: explicitType, path, filename: item.filename || normalized.filename || "" }),
+    derivedFromId: item.derived_from_id || item.derivedFromId || normalized.derived_from_id || null,
+    revisionParentId: item.revision_parent_id || item.revisionParentId || normalized.revision_parent_id || null,
+    lineageKind: item.lineage_kind || item.lineageKind || normalized.lineage_kind || (Array.isArray(item.comes_from) && item.comes_from.length ? "provenance" : "none"),
+    artifactLifecycle: item.artifact_lifecycle || item.artifactLifecycle || "",
+    artifactOrigin: item.artifact_origin || item.artifactOrigin || "",
     isVaultNote,
   };
+}
+
+function shouldShowRecallReason(item, context) {
+  if (!item || item.source === "memory_trace") {
+    return false;
+  }
+  if (context === "turn" || context === "reasoning-recall") {
+    return true;
+  }
+  return context === "reasoning-candidate" && item.reasoningStatusLabel === "used for recall";
+}
+
+function productVettingNotice(vetting, { recallCount = 0 } = {}) {
+  if (!vetting || typeof vetting !== "object" || recallCount > 0) {
+    return "";
+  }
+  if (vetting.none_relevant === true) {
+    return "Nothing from Recall was selected for this turn.";
+  }
+  return "";
 }
 
 function inferMemoryKind(item, source) {
@@ -3530,21 +4992,21 @@ function fallbackMemorySourceLabel(source, isVaultNote) {
     return "Memory Trace";
   }
   if (value.includes("turn")) {
-    return isVaultNote ? "Turn reference notes" : "Turn durable notes";
+    return isVaultNote ? "Turn references" : "Turn context";
   }
   if (value.includes("candidate")) {
-    return isVaultNote ? "Candidate reference notes" : "Candidate durable notes";
+    return isVaultNote ? "Considered references" : "Considered context";
   }
   if (value.includes("session")) {
-    return isVaultNote ? "Session reference notes" : "Session durable notes";
+    return isVaultNote ? "Session references" : "Session drafts";
   }
   if (value.includes("catalog")) {
-    return isVaultNote ? "Reference notes" : "Durable notes";
+    return isVaultNote ? "Reference notes" : "Library";
   }
   if (value.includes("vault")) {
     return "Reference notes";
   }
-  return isVaultNote ? "Reference notes" : "Durable notes";
+  return isVaultNote ? "Reference notes" : "Library";
 }
 
 function labelFromValue(value, fallback) {
@@ -3702,32 +5164,20 @@ function describeGraphAction(action) {
 function humanizeActionLabel(value) {
   switch (value) {
     case "create_concept":
-      return "Concept created";
+      return "Idea created";
     case "create_memory":
-      return "Memory saved";
+      return "Note saved";
     case "create_revision":
-      return "Durable note revised";
+      return "Saved item revised";
     case "promote_workspace_to_artifact":
-      return "Whiteboard saved as artifact";
+      return "Whiteboard saved as work product";
     case "save_workspace_iteration_artifact":
-      return "Artifact iteration saved";
+      return "Work product iteration saved";
+    case "open_saved_item_into_workspace":
     case "open_concept_into_workspace":
-      return "Whiteboard opened from saved item";
+      return "Opened in whiteboard";
     default:
       return value.replaceAll("_", " ");
-  }
-}
-
-function labelForIntent(intent) {
-  switch (intent) {
-    case "remember":
-      return "Next turn will be marked to remember.";
-    case "skip":
-      return "Next turn will be marked not to save.";
-    case "related":
-      return "Related notes are open in the library.";
-    default:
-      return "Idle";
   }
 }
 
@@ -3736,6 +5186,38 @@ function createBadge(label, tone) {
   badge.className = `badge badge--${tone}`;
   badge.textContent = label;
   return badge;
+}
+
+function normalizeEvidenceLabel(label) {
+  return String(label || "").trim().toLowerCase();
+}
+
+function isWhiteboardStateEvidenceLabel(label) {
+  return [
+    "whiteboard",
+    "prior whiteboard",
+    "recall + whiteboard",
+    "recall + prior whiteboard",
+    "opened in whiteboard",
+    "whiteboard decision",
+    "whiteboard offer",
+    "draft ready",
+  ].includes(label);
+}
+
+function applyTranscriptEvidenceBadgeClasses(badge, item, evidence = []) {
+  const label = normalizeEvidenceLabel(item?.label);
+  const hasStrongerCompanion = evidence.some((entry) => entry !== item && entry?.emphasis === "strong");
+
+  if (item?.emphasis === "quiet") {
+    badge.classList.add("badge--message-secondary");
+  } else if (item?.emphasis === "strong") {
+    badge.classList.add("badge--message-strong");
+  }
+
+  if (isWhiteboardStateEvidenceLabel(label) && hasStrongerCompanion) {
+    badge.classList.add("badge--message-muted");
+  }
 }
 
 function createMiniMeta(label, value) {
@@ -3755,6 +5237,32 @@ function scenarioQuestionText(scenarioLab) {
   return scenarioLab?.question || scenarioLab?.comparison_question || "Scenario branches were created from this turn.";
 }
 
+function scenarioLabBranchCount(scenarioLab) {
+  if (!scenarioLab || typeof scenarioLab !== "object") {
+    return 0;
+  }
+  if (Array.isArray(scenarioLab.branches) && scenarioLab.branches.length) {
+    return scenarioLab.branches.length;
+  }
+  const comparisonArtifact = scenarioLab.comparisonArtifact
+    || (scenarioLab.comparison_artifact && typeof scenarioLab.comparison_artifact === "object"
+      ? scenarioLab.comparison_artifact
+      : null);
+  if (Array.isArray(comparisonArtifact?.branchIndex) && comparisonArtifact.branchIndex.length) {
+    return comparisonArtifact.branchIndex.length;
+  }
+  if (Array.isArray(comparisonArtifact?.branch_index) && comparisonArtifact.branch_index.length) {
+    return comparisonArtifact.branch_index.length;
+  }
+  if (Array.isArray(comparisonArtifact?.branchWorkspaceIds) && comparisonArtifact.branchWorkspaceIds.length) {
+    return comparisonArtifact.branchWorkspaceIds.length;
+  }
+  if (Array.isArray(comparisonArtifact?.branch_workspace_ids) && comparisonArtifact.branch_workspace_ids.length) {
+    return comparisonArtifact.branch_workspace_ids.length;
+  }
+  return 0;
+}
+
 function hasScenarioComparisonArtifact(scenarioLab) {
   return Boolean(
     scenarioLab?.comparisonArtifact
@@ -3764,13 +5272,13 @@ function hasScenarioComparisonArtifact(scenarioLab) {
 
 function buildScenarioLabOutcomeCopy(branchCount, hasArtifact) {
   if (branchCount > 0 && hasArtifact) {
-    return `Scenario Lab created ${branchCount} branch${branchCount === 1 ? "" : "es"} and saved a comparison artifact.`;
+    return `Scenario Lab created ${branchCount} branch${branchCount === 1 ? "" : "es"} and saved a comparison hub.`;
   }
   if (branchCount > 0) {
     return `Scenario Lab created ${branchCount} branch${branchCount === 1 ? "" : "es"} for review.`;
   }
   if (hasArtifact) {
-    return "Scenario Lab saved a comparison artifact for review.";
+    return "Scenario Lab saved a comparison hub for review.";
   }
   return "Scenario Lab created durable scenario outputs.";
 }
@@ -3853,6 +5361,10 @@ function deriveScenarioArtifactDetails(artifact) {
       artifact?.next_steps,
       extractMarkdownBulletList(artifact?.body, "Next Steps"),
     ]),
+    branchIndex: normalizeComparisonBranchIndex(
+      artifact?.branchIndex || artifact?.branch_index,
+      artifact?.branchWorkspaceIds || artifact?.branch_workspace_ids,
+    ),
   };
 }
 
@@ -3877,9 +5389,77 @@ function createScenarioOverviewCard({ label, body = "", items = [], tone = "neut
   return card;
 }
 
+function createScenarioSupportCard({ label = "", summary = "", meta = null } = {}) {
+  const card = document.createElement("section");
+  card.className = "scenario-lab__support-card";
+
+  const heading = document.createElement("div");
+  heading.className = "section-label";
+  heading.textContent = label || "Details";
+  card.append(heading);
+
+  if (summary) {
+    const text = document.createElement("p");
+    text.className = "scenario-lab__support-copy";
+    text.textContent = summary;
+    card.append(text);
+  }
+
+  if (meta && meta.childNodes.length) {
+    card.append(meta.cloneNode(true));
+  }
+
+  return card;
+}
+
+function createScenarioSectionLead({ label = "", summary = "", metaItems = [] } = {}) {
+  const sectionHead = document.createElement("div");
+  sectionHead.className = "scenario-lab__section-head";
+
+  const copy = document.createElement("div");
+  copy.className = "scenario-lab__section-head-copy";
+
+  const heading = document.createElement("div");
+  heading.className = "section-label";
+  heading.textContent = label || "Section";
+  copy.append(heading);
+
+  if (summary) {
+    const text = document.createElement("p");
+    text.className = "scenario-lab__section-copy";
+    text.textContent = summary;
+    copy.append(text);
+  }
+  sectionHead.append(copy);
+
+  if (Array.isArray(metaItems) && metaItems.length) {
+    const meta = document.createElement("div");
+    meta.className = "scenario-lab__section-meta";
+    for (const item of metaItems) {
+      if (!item?.label || !item?.value) {
+        continue;
+      }
+      meta.append(createMiniMeta(item.label, item.value));
+    }
+    if (meta.childNodes.length) {
+      sectionHead.append(meta);
+    }
+  }
+
+  return sectionHead;
+}
+
 function createScenarioTranscriptCard(scenarioLab) {
-  const branchCount = Array.isArray(scenarioLab?.branches) ? scenarioLab.branches.length : 0;
-  const artifactId = scenarioLab?.comparisonArtifact?.id || scenarioLab?.comparison_artifact?.id || "";
+  const comparisonArtifact = scenarioLab?.comparisonArtifact
+    || (scenarioLab?.comparison_artifact && typeof scenarioLab.comparison_artifact === "object"
+      ? scenarioLab.comparison_artifact
+      : null);
+  const artifactDetails = comparisonArtifact ? deriveScenarioArtifactDetails(comparisonArtifact) : null;
+  const comparisonBranchRoster = Array.isArray(artifactDetails?.branchIndex) ? artifactDetails.branchIndex : [];
+  const branchCount = Array.isArray(scenarioLab?.branches) && scenarioLab.branches.length
+    ? scenarioLab.branches.length
+    : comparisonBranchRoster.length;
+  const artifactId = comparisonArtifact?.id || "";
   const card = document.createElement("section");
   card.className = "message-scenario-card";
 
@@ -3890,11 +5470,11 @@ function createScenarioTranscriptCard(scenarioLab) {
   label.textContent = "Scenario Lab";
   const meta = document.createElement("div");
   meta.className = "message-scenario-card__meta";
+  if (artifactId) {
+    meta.append(createBadge("Comparison hub", "success"));
+  }
   if (branchCount) {
     meta.append(createBadge(`${branchCount} ${branchCount === 1 ? "branch" : "branches"}`, "soft"));
-  }
-  if (artifactId) {
-    meta.append(createBadge("Saved comparison", "success"));
   }
   top.append(label, meta);
 
@@ -3909,7 +5489,7 @@ function createScenarioTranscriptCard(scenarioLab) {
   summary.textContent = scenarioLab?.status === "failed"
     ? (scenarioLab?.error?.message || "Scenario Lab could not complete this turn, so Vantage answered in chat instead.")
     : (scenarioLab?.recommendation || scenarioLab?.summary || (artifactId
-      ? "Scenario branches and a saved comparison are ready to inspect."
+      ? "Comparison question, recommendation, and the durable hub are ready to inspect."
       : "Scenario branches are ready to inspect."));
 
   const actions = document.createElement("div");
@@ -3920,7 +5500,7 @@ function createScenarioTranscriptCard(scenarioLab) {
   });
   actions.append(openScenarioButton);
   if (artifactId) {
-    const inspectArtifactButton = createActionButton("Inspect in Library", "secondary");
+    const inspectArtifactButton = createActionButton("Inspect comparison", "secondary");
     inspectArtifactButton.addEventListener("click", () => {
       inspectScenarioArtifact(artifactId);
     });
@@ -4060,15 +5640,15 @@ function buildWorkspaceNote(payload) {
     return buildScenarioLabOutcomeCopy(branchCount, hasScenarioComparisonArtifact(payload?.scenario_lab));
   }
   if (payload?.workspace_update?.status === "offered") {
-    return payload.workspace_update.summary || "Vantage suggested moving this work product into the whiteboard.";
+    return payload.workspace_update.summary || "Vantage suggested moving this work into the whiteboard.";
   }
   if (payload?.workspace_update?.status === "draft_ready") {
-    return payload.workspace_update.summary || "A whiteboard draft is ready to review before it changes the whiteboard.";
+    return payload.workspace_update.summary || "A whiteboard draft is ready to review before it enters the whiteboard.";
   }
   if (payload?.workspace_update?.summary) {
     return payload.workspace_update.summary;
   }
-  if (payload?.graph_action?.type === "open_concept_into_workspace") {
+  if (payload?.graph_action?.type === "open_saved_item_into_workspace" || payload?.graph_action?.type === "open_concept_into_workspace") {
     return "Whiteboard updated from the selected item.";
   }
   if (payload?.graph_action) {
@@ -4081,34 +5661,58 @@ function buildWorkspaceNote(payload) {
 }
 
 function pushNotice(title, message, tone = "info") {
+  const normalizedTitle = String(title || "").trim();
+  const normalizedMessage = String(message || "").trim();
+  if (!normalizedTitle && !normalizedMessage) {
+    return;
+  }
+  if (
+    state.notice
+    && state.notice.title === normalizedTitle
+    && state.notice.message === normalizedMessage
+    && state.notice.tone === tone
+  ) {
+    if (state.noticeTimeoutId) {
+      window.clearTimeout(state.noticeTimeoutId);
+    }
+  }
   const notice = {
     id: `${Date.now()}-${++state.noticeCounter}`,
-    title,
-    message,
+    title: normalizedTitle,
+    message: normalizedMessage,
     tone,
   };
-  state.notices.unshift(notice);
-  state.notices = state.notices.slice(0, 5);
+  state.notice = notice;
   renderNotices();
-  window.setTimeout(() => {
-    state.notices = state.notices.filter((item) => item.id !== notice.id);
-    renderNotices();
-  }, 5000);
+  if (state.noticeTimeoutId) {
+    window.clearTimeout(state.noticeTimeoutId);
+  }
+  const timeoutMs = tone === "warning" ? 5600 : 3400;
+  state.noticeTimeoutId = window.setTimeout(() => {
+    if (state.notice?.id === notice.id) {
+      state.notice = null;
+      renderNotices();
+    }
+    state.noticeTimeoutId = null;
+  }, timeoutMs);
 }
 
 function renderNotices() {
   noticeRailEl.innerHTML = "";
-  for (const notice of state.notices) {
-    const node = document.createElement("article");
-    node.className = `notice notice--${notice.tone}`;
-    const title = document.createElement("strong");
-    title.textContent = notice.title;
-    const message = document.createElement("div");
-    message.className = "notice-message";
-    message.textContent = notice.message;
-    node.append(title, message);
-    noticeRailEl.appendChild(node);
+  noticeRailEl.hidden = !state.notice;
+  if (!state.notice) {
+    return;
   }
+  const notice = state.notice;
+  const node = document.createElement("article");
+  node.className = `notice notice--${notice.tone}`;
+  const title = document.createElement("strong");
+  title.textContent = notice.title;
+  const message = document.createElement("div");
+  message.className = "notice-message";
+  message.textContent = notice.message;
+  node.append(title, message);
+  noticeRailEl.appendChild(node);
 }
 
 function addMessage(role, text, { evidence = [], scenarioLab = null } = {}) {
@@ -4119,7 +5723,7 @@ function addMessage(role, text, { evidence = [], scenarioLab = null } = {}) {
     article.classList.add("message--scenario-lab");
   }
   node.querySelector(".message-role").textContent = role;
-  node.querySelector(".message-body").textContent = text;
+  renderRichText(node.querySelector(".message-body"), text);
   if (Array.isArray(evidence) && evidence.length) {
     const rail = document.createElement("div");
     rail.className = "message-evidence";
@@ -4129,6 +5733,7 @@ function addMessage(role, text, { evidence = [], scenarioLab = null } = {}) {
       }
       const badge = createBadge(item.label, item.tone || "soft");
       badge.classList.add("badge--message");
+      applyTranscriptEvidenceBadgeClasses(badge, item, evidence);
       rail.append(badge);
     }
     article.append(rail);
@@ -4150,14 +5755,10 @@ function setBusy(value) {
   hideWhiteboardButtonEl.disabled = value;
   saveWorkspaceButtonEl.disabled = value;
   promoteWorkspaceButtonEl.disabled = value || !workspaceEditorEl.value.trim();
-  rememberButtonEl.disabled = value;
-  dontSaveButtonEl.disabled = value;
-  showRelatedButtonEl.disabled = value;
   pinSelectedContextButtonEl.disabled = value || !getSelectedMemoryItem();
   clearPinnedContextButtonEl.disabled = value || !getPinnedMemoryItem();
   refreshConceptsButtonEl.disabled = value;
-  startExperimentButtonEl.disabled = value || state.experiment.active;
-  endExperimentButtonEl.disabled = value || !state.experiment.active;
+  experimentToggleButtonEl.disabled = value;
   clearSearchButtonEl.disabled = value;
   workspaceEditorEl.disabled = value;
   if (value) {

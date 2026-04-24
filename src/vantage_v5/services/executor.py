@@ -142,6 +142,10 @@ class GraphActionExecutor:
                 body=decision.body or workspace.content,
                 links_to=decision.links_to or [],
                 comes_from=[workspace.workspace_id],
+                metadata={
+                    "artifact_origin": "whiteboard",
+                    "artifact_lifecycle": "promoted_artifact",
+                },
             )
             return ExecutedAction(
                 action=action,
@@ -171,6 +175,10 @@ class GraphActionExecutor:
             card=card or workspace.title,
             body=workspace.content,
             comes_from=[workspace.workspace_id],
+            metadata={
+                "artifact_origin": "whiteboard",
+                "artifact_lifecycle": "promoted_artifact",
+            },
         )
         return ExecutedAction(
             action="promote_workspace_to_artifact",
@@ -195,6 +203,10 @@ class GraphActionExecutor:
             card=card or title or workspace.title,
             body=body or workspace.content,
             comes_from=[workspace.workspace_id],
+            metadata={
+                "artifact_origin": "whiteboard",
+                "artifact_lifecycle": "whiteboard_snapshot",
+            },
         )
         return ExecutedAction(
             action="save_workspace_iteration_artifact",
@@ -216,7 +228,7 @@ class GraphActionExecutor:
         document = self.workspace_store.save(record.id, workspace_text)
         self.state_store.set_active_workspace_id(document.workspace_id)
         return ExecutedAction(
-            action="open_concept_into_workspace",
+            action="open_saved_item_into_workspace",
             status="executed",
             summary=f"Opened saved item '{record.title}' into the shared workspace.",
             record_id=record.id,

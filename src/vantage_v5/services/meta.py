@@ -117,6 +117,7 @@ class MetaService:
             "allowed_actions": [
                 "no_op",
                 "create_concept",
+                "create_revision",
                 "create_memory",
                 "promote_workspace_to_artifact",
             ],
@@ -128,11 +129,15 @@ class MetaService:
                 "You are the Vantage V5 meta call. "
                 "Decide the highest-value graph action for this turn relative to the existing knowledge graph. "
                 "Create_concept is the default durable action for stable, reusable, or generalizable turns when the turn crystallizes knowledge that should live in the concept graph. "
+                "Create_revision is a deliberate action for materially revising or superseding an existing vetted concept. "
                 "Concepts are timeless, generalizable knowledge. "
                 "Memories are retained user, project, or session facts. "
                 "Artifacts are concrete outputs like drafts, plans, essays, or workspace snapshots. "
-                "The only write actions available in this phase are create_concept, create_memory, and promote_workspace_to_artifact. "
+                "The only write actions available in this phase are create_concept, create_revision, create_memory, and promote_workspace_to_artifact. "
                 "Only create a concept when the content is clearly timeless and generalizable. "
+                "Only use create_revision when the turn is explicitly revising or clearly improving one existing vetted concept rather than creating a distinct concept. "
+                "Create_revision requires target_concept_id naming the vetted concept being revised. "
+                "Do not use create_revision for merely related knowledge; use create_concept with links_to for that. "
                 "When a new concept is closely related to vetted concepts but still distinct, prefer create_concept with links_to pointing at the nearby concept neighborhood instead of suppressing it. "
                 "Reserve no_op for near-duplicate restatements or clearly non-durable turns. "
                 "Only create a memory when the user explicitly asks to remember or save something durable. "
@@ -155,6 +160,7 @@ class MetaService:
                                 "enum": [
                                     "no_op",
                                     "create_concept",
+                                    "create_revision",
                                     "create_memory",
                                     "promote_workspace_to_artifact",
                                 ],
@@ -193,10 +199,46 @@ class MetaService:
             user_message=user_message,
             assistant_message=assistant_message,
         )
+        explicit_revision_request = _is_explicit_revision_request(user_message)
         requested_links = _validated_link_targets(result.get("links_to") or [], concept_ids)
         merged_links = list(dict.fromkeys([*requested_links, *related_links]))[:3]
+        effective_action = result["action"]
 
-        if result["action"] == "create_concept" and duplicate_concept is not None:
+        if effective_action == "create_concept" and explicit_revision_request and (
+            duplicate_concept is not None or len(concept_ids) == 1
+        ):
+            effective_action = "create_revision"
+
+        if effective_action == "create_revision":
+            revision_target = _resolved_revision_target(
+                result.get("target_concept_id"),
+                allowed_ids=concept_ids,
+                duplicate_concept_id=duplicate_concept,
+                sole_concept_id=concept_ids[0] if explicit_revision_request and len(concept_ids) == 1 else None,
+            )
+            if revision_target is None:
+                return MetaDecision(
+                    action="no_op",
+                    rationale=(
+                        f"{result['rationale']} Revision was requested without a clear vetted concept target, so no durable write was created."
+                    ).strip(),
+                    title=result.get("title"),
+                    card=result.get("card"),
+                    body=result.get("body"),
+                    links_to=[link for link in merged_links if link != duplicate_concept],
+                )
+            revision_links = [link for link in merged_links if link != revision_target][:3]
+            return MetaDecision(
+                action="create_revision",
+                rationale=result["rationale"],
+                title=result.get("title"),
+                card=result.get("card"),
+                body=result.get("body"),
+                target_concept_id=revision_target,
+                links_to=revision_links,
+            )
+
+        if effective_action == "create_concept" and duplicate_concept is not None:
             return MetaDecision(
                 action="no_op",
                 rationale=(
@@ -210,13 +252,13 @@ class MetaService:
                 links_to=merged_links,
             )
         return MetaDecision(
-            action=result["action"],
+            action=effective_action,
             rationale=result["rationale"],
             title=result.get("title"),
             card=result.get("card"),
             body=result.get("body"),
             target_concept_id=result.get("target_concept_id"),
-            links_to=merged_links if result["action"] == "create_concept" else requested_links,
+            links_to=merged_links if effective_action == "create_concept" else requested_links,
         )
 
     @staticmethod
@@ -267,6 +309,29 @@ class MetaService:
                 card=_sentence_card_from_text(workspace.content, fallback=workspace.title),
                 body=workspace.content,
                 links_to=concept_links,
+            )
+
+        if _is_explicit_revision_request(user_message):
+            revision_target = _resolved_revision_target(
+                None,
+                allowed_ids=[item.id for item in concept_items],
+                duplicate_concept_id=duplicate_concept,
+                sole_concept_id=concept_items[0].id if len(concept_items) == 1 else None,
+            )
+            if revision_target is None:
+                return MetaDecision(
+                    action="no_op",
+                    rationale="The user asked for a concept revision, but no clear vetted concept target was available.",
+                    links_to=concept_links,
+                )
+            return MetaDecision(
+                action="create_revision",
+                rationale="The user explicitly asked to revise an existing concept.",
+                title=_title_from_message(user_message),
+                card=_sentence_card_from_text(assistant_message, fallback=user_message),
+                body=_body_from_turn(user_message, assistant_message),
+                target_concept_id=revision_target,
+                links_to=[link for link in concept_links if link != revision_target][:3],
             )
 
         if memory_mode == "remember":
@@ -483,6 +548,45 @@ def _validated_link_targets(links_to: list[str], allowed_ids: list[str]) -> list
         if normalized and normalized in allowed and normalized not in ordered:
             ordered.append(normalized)
     return ordered[:3]
+
+
+def _resolved_revision_target(
+    requested_target: str | None,
+    *,
+    allowed_ids: list[str],
+    duplicate_concept_id: str | None,
+    sole_concept_id: str | None = None,
+) -> str | None:
+    allowed = set(allowed_ids)
+    normalized_requested = str(requested_target or "").strip()
+    if normalized_requested and normalized_requested in allowed:
+        return normalized_requested
+    if duplicate_concept_id and duplicate_concept_id in allowed:
+        return duplicate_concept_id
+    if sole_concept_id and sole_concept_id in allowed:
+        return sole_concept_id
+    return None
+
+
+def _is_explicit_revision_request(message: str) -> bool:
+    lowered = message.lower()
+    return _contains_any(
+        lowered,
+        (
+            "create revision",
+            "save as revision",
+            "make this a revision",
+            "turn this into a revision",
+            "revise this concept",
+            "revise the concept",
+            "revise that concept",
+            "revise the existing concept",
+            "update this concept",
+            "update the concept",
+            "update that concept",
+            "update the existing concept",
+        ),
+    )
 
 
 def _contains_any(haystack: str, needles: tuple[str, ...]) -> bool:

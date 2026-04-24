@@ -23,7 +23,7 @@ test("local pending decision exposes replace-or-keep actions for destructive whi
   });
 
   assert.equal(presentation.visible, true);
-  assert.equal(presentation.label, "Replace Current Whiteboard?");
+  assert.equal(presentation.label, "Open Saved Work?");
   assert.deepEqual(
     presentation.actions.map((action) => action.id),
     ["replace_current", "cancel_decision"],
@@ -40,7 +40,7 @@ test("pending draft replacement keeps replace, append, and keep-current choices 
   });
 
   assert.equal(presentation.visible, true);
-  assert.equal(presentation.label, "Replace Current Whiteboard?");
+  assert.equal(presentation.label, "Review New Draft?");
   assert.deepEqual(
     presentation.actions.map((action) => action.id),
     ["replace_current", "append_instead", "cancel_decision"],
@@ -58,7 +58,7 @@ test("whiteboard offers become open-or-keep decisions when the whiteboard is foc
   });
 
   assert.equal(presentation.visible, true);
-  assert.equal(presentation.label, "Whiteboard Offer");
+  assert.equal(presentation.label, "Start A Shared Draft?");
   assert.deepEqual(
     presentation.actions.map((action) => action.id),
     ["open_offer", "keep_in_chat"],
@@ -77,7 +77,7 @@ test("draft-ready updates expose replace, append, and keep-current actions in th
   });
 
   assert.equal(presentation.visible, true);
-  assert.equal(presentation.label, "Whiteboard Draft Ready");
+  assert.equal(presentation.label, "Review Whiteboard Draft");
   assert.deepEqual(
     presentation.actions.map((action) => action.id),
     ["apply_draft", "append_draft", "keep_current"],
@@ -99,7 +99,7 @@ test("unknown local decisions fall back to the server draft decision instead of 
   });
 
   assert.equal(presentation.visible, true);
-  assert.equal(presentation.label, "Whiteboard Draft Ready");
+  assert.equal(presentation.label, "Review Whiteboard Draft");
 });
 
 test("chat-side workspace updates stay hidden while the whiteboard owns the decision surface", () => {

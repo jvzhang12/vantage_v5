@@ -22,6 +22,8 @@ from vantage_v5.services.vetting import should_preserve_selected_record
 from vantage_v5.services.vetting import ConceptVettingService
 from vantage_v5.storage.artifacts import ArtifactRecord
 from vantage_v5.storage.artifacts import ArtifactStore
+from vantage_v5.storage.artifacts import parse_artifact_lifecycle_metadata
+from vantage_v5.storage.memory_trace import parse_memory_trace_metadata
 from vantage_v5.storage.artifacts import parse_artifact_scenario_metadata
 from vantage_v5.storage.concepts import ConceptStore
 from vantage_v5.storage.markdown_store import slugify
@@ -264,6 +266,11 @@ class ScenarioLabService:
             concept_records=concepts,
             saved_note_records=saved_notes,
             vault_records=vault_notes,
+            workspace_id=workspace.workspace_id,
+            workspace_title=workspace.title,
+            workspace_scope="visible" if workspace.content.strip() else "excluded",
+            selected_record_id=selected_memory.id if preserve_selected_memory and selected_memory else None,
+            selected_record_source=selected_memory.source if preserve_selected_memory and selected_memory else None,
             limit=16,
         )
         if preserve_selected_memory and selected_memory is not None:
@@ -305,6 +312,7 @@ class ScenarioLabService:
             history_has_context=bool(history),
             pending_workspace_has_context=bool(pending_workspace_update),
         )
+        recall_details = [candidate.to_recall_dict() for candidate in vetted_memory]
         saved_branches: list[dict[str, Any]] = []
         comparison_artifact: ArtifactRecord | None = None
         persisted_paths: list[Path] = []
@@ -334,6 +342,7 @@ class ScenarioLabService:
                 workspace=workspace,
                 scenario_plan=scenario_plan,
                 branch_workspace_ids=[branch["workspace_id"] for branch in saved_branches],
+                branch_index=_comparison_branch_index(saved_branches),
                 related_concepts=[item.id for item in vetted_concepts[:3]],
                 comparison_title=comparison_artifact_title,
                 comparison_artifact_id=comparison_artifact_id,
@@ -348,7 +357,7 @@ class ScenarioLabService:
                     f"I created {len(saved_branches)} scenario branches and a comparison artifact. "
                     f"{scenario_plan.comparison.summary.strip()}"
                 ).strip(),
-                working_memory=[candidate.to_dict() for candidate in vetted_memory],
+                working_memory=recall_details,
                 history=history,
                 workspace_id=workspace.workspace_id,
                 workspace_title=workspace.title,
@@ -358,6 +367,12 @@ class ScenarioLabService:
                 response_mode=response_mode,
                 scope="experiment" if "experiments" in self.memory_trace_store.records_dir.parts else "durable",
                 pending_workspace_update=pending_workspace_update,
+                turn_mode="scenario_lab",
+                preserved_context=_selected_record_trace_payload(selected_record),
+                referenced_record=_scenario_referenced_record_payload(
+                    created_record=created_record,
+                    selected_record=selected_record,
+                ),
             )
             assistant_message = (
                 f"I created {len(saved_branches)} scenario branches and a comparison artifact. "
@@ -648,6 +663,7 @@ class ScenarioLabService:
         workspace: WorkspaceDocument,
         scenario_plan: ScenarioPlan,
         branch_workspace_ids: list[str],
+        branch_index: list[dict[str, Any]],
         related_concepts: list[str],
         comparison_title: str,
         comparison_artifact_id: str,
@@ -659,6 +675,7 @@ class ScenarioLabService:
             scenario_plan=scenario_plan,
             comparison_title=comparison_title,
             branch_workspace_ids=branch_workspace_ids,
+            branch_index=branch_index,
             comparison_artifact_id=comparison_artifact_id,
             scenario_namespace_id=scenario_namespace_id,
             namespace_mode=namespace_mode,
@@ -671,12 +688,17 @@ class ScenarioLabService:
             type="scenario_comparison",
             links_to=related_concepts,
             comes_from=[workspace.workspace_id, *branch_workspace_ids],
+            metadata={
+                "artifact_origin": "scenario_lab",
+                "artifact_lifecycle": "comparison_hub",
+            },
             scenario_metadata={
                 "scenario_kind": "comparison",
                 "base_workspace_id": workspace.workspace_id,
                 "comparison_question": scenario_plan.comparison_question,
                 "comparison_artifact_id": comparison_artifact_id,
                 "branch_workspace_ids": branch_workspace_ids,
+                "branch_index": branch_index,
                 "scenario_namespace_id": scenario_namespace_id,
                 "namespace_mode": namespace_mode,
             },
@@ -911,6 +933,7 @@ def _render_comparison_artifact(
     scenario_plan: ScenarioPlan,
     comparison_title: str,
     branch_workspace_ids: list[str],
+    branch_index: list[dict[str, Any]],
     comparison_artifact_id: str,
     scenario_namespace_id: str,
     namespace_mode: str,
@@ -922,6 +945,9 @@ def _render_comparison_artifact(
         f"Question: {scenario_plan.comparison_question}",
         f"Comparison Artifact: {comparison_artifact_id}",
         f"Scenario Namespace: {scenario_namespace_id} ({namespace_mode})",
+        "",
+        "## Branch Index",
+        _markdown_branch_index(branch_index),
         "",
         "## Shared Context",
         scenario_plan.shared_context_summary.strip() or "See the shared assumptions below.",
@@ -964,10 +990,78 @@ def _record_payload(record: ArtifactRecord) -> dict[str, Any]:
         "source": record.source,
         "source_label": "Memory Trace" if record.source == "memory_trace" else "Saved artifact",
         "scope": scope,
+        "durability": "temporary" if scope == "experiment" else "durable",
         "filename": record.path.name,
     }
-    payload.update(scenario_metadata)
+    if record.source == "memory_trace":
+        payload.update(parse_memory_trace_metadata(record))
+    else:
+        payload.update(parse_artifact_lifecycle_metadata(record))
+        payload.update(scenario_metadata)
+        payload["why_learned"] = _learned_reason(record)
+        payload["correction_affordance"] = {
+            "kind": "open_in_whiteboard",
+            "label": "Open in whiteboard",
+        }
     return payload
+
+
+def _learned_reason(record: ArtifactRecord) -> str:
+    scenario_metadata = ArtifactStore.parse_scenario_metadata(record) or {}
+    lifecycle = str(parse_artifact_lifecycle_metadata(record).get("artifact_lifecycle") or "").strip().lower()
+    if scenario_metadata.get("scenario_kind") == "comparison" or lifecycle == "comparison_hub":
+        return "Saved as a Scenario Lab comparison hub so the branch comparison can be revisited."
+    if lifecycle == "whiteboard_snapshot":
+        return "Saved as a whiteboard snapshot so the in-progress draft stays inspectable."
+    if lifecycle == "promoted_artifact":
+        return "Promoted the whiteboard into a durable artifact."
+    return "Saved as a durable artifact."
+
+
+def _selected_record_trace_payload(candidate: CandidateMemory | None) -> dict[str, Any] | None:
+    if candidate is None:
+        return None
+    return {
+        "id": candidate.id,
+        "title": candidate.title,
+        "source": candidate.source,
+    }
+
+
+def _scenario_referenced_record_payload(
+    *,
+    created_record: dict[str, Any] | None,
+    selected_record: CandidateMemory | None,
+) -> dict[str, Any] | None:
+    if created_record is not None:
+        record_id = str(created_record.get("id") or "").strip()
+        if record_id:
+            return {
+                "id": record_id,
+                "title": str(created_record.get("title") or record_id).strip(),
+                "source": str(created_record.get("source") or "artifact").strip() or "artifact",
+            }
+    return _selected_record_trace_payload(selected_record)
+
+
+def _comparison_branch_index(branches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    branch_index: list[dict[str, Any]] = []
+    for branch in branches:
+        workspace_id = str(branch.get("workspace_id") or branch.get("id") or "").strip()
+        if not workspace_id:
+            continue
+        entry: dict[str, Any] = {"workspace_id": workspace_id}
+        title = str(branch.get("title") or "").strip()
+        if title:
+            entry["title"] = title
+        label = str(branch.get("label") or "").strip()
+        if label:
+            entry["label"] = label
+        summary = str(branch.get("summary") or branch.get("card") or "").strip()
+        if summary:
+            entry["summary"] = summary
+        branch_index.append(entry)
+    return branch_index
 
 
 def _group_memory_payload(
@@ -1008,6 +1102,21 @@ def _markdown_bullets(values: list[str], *, fallback: str) -> str:
     if not values:
         return fallback
     return "\n".join(f"- {value.strip()}" for value in values if value.strip()) or fallback
+
+
+def _markdown_branch_index(branch_index: list[dict[str, Any]]) -> str:
+    if not branch_index:
+        return "- No scenario branches were saved."
+    lines: list[str] = []
+    for branch in branch_index:
+        normalized = {
+            "workspace_id": str(branch.get("workspace_id") or "").strip(),
+            "title": str(branch.get("title") or "").strip(),
+            "label": str(branch.get("label") or "").strip(),
+            "summary": str(branch.get("summary") or "").strip(),
+        }
+        lines.append(f"- {json.dumps(normalized, sort_keys=True)}")
+    return "\n".join(lines)
 
 
 def _string_list(values: Any) -> list[str]:
@@ -1212,6 +1321,7 @@ def _serialize_selected_record_payload(
     if len(excerpt) > 1200:
         excerpt = f"{excerpt[:1197].rstrip()}..."
     lineage = [str(value).strip() for value in comes_from or [] if str(value).strip()]
+    is_revision = bool(lineage) and selected_record.source == "concept" and bool(re.search(r"--v\d+$", selected_record.id))
     scenario_metadata = parse_artifact_scenario_metadata(
         selected_record.body,
         record_id=selected_record.id,
@@ -1231,6 +1341,9 @@ def _serialize_selected_record_payload(
         "reason": selected_record.reason,
         "body_excerpt": excerpt,
         "comes_from": lineage,
+        "derived_from_id": lineage[0] if lineage else None,
+        "revision_parent_id": lineage[0] if is_revision else None,
+        "lineage_kind": "revision" if is_revision else ("provenance" if lineage else "none"),
         "scenario": scenario_metadata or None,
     }
     payload.update(scenario_metadata)

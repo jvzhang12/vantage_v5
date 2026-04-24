@@ -24,7 +24,9 @@ from vantage_v5.services.vetting import resolve_selected_record_candidate
 from vantage_v5.services.vetting import should_preserve_selected_record
 from vantage_v5.services.vetting import ConceptVettingService
 from vantage_v5.storage.artifacts import ArtifactStore
+from vantage_v5.storage.artifacts import parse_artifact_lifecycle_metadata
 from vantage_v5.storage.concepts import ConceptStore
+from vantage_v5.storage.memory_trace import parse_memory_trace_metadata
 from vantage_v5.storage.memory_trace import MemoryTraceStore
 from vantage_v5.storage.memories import MemoryStore
 from vantage_v5.storage.vault import VaultNoteStore
@@ -70,6 +72,7 @@ class ChatTurn:
     candidate_vault_notes: list[dict]
     candidate_memory: list[dict]
     working_memory: list[dict]
+    recall_details: list[dict]
     learned: list[dict]
     response_mode: dict
     vetting: dict
@@ -109,6 +112,7 @@ class ChatTurn:
             "candidate_memory_results": self.candidate_memory,
             "recall": self.working_memory,
             "working_memory": self.working_memory,
+            "recall_details": self.recall_details,
             "learned": self.learned,
             "memory_trace_record": self.memory_trace_record,
             "response_mode": self.response_mode,
@@ -209,6 +213,9 @@ class ChatService:
                 message=message,
                 history=history,
                 selected_memory=selected_memory,
+                pending_workspace_update=pending_workspace_update,
+                workspace=workspace,
+                workspace_scope=workspace_scope,
             )
         continuity_hint = build_continuity_hint(
             message=message,
@@ -220,12 +227,23 @@ class ChatService:
             workspace=workspace,
             workspace_scope=workspace_scope,
         )
+        if preserve_selected_memory and selected_memory is not None:
+            selected_memory.why_recalled = (
+                selected_record_reason
+                or (continuity_hint.summary if continuity_hint else None)
+                or f"Selected record '{selected_memory.title}' is in focus for this turn."
+            )
         candidate_memory = self.search_service.search_context(
             query=message,
             memory_trace_records=memory_traces,
             concept_records=concepts,
             saved_note_records=saved_notes,
             vault_records=vault_notes,
+            workspace_id=workspace.workspace_id,
+            workspace_title=workspace.title,
+            workspace_scope=workspace_scope,
+            selected_record_id=selected_memory.id if preserve_selected_memory and selected_memory else None,
+            selected_record_source=selected_memory.source if preserve_selected_memory and selected_memory else None,
             limit=16,
         )
         if preserve_selected_memory and selected_memory is not None:
@@ -293,6 +311,7 @@ class ChatService:
             history_has_context=bool(history),
             pending_workspace_has_context=bool(pending_workspace_update),
         )
+        recall_details = [candidate.to_recall_dict() for candidate in vetted_memory]
         assistant_message = finalize_assistant_message(
             assistant_message,
             response_mode=response_mode,
@@ -368,6 +387,12 @@ class ChatService:
             response_mode=response_mode,
             scope="experiment" if "experiments" in self.memory_trace_store.records_dir.parts else "durable",
             pending_workspace_update=pending_workspace_update,
+            turn_mode="chat",
+            preserved_context=_trace_preserved_context_payload(selected_memory if preserve_selected_memory else None),
+            referenced_record=_trace_referenced_record_payload(
+                vetted_memory=vetted_memory,
+                selected_memory=selected_memory if preserve_selected_memory else None,
+            ),
         )
 
         turn = ChatTurn(
@@ -386,7 +411,8 @@ class ChatService:
             candidate_saved_notes=[candidate.to_dict() for candidate in candidate_saved_notes],
             candidate_vault_notes=[candidate.to_dict() for candidate in candidate_vault_notes],
             candidate_memory=[candidate.to_dict() for candidate in candidate_memory],
-            working_memory=[candidate.to_dict() for candidate in vetted_memory],
+            working_memory=recall_details,
+            recall_details=recall_details,
             learned=learned_records,
             memory_trace_record=self._memory_trace_payload(memory_trace_record),
             response_mode=response_mode,
@@ -583,7 +609,16 @@ class ChatService:
         if record is None:
             return None
         scope = "experiment" if "experiments" in record.path.parts else "durable"
-        return {
+        durability = "temporary" if scope == "experiment" else "durable"
+        metadata = record.metadata if isinstance(getattr(record, "metadata", {}), dict) else {}
+        explicit_revision_parent = str(metadata.get("revision_of", "") or "").strip() or None
+        inferred_revision_parent = record.comes_from[0] if record.comes_from else None
+        revision_parent_id = explicit_revision_parent or (
+            inferred_revision_parent
+            if record.source == "concept" and record.comes_from and bool(re.search(r"--v\d+$", record.id))
+            else None
+        )
+        payload = {
             "id": record.id,
             "title": record.title,
             "type": record.type,
@@ -592,15 +627,27 @@ class ChatService:
             "status": record.status,
             "links_to": record.links_to,
             "comes_from": record.comes_from,
+            "derived_from_id": record.comes_from[0] if record.comes_from else None,
+            "revision_parent_id": revision_parent_id,
+            "lineage_kind": "revision" if revision_parent_id else ("provenance" if record.comes_from else "none"),
             "source": record.source,
             "scope": scope,
+            "durability": durability,
+            "why_learned": _learned_reason(record, revision_parent_id=revision_parent_id),
+            "correction_affordance": {
+                "kind": "open_in_whiteboard",
+                "label": "Open in whiteboard",
+            },
         }
+        if record.source == "artifact":
+            payload.update(parse_artifact_lifecycle_metadata(record))
+        return payload
 
     def _memory_trace_payload(self, record: Any | None) -> dict[str, Any] | None:
         if record is None:
             return None
         scope = "experiment" if "experiments" in record.path.parts else "durable"
-        return {
+        payload = {
             "id": record.id,
             "title": record.title,
             "type": record.type,
@@ -613,6 +660,31 @@ class ChatService:
             "source_label": "Memory Trace",
             "scope": scope,
         }
+        payload.update(parse_memory_trace_metadata(record))
+        return payload
+
+
+def _learned_reason(
+    record: Any,
+    *,
+    revision_parent_id: str | None,
+) -> str:
+    if getattr(record, "source", None) == "concept":
+        if revision_parent_id:
+            return "Saved as a revision of an existing concept so the updated version stays inspectable."
+        return "Captured as reusable concept knowledge."
+    if getattr(record, "source", None) == "memory":
+        return "Saved as memory because the user asked Vantage to remember it."
+    if getattr(record, "source", None) == "artifact":
+        lifecycle = str(parse_artifact_lifecycle_metadata(record).get("artifact_lifecycle") or "").strip().lower()
+        if lifecycle == "comparison_hub":
+            return "Saved as a Scenario Lab comparison hub so the branch comparison can be revisited."
+        if lifecycle == "whiteboard_snapshot":
+            return "Saved as a whiteboard snapshot so the in-progress draft stays inspectable."
+        if lifecycle == "promoted_artifact":
+            return "Promoted the whiteboard into a durable artifact."
+        return "Saved as a durable artifact."
+    return "Saved as durable knowledge."
 
 
 def _normalize_memory_mode(memory_intent: str | None) -> str:
@@ -621,6 +693,29 @@ def _normalize_memory_mode(memory_intent: str | None) -> str:
     if memory_intent in {"skip", "dont_save"}:
         return "dont_save"
     return "auto"
+
+
+def _trace_preserved_context_payload(candidate: CandidateMemory | None) -> dict[str, Any] | None:
+    if candidate is None:
+        return None
+    return {
+        "id": candidate.id,
+        "title": candidate.title,
+        "source": candidate.source,
+    }
+
+
+def _trace_referenced_record_payload(
+    *,
+    vetted_memory: list[CandidateMemory],
+    selected_memory: CandidateMemory | None,
+) -> dict[str, Any] | None:
+    if selected_memory is not None:
+        return _trace_preserved_context_payload(selected_memory)
+    reopenable = [candidate for candidate in vetted_memory if candidate.source != "vault_note"]
+    if len(reopenable) != 1:
+        return None
+    return _trace_preserved_context_payload(reopenable[0])
 
 
 def _normalize_whiteboard_mode(whiteboard_mode: str | None) -> str:

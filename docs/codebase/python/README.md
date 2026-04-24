@@ -43,6 +43,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 
 - `memory_trace.py` now implements the first markdown-backed recent-history store that sits alongside the existing JSON debug traces under `traces/`.
 - Recent trace items can feed Recall as `memory_trace` candidates without being folded into the durable Library endpoints.
+- Memory Trace records now carry structured frontmatter metadata such as turn mode, workspace scope, recalled ids, learned ids, and preserved-context ids so retrieval can rank on continuity signals instead of relying only on the transcript body.
 
 ## Tests
 

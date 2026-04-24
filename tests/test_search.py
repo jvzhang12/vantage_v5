@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from vantage_v5.services.chat import ChatTurn
 from vantage_v5.services.search import CandidateMemory
 from vantage_v5.services.search import ConceptSearchService
 from vantage_v5.services.search import _shape_merged_candidates
@@ -166,6 +167,242 @@ def test_search_context_can_recall_recent_memory_trace_records(tmp_path: Path) -
     assert candidates
     assert candidates[0].id == trace_record.id
     assert candidates[0].source == "memory_trace"
+
+
+def test_search_prefers_memory_trace_frontmatter_metadata_over_body_only_match(tmp_path: Path) -> None:
+    trace_store = MemoryTraceStore(tmp_path / "memory_trace")
+    metadata_rich_path = trace_store.records_dir / "turn-20260420201121000000-metadata-rich.md"
+    body_match_path = trace_store.records_dir / "turn-20260420201121000001-body-match.md"
+    metadata_rich_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_rich_path.write_text(
+            (
+                "---\n"
+            "id: turn-metadata-rich\n"
+            "title: Metadata Rich Trace\n"
+            "type: memory_trace\n"
+            "card: Metadata-rich trace\n"
+            "created_at: 2026-04-20\n"
+            "updated_at: 2026-04-20\n"
+            "links_to: []\n"
+            "comes_from:\n"
+            "  - durable-run\n"
+            "status: active\n"
+            "trace_kind: turn\n"
+            "trace_scope: durable\n"
+            "workspace_id: trace-metadata-rich\n"
+            "workspace_title: Experiment Workspace\n"
+            "workspace_scope: excluded\n"
+            "response_mode_kind: grounded\n"
+            "grounding_mode: recent_chat\n"
+            "grounding_label: recent chat\n"
+            "context_sources:\n"
+            "  - recent_chat\n"
+            "recall_count: 0\n"
+            "working_memory_count: 0\n"
+            "learned_count: 0\n"
+            "---\n\n"
+            "Generic body text without the query phrase.\n"
+        ),
+        encoding="utf-8",
+    )
+    body_match_path.write_text(
+            (
+                "---\n"
+            "id: turn-body-match\n"
+            "title: Body Match Trace\n"
+            "type: memory_trace\n"
+            "card: Body match trace\n"
+            "created_at: 2026-04-20\n"
+            "updated_at: 2026-04-20\n"
+            "links_to: []\n"
+            "comes_from:\n"
+            "  - durable-run\n"
+            "status: active\n"
+            "trace_kind: turn\n"
+            "trace_scope: durable\n"
+            "workspace_id: trace-body-match\n"
+            "workspace_title: Experiment Workspace\n"
+            "workspace_scope: excluded\n"
+            "response_mode_kind: grounded\n"
+            "grounding_mode: recent_chat\n"
+            "grounding_label: recent chat\n"
+            "context_sources:\n"
+            "  - recent_chat\n"
+            "recall_count: 0\n"
+            "working_memory_count: 0\n"
+            "learned_count: 0\n"
+            "---\n\n"
+            "This body-only trace mentions trace-metadata-rich so the scorer has to weigh body text against metadata.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    records = {record.id: record for record in trace_store.list_recent_traces()}
+    metadata_rich = records["turn-metadata-rich"]
+    body_match = records["turn-body-match"]
+    assert metadata_rich.metadata["workspace_id"] == "trace-metadata-rich"
+    assert metadata_rich.metadata["trace_kind"] == "turn"
+    assert metadata_rich.metadata["workspace_scope"] == "excluded"
+
+    service = ConceptSearchService()
+    candidates = service.search_context(
+        query="trace-metadata-rich",
+        memory_trace_records=trace_store.list_recent_traces(),
+        concept_records=[],
+        saved_note_records=[],
+        vault_records=[],
+        limit=5,
+    )
+
+    assert candidates[0].id == metadata_rich.id
+    assert any(candidate.id == body_match.id for candidate in candidates)
+    assert candidates[0].source == "memory_trace"
+    assert "metadata=" in candidates[0].reason
+
+
+def test_search_context_prefers_memory_trace_from_same_visible_whiteboard(tmp_path: Path) -> None:
+    trace_store = MemoryTraceStore(tmp_path / "memory_trace")
+    same_workspace = trace_store.records_dir / "turn-20260420201121000002-same-workspace.md"
+    other_workspace = trace_store.records_dir / "turn-20260420201121000003-other-workspace.md"
+    same_workspace.parent.mkdir(parents=True, exist_ok=True)
+    same_workspace.write_text(
+        (
+            "---\n"
+            "id: turn-same-workspace\n"
+            "title: Same Workspace Trace\n"
+            "type: memory_trace\n"
+            "card: Same workspace trace\n"
+            "created_at: 2026-04-20\n"
+            "updated_at: 2026-04-20\n"
+            "links_to: []\n"
+            "comes_from:\n"
+            "  - draft-email-to-jerry\n"
+            "status: active\n"
+            "trace_kind: turn\n"
+            "turn_mode: chat\n"
+            "trace_scope: durable\n"
+            "workspace_id: draft-email-to-jerry\n"
+            "workspace_title: Draft Email to Jerry\n"
+            "workspace_scope: visible\n"
+            "whiteboard_in_scope: true\n"
+            "response_mode_kind: grounded\n"
+            "grounding_mode: whiteboard\n"
+            "grounding_label: Whiteboard\n"
+            "context_sources:\n"
+            "  - whiteboard\n"
+            "recall_count: 0\n"
+            "working_memory_count: 0\n"
+            "history_count: 1\n"
+            "recalled_ids: []\n"
+            "recalled_sources: []\n"
+            "learned_count: 0\n"
+            "learned_ids: []\n"
+            "learned_sources: []\n"
+            "---\n\n"
+            "A generic trace body.\n"
+        ),
+        encoding="utf-8",
+    )
+    other_workspace.write_text(
+        (
+            "---\n"
+            "id: turn-other-workspace\n"
+            "title: Other Workspace Trace\n"
+            "type: memory_trace\n"
+            "card: Other workspace trace\n"
+            "created_at: 2026-04-20\n"
+            "updated_at: 2026-04-20\n"
+            "links_to: []\n"
+            "comes_from:\n"
+            "  - another-workspace\n"
+            "status: active\n"
+            "trace_kind: turn\n"
+            "turn_mode: chat\n"
+            "trace_scope: durable\n"
+            "workspace_id: another-workspace\n"
+            "workspace_title: Another Workspace\n"
+            "workspace_scope: visible\n"
+            "whiteboard_in_scope: true\n"
+            "response_mode_kind: grounded\n"
+            "grounding_mode: whiteboard\n"
+            "grounding_label: Whiteboard\n"
+            "context_sources:\n"
+            "  - whiteboard\n"
+            "recall_count: 0\n"
+            "working_memory_count: 0\n"
+            "history_count: 1\n"
+            "recalled_ids: []\n"
+            "recalled_sources: []\n"
+            "learned_count: 0\n"
+            "learned_ids: []\n"
+            "learned_sources: []\n"
+            "---\n\n"
+            "A generic trace body.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    service = ConceptSearchService()
+    candidates = service.search_context(
+        query="generic trace body",
+        memory_trace_records=trace_store.list_recent_traces(),
+        concept_records=[],
+        saved_note_records=[],
+        vault_records=[],
+        workspace_id="draft-email-to-jerry",
+        workspace_title="Draft Email to Jerry",
+        workspace_scope="visible",
+        limit=5,
+    )
+
+    assert candidates[0].id == "turn-same-workspace"
+    assert "workspace=" in candidates[0].reason
+    assert "whiteboard=" in candidates[0].reason
+    assert candidates[0].why_recalled == "Recent trace from the active whiteboard."
+    assert candidates[0].to_recall_dict()["why_recalled"] == "Recent trace from the active whiteboard."
+
+
+def test_recall_details_surface_user_facing_reason_without_debug_reason() -> None:
+    recalled = CandidateMemory(
+        id="rules-of-hangman-game",
+        title="Rules of Hangman (game)",
+        type="concept",
+        card="Basic rules and gameplay flow for Hangman.",
+        score=9.0,
+        reason="concept: title=2 card=3 path=0 links=0 lineage=0 metadata=0 body=2 context=2",
+        why_recalled="Concept KB item relevant to the request.",
+        source="concept",
+        trust="high",
+    )
+    turn = ChatTurn(
+        user_message="What are the rules of hangman?",
+        assistant_message="Here are the rules.",
+        workspace_id="v5-milestone-1",
+        workspace_title="Shared Workspace",
+        concept_cards=[],
+        trace_notes=[],
+        saved_notes=[],
+        vault_notes=[],
+        candidate_concepts=[],
+        candidate_trace_notes=[],
+        candidate_saved_notes=[],
+        candidate_vault_notes=[],
+        candidate_memory=[recalled.to_dict()],
+        working_memory=[recalled.to_recall_dict()],
+        recall_details=[recalled.to_recall_dict()],
+        learned=[],
+        response_mode={},
+        vetting={},
+        mode="chat",
+    )
+
+    payload = turn.to_dict()
+    assert "reason" not in payload["working_memory"][0]
+    assert payload["working_memory"][0]["why_recalled"] == recalled.why_recalled
+    assert payload["working_memory"][0]["recall_reason"] == recalled.why_recalled
+    assert payload["recall_details"][0]["why_recalled"] == recalled.why_recalled
+    assert payload["recall_details"][0]["recall_reason"] == recalled.why_recalled
+    assert "reason" not in payload["recall_details"][0]
 
 
 def test_search_uses_links_and_lineage_signals(tmp_path: Path) -> None:

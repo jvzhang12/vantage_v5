@@ -22,10 +22,12 @@ The goal is the same as the Python summaries: let future agents understand the s
 ## State And Helper Modules
 
 - [src/vantage_v5/webapp/chat_request.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/chat_request.mjs.md)
+- [src/vantage_v5/webapp/math_render.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/math_render.mjs.md)
 - [src/vantage_v5/webapp/product_identity.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/product_identity.mjs.md)
 - [src/vantage_v5/webapp/surface_state.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/surface_state.mjs.md)
 - [src/vantage_v5/webapp/turn_panel_grounding.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/turn_panel_grounding.mjs.md)
 - [src/vantage_v5/webapp/turn_payloads.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/turn_payloads.mjs.md)
+- [src/vantage_v5/webapp/vendor/katex.min.js.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/vendor/katex.min.js.md)
 - [src/vantage_v5/webapp/whiteboard_decisions.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/whiteboard_decisions.mjs.md)
 - [src/vantage_v5/webapp/workspace_state.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/workspace_state.mjs.md)
 
@@ -33,6 +35,7 @@ The goal is the same as the Python summaries: let future agents understand the s
 
 - `Chat` stays the default surface.
 - `Whiteboard` is a separate drafting surface that becomes visually primary when opened.
+- `Whiteboard` now keeps source editing and rendered preview distinct, so math-capable rendering stays on the preview/read side rather than inside the textarea itself.
 - `Vantage` is the inspection surface with three docks:
   - an answer dock for Working Memory framing, Reasoning Path, Recall, Memory Trace, and Learned
   - a separate Scenario Lab dock
@@ -44,5 +47,6 @@ The goal is the same as the Python summaries: let future agents understand the s
 ## Webapp Tests
 
 - [tests/product_identity.test.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/tests/product_identity.test.mjs.md)
+- [tests/math_render.test.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/tests/math_render.test.mjs.md)
 - [tests/webapp_state_model.test.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/tests/webapp_state_model.test.mjs.md)
 - [tests/webapp_whiteboard_decisions.test.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/tests/webapp_whiteboard_decisions.test.mjs.md)

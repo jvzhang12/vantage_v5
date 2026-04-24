@@ -4,15 +4,82 @@ Single-file visual system for the Vantage frontend.
 
 ## Purpose
 
-- Define the warm paper-like visual theme for chat, whiteboard, and `Vantage`.
-- Control the shell layout for normal chat, whiteboard-focused drafting, and `Vantage` inspection.
+- Define the refined Apple-like visual system for chat, whiteboard, and `Vantage`, with cool white/graphite materials, SF-style typography, compact controls, and a cleaner native-product feel.
+- Control the shell layout for normal chat, whiteboard-focused drafting, and `Vantage` inspection, with a stronger separation between the chat surface and the whiteboard surface.
 - Style notices, badges, panels, library cards, compact chat result cards, and the whiteboard editor.
+- Style the secondary recall-reason treatment used by item-level `Why recalled` lines inside Recall-oriented cards.
+- Style the shared rich-text/math/code render surfaces used by chat, library inspection, concept cards, and the whiteboard preview, including the vendored Highlight.js theme assets.
 - Give Scenario Lab a distinct comparison-first treatment so it reads as separate from the working-memory influence view.
+- Carry the current visual refinement pass aimed at calming the shell further, making the whiteboard feel premium and editorial, and preserving existing frontend semantics.
+- Carry the final shared visual-system tightening for Pass 02E, with softer medium-emphasis chrome, a more consistent spacing rhythm, and calmer secondary controls across all surfaces.
+- Carry a production-readiness hardening pass that removes the remaining frosted/prototype feel: surfaces are more opaque, controls are less pill-heavy, shadows are tighter, and the whiteboard sheet plus action row read as authored product UI rather than exploratory demo chrome.
+- Carry the follow-on Apple-tech pass that cools the palette away from warm paper, replaces serif-led UI hierarchy with SF-style sans typography, reduces notebook texture, and makes the whiteboard feel closer to a native Apple document editor.
 
 ## Notable Behavior
 
 - Uses `.shell--whiteboard` to make the whiteboard the main canvas with chat as a sidebar.
+- The whiteboard-focused shell now pushes that separation harder: the chat rail clamps to a slimmer sidebar width, the whiteboard page measure expands substantially, and the editor itself becomes the dominant visual sheet instead of sitting inside an additional heavily framed outer card.
+- A follow-on tightening pass pushes that further by shrinking the sidebar again, trimming whiteboard-mode shell padding, and making the editor claim more of the viewport height so the draft reads almost edge-to-edge on large screens.
+- The most aggressive whiteboard-mode pass then strips the header toward actions-only: the whiteboard utility copy is hidden entirely, the action pill is pushed to the top-right, the title stack compresses further, and the editor becomes the obvious primary object on the page.
+- The latest refinement keeps that compressed shell but reintroduces a single clean paper-sheet surface for the draft itself: the outer document sheet once again owns the paper tone, border, and shadow, while the textarea/editor becomes borderless and transparent inside it so the result feels like one document instead of a large form field.
+- A production-polish follow-up tightens the remaining narrow-rail chrome too: the whiteboard-mode chat masthead drops the brand utility row, the sidebar system message loses its card treatment, and the document sheet gains a subtle editorial gutter line so the draft page feels composed rather than simply expanded.
+- The newest production pass then hardens the material system around that structure: body and panel gradients are quieter, the global panel blur is removed, buttons and inputs shift from soft pills to firmer controls, whiteboard support notices become margin-style callouts, the top whiteboard action row stops reading like a glossy capsule, and the whiteboard canvas itself becomes slightly more matte so the document sheet has a clearer premium page-on-desk contrast.
+- The Apple-tech pass then moves the product away from cozy paper and into cooler native-product refinement: warm beige/brown tokens are replaced with graphite, mist, white, and Apple blue; serif headings and editor text are replaced with SF-style sans stacks; and the ruled-paper/gutter treatment is removed so the whiteboard reads as a clean editor canvas.
+- Uses `.chat-masthead` and `.chat-masthead-utility` to split the chat brand/status row from the utility actions, keeping the chat header readable without turning it into a control slab.
+- Keeps the masthead status treatment available as a tiny dot plus plain session label, but the current default chat header hides onboarding/session state because the first system message introduces the product and session mode instead.
+- Uses a dedicated chat session row so experiment mode reads as a lower-status session toggle beside the mode badge instead of living in the main action cluster.
+- Keeps the chat transcript inside `.transcript-shell` so the transcript reads as a dedicated scrollable body beneath the masthead rather than part of the header chrome.
+- Defines a shared `.rich-text` / `.math-render` styling layer so math-capable read surfaces can render prose, block math, inline math, and fenced code with one visual contract.
+- Defines shared `.rich-text-inline-code`, `.rich-text-code-block`, and `.rich-text-code` styling so inline code reads as a lightweight semantic chip while fenced code keeps a readable header/body split.
+- Keeps the whiteboard-mode chat shell intentionally narrower, lower-contrast, and less elevated so it reads as a secondary sidebar rather than a competing primary surface.
 - Uses `.shell--vantage` to present chat and guided inspection side-by-side.
 - Treats the whiteboard, `Vantage`, and chat as distinct surfaces rather than collapsing them into one stacked layout.
-- Styles the `Reasoning Path` rail as clickable disclosure cards so the user can open turn-scoped detail without leaving the Vantage answer dock.
-- Uses Scenario Lab-specific dock, overview-grid, branch-card, and transcript-card styling to distinguish durable scenario review from ordinary memory inspection.
+- Uses a restrained visual hierarchy so the outer product surfaces carry most of the elevation while internal notices, cards, and dock detail stay quieter.
+- Styles the main `Vantage` answer dock as a single turn narrative: an at-a-glance summary first, a dedicated `Working Memory` block second, separate `Recall` and `Learned` sections next, and then a quieter deeper-detail group for `Memory Trace` and the collapsed `Reasoning Path`.
+- Keeps the first visible Vantage summary lighter by toning down the summary block chrome and relying more on compact summary facts than on another large notice-like card.
+- Gives the `Working Memory` block its own quieter document-like treatment so broader in-scope grounding can read as explanation rather than as another stack of retrieved-item cards.
+- Styles the learned-correction panel inside `What I learned` as a distinct but still secondary turn-support card, so correction guidance is visible without turning Vantage into a mutation console.
+- Uses collapsible support-section cards inside the turn dock so recalled items, recent continuity, and learned items can show counts in the summary row without forcing every detail block open at once.
+- Treats the whiteboard utility header separately from the whiteboard title deck so back/save/promote controls stay above the document framing instead of competing with the title.
+- The whiteboard utility copy is now intentionally quieter in whiteboard mode: the explanatory paragraph is suppressed, the top bar is tighter, and the title deck carries less padding so more of the viewport belongs to the draft itself.
+- The title stack is also flatter than before: the duplicate inner `Whiteboard` label is hidden in the title deck, metadata is reduced in size, and the title plus state badge now reach the draft with fewer intermediary announcement layers.
+- The chat rail is reduced toward support status rather than co-equal surface chrome: explanatory copy is removed in whiteboard mode, transcript typography is tightened, and the sidebar composer is smaller so the draft keeps visual ownership.
+- Inside that sheet, the editor now uses roomier serif spacing, a softer ruled-paper treatment, and larger inner margins, which shifts the drafting feel from utility input toward writing page without bringing back the previous stacked-box look.
+- That same sheet now carries more page architecture directly in CSS through a quiet top wash, a soft left gutter tint, and a vertical margin rule, while mobile sizing removes those paper-specific flourishes so the narrow layout stays practical.
+- The newest direction intentionally removes that ruled-paper treatment again in favor of a simpler Apple-like writing canvas with a clean white editor, cool surrounding field, and subtle native depth.
+- Carries Pass 02B of the visual redesign into the whiteboard surface specifically: one centered page measure, a larger and more editorial title deck, quieter utility chrome, and softer lifecycle panels so the draft body remains the focal point.
+- Wraps the editor in `.document-sheet` so the writing area reads like a page resting on a sheet, with its own border, shadow, and paper tone.
+- That framing is now flatter than before: whiteboard decision and artifact cues read more like inline support than stacked cards, the outer `document-sheet` chrome is effectively layout-only, and the textarea/editor page acts as the single dominant document surface.
+- Adds `.whiteboard-preview` and `.whiteboard-preview-surface` so the whiteboard can preserve raw source editing while still exposing a rendered, math-capable read surface under the editor.
+- Treats the whiteboard editor like a centered document surface rather than a utility textarea, with larger page margins and stronger editorial typography.
+- Keeps the whiteboard preview and latest-artifact cue on the same page measure as the title deck and editor, so they read as secondary reading/lifecycle layers rather than separate product surfaces.
+- Tunes the outer shell chrome, panel shadows, chat cards, and status pills down so the app frame feels calmer and less like an operator console.
+- Keeps the global notice rail to a single softer card at a time, so routine confirmations no longer stack into an alert queue above the product.
+- Carries Pass 02A of the visual redesign into chat specifically: the masthead is shorter and quieter, the transcript sits in a centered reading column, assistant responses carry more typographic authority than user bubbles, and the composer reads more like a writing surface than a tool slab.
+- Keeps the whiteboard-sidebar chat state lighter without making it empty: the sidebar shrinks the masthead, keeps a reduced session cue visible, and preserves a usable transcript/composer stack while clearly yielding priority to the whiteboard.
+- Gives the whiteboard header a compact pill-like action row instead of a stacked control cluster, so back/save/promote actions stay available without competing with the page-like drafting surface.
+- That action row is now flatter and more tool-like than pill-like: the grouping bubble is removed, each action becomes its own compact control, and the surrounding whiteboard chrome yields more authority to the document sheet itself.
+- Keeps whiteboard lifecycle controls visually quieter than the drafting surface by reducing button weight and preserving the document body as the dominant focal point.
+- Styles the `Reasoning Path` rail as clickable disclosure cards so the user can open turn-scoped detail without leaving the Vantage answer dock, while the outer Reasoning Path shell itself now lives inside a later `Look deeper` group and reads as a secondary disclosure instead of a lead surface.
+- Uses Scenario Lab-specific dock, overview-grid, branch-card, transcript-card, and comparison-hub roster styling to distinguish durable scenario review from ordinary memory inspection.
+- Gives the Scenario Lab question and recommendation a stronger editorial lead inside the hero while keeping the comparison hub card as the durable revisit anchor without making the layout heavier.
+- Uses section leads, calmer support cards, and lighter branch-detail framing inside Scenario Lab so the comparison question, recommendation, comparison hub, and branches read in a deliberate order instead of as one long stack of equally weighted blocks.
+- Gives inspected Scenario Lab branch cards a dedicated focus treatment and scroll margin so hub-driven “Inspect details” actions land cleanly inside the same panel.
+- Reduces duplicate branch-action weight by letting the comparison hub own the main reopen/inspect affordances while the standalone branch cards read more like the fuller branch details below.
+- Adds a whiteboard-scoped latest-work-product cue that stays lighter than the whiteboard decision panel, so durable-save cues stay legible without reading like a fourth product surface.
+- Gives Library inspector work products their own subtle visual treatment so durable work products read differently from memories while still staying inside the same review surface.
+- Adds a quieter secondary card-text treatment for lineage cues so `Revision of ...` and `Derived from ...` remain legible without making library cards feel like a metadata console.
+- Adds a similarly quiet secondary card-text treatment for `Why recalled` copy so recall provenance feels inspectable without making cards read like a scoring console.
+- Gives the learned-correction panel a lightly positive accent so direct revision / pin actions feel available while `not direct yet` guidance still reads as guidance, not as a fake destructive workflow.
+- Adds a matching secondary hint treatment plus a compact inspector guidance panel for learned-item correction paths, so continuation-in-whiteboard and current backend limits can be explained without turning Vantage into a console.
+- Uses lighter subsection labels and grouped separators inside the turn panel so supportive details stay legible without competing with the primary summary copy.
+- No longer styles the removed next-turn action buttons in the Vantage answer dock; the turn panel now leads directly from the header into the at-a-glance explanation.
+- Tones down repeated box framing inside the turn dock so the new `Working Memory`, `Recall`, `Learned`, and deeper-detail layers feel more editorial and less like a stack of equally weighted diagnostic cards.
+- Makes transcript evidence chips smaller and quieter by default, with separate stronger treatment only for important states like `Scenario Lab`, `Best Guess`, or durable `Learned`.
+- Lets chat evidence stay quieter overall by removing duplicate whiteboard offer / draft chips from the transcript and using muted styling for lower-priority grounding chips that remain.
+- Softens Scenario Lab's in-chat companion card so it reads as a lighter follow-on annotation under the assistant answer rather than a competing product panel.
+- Keeps the chat and whiteboard surfaces visually separated even when both are visible, so the chat transcript still reads as conversation history while the whiteboard reads as the active shared draft.
+- Uses one lighter shared button/chip language across chat, whiteboard, Vantage, and Scenario Lab, while still preserving stronger emphasis only for primary actions and currently active states.
+- Reduces medium-emphasis borders and tinted fills across turn notices, support disclosures, inspectors, library cards, and Scenario Lab containers so the overall app reads more like calm editorial software than an operator console.
+- Tightens Scenario Lab’s hero, recommendation, comparison-hub, and branch-detail chrome so it keeps its flagship identity without becoming the densest surface in the app.
+- Keeps Vantage explanation cards, reasoning-path details, and inspector metadata visually quieter than the main turn summary so the explanation spine remains primary.

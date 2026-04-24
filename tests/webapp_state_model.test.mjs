@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import {
   buildWorkspaceContextPayload,
   deriveWorkspaceContextScope,
+  isDeicticWhiteboardReopenRequest,
   isExplicitWhiteboardRequest,
+  resolveWhiteboardReopenTarget,
   shouldCarryPendingWorkspaceUpdate,
 } from "../src/vantage_v5/webapp/chat_request.mjs";
 import {
@@ -14,19 +16,25 @@ import {
   hasWhiteboardActiveContext,
   hideWhiteboardSurface,
   normalizeSurfaceState,
+  normalizeRestoredTurnSnapshotState,
   openVantageSurface,
   revealWhiteboardSurface,
   toggleWhiteboardSurface,
 } from "../src/vantage_v5/webapp/surface_state.mjs";
 import {
   buildWorkspaceSnapshot,
+  reconcileRestoredWorkspaceAfterLoad,
   shouldPreserveUnsavedWorkspace,
 } from "../src/vantage_v5/webapp/workspace_state.mjs";
 import {
   buildTurnPanelGroundingCopy,
 } from "../src/vantage_v5/webapp/turn_panel_grounding.mjs";
 import {
+  buildReasoningPathInspection,
+} from "../src/vantage_v5/webapp/product_identity.mjs";
+import {
   normalizeLearnedItems,
+  normalizeComparisonBranchIndex,
   normalizeRecordId,
   normalizeResponseMode,
   normalizeScenarioLabPayload,
@@ -45,6 +53,50 @@ test("surface state preserves whiteboard return flow through Vantage", () => {
   assert.deepEqual(revealWhiteboardSurface(fromWhiteboard), { current: "whiteboard", returnSurface: "chat" });
   assert.deepEqual(hideWhiteboardSurface({ current: "whiteboard", returnSurface: "chat" }), { current: "chat", returnSurface: "chat" });
   assert.deepEqual(hideWhiteboardSurface(fromWhiteboard), { current: "chat", returnSurface: "chat" });
+});
+
+test("deictic whiteboard reopen requests can resolve a unique recalled durable item", () => {
+  assert.equal(
+    isDeicticWhiteboardReopenRequest("yea can you pull that up on the whiteboard?"),
+    true,
+  );
+  assert.deepEqual(
+    resolveWhiteboardReopenTarget({
+      message: "yea can you pull that up on the whiteboard?",
+      recalledItems: [
+        {
+          id: "email-insights-on-predicting-behavior",
+          title: "Email Draft: Insights on Predicting Behavior",
+          source: "artifact",
+          isVaultNote: false,
+        },
+      ],
+    }),
+    {
+      id: "email-insights-on-predicting-behavior",
+      title: "Email Draft: Insights on Predicting Behavior",
+      source: "artifact",
+    },
+  );
+  assert.equal(
+    resolveWhiteboardReopenTarget({
+      message: "open that in the whiteboard",
+      recalledItems: [
+        { id: "artifact-a", title: "Artifact A", source: "artifact", isVaultNote: false },
+        { id: "artifact-b", title: "Artifact B", source: "artifact", isVaultNote: false },
+      ],
+    }),
+    null,
+  );
+  assert.equal(
+    resolveWhiteboardReopenTarget({
+      message: "open that in the whiteboard",
+      recalledItems: [
+        { id: "note-a", title: "Reference note", source: "vault_note", isVaultNote: true },
+      ],
+    }),
+    null,
+  );
 });
 
 test("surface state normalizes legacy booleans and snapshot keys are fully scoped", () => {
@@ -70,6 +122,43 @@ test("surface state normalizes legacy booleans and snapshot keys are fully scope
       experimentSessionId: "exp-123",
     }),
     "vantage-v5-turn-snapshot::experiment::exp-123::active",
+  );
+});
+
+test("snapshot restore preserves inspection state only for workspace-scoped restores", () => {
+  const snapshot = {
+    surface: { current: "vantage", returnSurface: "whiteboard" },
+    selectedConceptId: "concept-42",
+    selectedVaultNoteId: "note-17",
+    selectionOrigin: "user",
+    pinnedContext: { id: "concept-42", kind: "concept" },
+    turn: {
+      workspaceContextScope: "visible",
+    },
+  };
+
+  assert.deepEqual(
+    normalizeRestoredTurnSnapshotState(snapshot, { scopeScopedFallback: false }),
+    {
+      surface: { current: "vantage", returnSurface: "whiteboard" },
+      selectedConceptId: "concept-42",
+      selectedVaultNoteId: "note-17",
+      selectionOrigin: "user",
+      pinnedContext: { id: "concept-42", kind: "concept" },
+      workspaceContextScope: "visible",
+    },
+  );
+
+  assert.deepEqual(
+    normalizeRestoredTurnSnapshotState(snapshot, { scopeScopedFallback: true }),
+    {
+      surface: { current: "whiteboard", returnSurface: "chat" },
+      selectedConceptId: "",
+      selectedVaultNoteId: "",
+      selectionOrigin: "bootstrap",
+      pinnedContext: { id: "concept-42", kind: "concept" },
+      workspaceContextScope: "visible",
+    },
   );
 });
 
@@ -133,6 +222,25 @@ test("dirty local whiteboard state is preserved across passive workspace refresh
       pinnedToChat: false,
       lifecycle: "transient_draft",
       note: "",
+      latestArtifact: null,
+    },
+  );
+
+  assert.deepEqual(
+    buildWorkspaceSnapshot({
+      workspaceId: "roadmap-draft",
+      content: "# Roadmap",
+      dirty: false,
+      latestArtifact: {
+        id: "artifact-roadmap-v1",
+        title: "Roadmap v1",
+        card: "Saved from the whiteboard.",
+      },
+    }).latestArtifact,
+    {
+      id: "artifact-roadmap-v1",
+      title: "Roadmap v1",
+      card: "Saved from the whiteboard.",
     },
   );
 
@@ -157,6 +265,170 @@ test("dirty local whiteboard state is preserved across passive workspace refresh
   );
 });
 
+test("boot workspace reconciliation preserves restored drafts while clearing stale inspection state", () => {
+  const reconciliation = reconcileRestoredWorkspaceAfterLoad({
+    currentWorkspace: {
+      workspaceId: "draft-email-to-jerry",
+      scope: "experiment",
+      title: "Draft Email to Jerry",
+      content: "# Draft Email to Jerry\n\nHi Jerry,",
+      savedContent: "",
+      dirty: true,
+      lifecycle: "transient_draft",
+    },
+    incomingWorkspace: {
+      workspace_id: "experiment-workspace",
+      scope: "experiment",
+      title: "Experiment Workspace",
+      content: "# Experiment Workspace",
+    },
+    preserveDirty: true,
+    scopeScopedFallback: true,
+    surface: { current: "vantage", returnSurface: "whiteboard" },
+    selectedConceptId: "concept-42",
+    selectedVaultNoteId: "note-17",
+    selectionOrigin: "user",
+  });
+
+  assert.equal(reconciliation.preserveRestoredWorkspace, true);
+  assert.equal(reconciliation.workspace.workspaceId, "draft-email-to-jerry");
+  assert.equal(reconciliation.workspace.dirty, true);
+  assert.deepEqual(reconciliation.surface, { current: "whiteboard", returnSurface: "chat" });
+  assert.equal(reconciliation.selectedConceptId, "");
+  assert.equal(reconciliation.selectedVaultNoteId, "");
+  assert.equal(reconciliation.selectionOrigin, "bootstrap");
+});
+
+test("boot workspace reconciliation keeps stable inspection state when the workspace does not change", () => {
+  const reconciliation = reconcileRestoredWorkspaceAfterLoad({
+    currentWorkspace: {
+      workspaceId: "workspace-a",
+      scope: "durable",
+      title: "Whiteboard A",
+      content: "# Whiteboard A",
+      dirty: false,
+      lifecycle: "saved_whiteboard",
+    },
+    incomingWorkspace: {
+      workspace_id: "workspace-a",
+      scope: "durable",
+      title: "Whiteboard A",
+      content: "# Whiteboard A",
+    },
+    preserveDirty: true,
+    scopeScopedFallback: false,
+    surface: { current: "vantage", returnSurface: "whiteboard" },
+    selectedConceptId: "concept-42",
+    selectedVaultNoteId: "note-17",
+    selectionOrigin: "user",
+  });
+
+  assert.equal(reconciliation.workspaceReplaced, false);
+  assert.equal(reconciliation.surface.current, "vantage");
+  assert.equal(reconciliation.surface.returnSurface, "whiteboard");
+  assert.equal(reconciliation.selectedConceptId, "concept-42");
+  assert.equal(reconciliation.selectedVaultNoteId, "note-17");
+  assert.equal(reconciliation.selectionOrigin, "user");
+});
+
+test("boot workspace reconciliation keeps continuity through harmless title-only normalization", () => {
+  const reconciliation = reconcileRestoredWorkspaceAfterLoad({
+    currentWorkspace: {
+      workspaceId: "workspace-a",
+      scope: "durable",
+      title: "Whiteboard A",
+      content: "# Whiteboard A\n\nBody",
+      dirty: false,
+      lifecycle: "saved_whiteboard",
+    },
+    incomingWorkspace: {
+      workspace_id: "workspace-a",
+      scope: "durable",
+      title: "Whiteboard A (Renamed)",
+      content: "# Whiteboard A\n\nBody\n",
+    },
+    preserveDirty: true,
+    scopeScopedFallback: false,
+    surface: { current: "vantage", returnSurface: "whiteboard" },
+    selectedConceptId: "artifact-a-v1",
+    selectedVaultNoteId: "note-17",
+    selectionOrigin: "user",
+  });
+
+  assert.equal(reconciliation.workspaceReplaced, false);
+  assert.equal(reconciliation.surface.current, "vantage");
+  assert.equal(reconciliation.surface.returnSurface, "whiteboard");
+  assert.equal(reconciliation.selectedConceptId, "artifact-a-v1");
+  assert.equal(reconciliation.selectedVaultNoteId, "note-17");
+  assert.equal(reconciliation.selectionOrigin, "user");
+});
+
+test("boot workspace reconciliation clears inspection state when a saved whiteboard reloads changed content under the same id", () => {
+  const reconciliation = reconcileRestoredWorkspaceAfterLoad({
+    currentWorkspace: {
+      workspaceId: "workspace-a",
+      scope: "durable",
+      title: "Whiteboard A",
+      content: "# Whiteboard A",
+      dirty: false,
+      lifecycle: "saved_whiteboard",
+      latestArtifact: {
+        id: "artifact-a-v1",
+        title: "Whiteboard A v1",
+      },
+    },
+    incomingWorkspace: {
+      workspace_id: "workspace-a",
+      scope: "durable",
+      title: "Whiteboard A",
+      content: "# Whiteboard A\n\nUpdated remotely",
+    },
+    preserveDirty: true,
+    scopeScopedFallback: false,
+    surface: { current: "vantage", returnSurface: "whiteboard" },
+    selectedConceptId: "artifact-a-v1",
+    selectedVaultNoteId: "note-17",
+    selectionOrigin: "user",
+  });
+
+  assert.equal(reconciliation.workspaceReplaced, true);
+  assert.deepEqual(reconciliation.surface, { current: "whiteboard", returnSurface: "chat" });
+  assert.equal(reconciliation.selectedConceptId, "");
+  assert.equal(reconciliation.selectedVaultNoteId, "");
+  assert.equal(reconciliation.selectionOrigin, "bootstrap");
+});
+
+test("boot workspace reconciliation collapses stale inspection state when the workspace anchor changes from blank to saved", () => {
+  const reconciliation = reconcileRestoredWorkspaceAfterLoad({
+    currentWorkspace: {
+      workspaceId: "",
+      scope: "durable",
+      title: "Whiteboard",
+      content: "",
+      dirty: false,
+      lifecycle: "ready",
+    },
+    incomingWorkspace: {
+      workspace_id: "workspace-a",
+      scope: "durable",
+      title: "Whiteboard A",
+      content: "# Whiteboard A",
+    },
+    preserveDirty: true,
+    scopeScopedFallback: false,
+    surface: { current: "vantage", returnSurface: "whiteboard" },
+    selectedConceptId: "concept-42",
+    selectedVaultNoteId: "note-17",
+    selectionOrigin: "user",
+  });
+
+  assert.equal(reconciliation.workspaceReplaced, true);
+  assert.deepEqual(reconciliation.surface, { current: "whiteboard", returnSurface: "chat" });
+  assert.equal(reconciliation.selectedConceptId, "");
+  assert.equal(reconciliation.selectedVaultNoteId, "");
+  assert.equal(reconciliation.selectionOrigin, "bootstrap");
+});
+
 test("workspace context payload only includes whiteboard content when it is intentionally in scope", () => {
   const workspace = {
     workspaceId: "draft-plan",
@@ -178,10 +450,22 @@ test("workspace context payload only includes whiteboard content when it is inte
   assert.equal(shouldCarryPendingWorkspaceUpdate("Let's do that."), true);
   assert.equal(shouldCarryPendingWorkspaceUpdate("That works"), true);
   assert.equal(shouldCarryPendingWorkspaceUpdate("That sounds good"), true);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("Open the whiteboard."), true);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("Okay, open the whiteboard."), true);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("Put that in the whiteboard."), true);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("That works, put that in the whiteboard."), true);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("Open it, put that in the whiteboard."), true);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("Which one?"), true);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("What about that one?"), true);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("Tell me more."), true);
   assert.equal(shouldCarryPendingWorkspaceUpdate("update the email with that information"), true);
   assert.equal(shouldCarryPendingWorkspaceUpdate("add a signature and greeting"), true);
   assert.equal(shouldCarryPendingWorkspaceUpdate("Resume that draft."), true);
   assert.equal(shouldCarryPendingWorkspaceUpdate("Continue with the budget assumptions for next quarter."), false);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("Open the whiteboard and draft a thank-you email to Judy."), false);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("Draft a thank-you email in the whiteboard."), false);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("Okay, draft a 7-day road trip itinerary in the whiteboard."), false);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("That works, draft a budget plan in the whiteboard."), false);
   assert.equal(
     shouldCarryPendingWorkspaceUpdate(
       "That works, but before we do anything else I want to switch topics completely and talk through the quarterly planning assumptions, the travel budget, the meeting schedule, the hiring plan, and several unrelated notes in one long message that should definitely exceed the pending follow-up guard.",
@@ -308,6 +592,51 @@ test("turn payload normalization surfaces the returned memory trace record", () 
   });
 });
 
+test("turn interpretation normalization prefers pinned context semantics while keeping legacy aliases", () => {
+  const normalized = normalizeTurnInterpretation({
+    preserve_pinned_context: true,
+    pinned_context_reason: "The pinned context stays active for continuity.",
+    preserve_selected_record: false,
+    selected_record_reason: "Legacy selected-record wording should not win.",
+  });
+
+  assert.equal(normalized.preservePinnedContext, true);
+  assert.equal(normalized.pinnedContextReason, "The pinned context stays active for continuity.");
+  assert.equal(normalized.preserveSelectedRecord, true);
+  assert.equal(normalized.selectedRecordReason, "The pinned context stays active for continuity.");
+});
+
+test("reasoning path inspection uses pinned context labels for continuity", () => {
+  const inspection = buildReasoningPathInspection({
+    userMessage: "Please update the email with the pinned context in mind.",
+    interpretation: {
+      mode: "chat",
+      confidence: 0.94,
+      reason: "The turn should stay in chat with pinned context continuity.",
+      resolvedWhiteboardMode: "chat",
+      preservePinnedContext: true,
+      pinnedContextReason: "The pinned context stays active for continuity.",
+    },
+    responseMode: {
+      kind: "grounded",
+      label: "Recall",
+      groundingMode: "recall",
+      recallCount: 1,
+      groundingSources: ["recall"],
+      contextSources: ["recall"],
+    },
+    recallItems: [{ id: "memory-trace-1", source: "memory_trace" }],
+    learnedItems: [],
+  });
+
+  const routeStage = inspection.stages.find((stage) => stage.label === "Route" || stage.step === "Step 2");
+  const workingMemoryStage = inspection.stages.find((stage) => stage.label === "Working Memory");
+  assert.ok(routeStage);
+  assert.ok(workingMemoryStage);
+  assert.ok(routeStage.meta.some((item) => item.label === "Kept in scope" && item.value === "The pinned context stays active for continuity."));
+  assert.ok(workingMemoryStage.detail.scopeRows.some((item) => item.label === "Kept in scope" && item.status === "Included"));
+});
+
 test("turn panel grounding copy keeps the dock and meta labels aligned for the six grounding cases", () => {
   const cases = [
     {
@@ -322,7 +651,7 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
       },
       learnedCount: 1,
       expected: {
-        metaText: "Recall: 2 items • Learned: 1",
+        metaText: "Recall: 2 items • What I learned: 1",
         answerDockLabel: "Recall",
         turnIntentLabel: "Recall",
       },
@@ -460,7 +789,7 @@ test("turn panel grounding copy covers idle and learned-only fallback branches",
     }),
     {
       groundingLabel: "Idle",
-      metaText: "No grounded context surfaced yet • Learned: 2",
+      metaText: "No grounded context surfaced yet • What I learned: 2",
       answerDockLabel: "2 learned",
       turnIntentLabel: "Idle",
     },
@@ -481,6 +810,31 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
       created_record: { id: "legacy-created-record" },
     }),
     [{ id: "legacy-created-record" }],
+  );
+
+  assert.deepEqual(
+    normalizeLearnedItems({
+      created_record: {
+        id: "learned-memory",
+        scope: "experiment",
+        durability: "temporary",
+        why_learned: "Saved as memory because the user asked Vantage to remember it.",
+        correction_affordance: {
+          kind: "open_in_whiteboard",
+          label: "Open in whiteboard",
+        },
+      },
+    }),
+    [{
+      id: "learned-memory",
+      scope: "experiment",
+      durability: "temporary",
+      why_learned: "Saved as memory because the user asked Vantage to remember it.",
+      correction_affordance: {
+        kind: "open_in_whiteboard",
+        label: "Open in whiteboard",
+      },
+    }],
   );
 
   assert.equal(
@@ -680,6 +1034,10 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
         decision: null,
       },
       workspaceContextScope: "visible",
+      pinnedContextId: null,
+      pinnedContext: null,
+      selectedRecordId: null,
+      selectedRecord: null,
       scenarioLab: null,
     },
   );
@@ -692,8 +1050,8 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
       requested_whiteboard_mode: "auto",
       resolved_whiteboard_mode: "draft",
       whiteboard_mode_source: "request",
-      preserve_selected_record: true,
-      selected_record_reason: "Keep the selected draft in scope.",
+      preserve_pinned_context: true,
+      pinned_context_reason: "Keep the pinned draft in scope.",
     }),
     {
       mode: "chat",
@@ -702,8 +1060,10 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
       requestedWhiteboardMode: "auto",
       resolvedWhiteboardMode: "draft",
       whiteboardModeSource: "request",
+      preservePinnedContext: true,
+      pinnedContextReason: "Keep the pinned draft in scope.",
       preserveSelectedRecord: true,
-      selectedRecordReason: "Keep the selected draft in scope.",
+      selectedRecordReason: "Keep the pinned draft in scope.",
     },
   );
 });
@@ -744,6 +1104,14 @@ test("scenario lab payload normalization turns markdown-heavy scenario outputs i
     comparison_artifact: {
       id: "launch-comparison",
       title: "Launch Comparison",
+      branch_index: [
+        {
+          workspace_id: "focused-mvp",
+          title: "Focused MVP",
+          label: "focused-mvp",
+          summary: "Launch narrowly to learn quickly.",
+        },
+      ],
       body: [
         "# Launch Comparison",
         "",
@@ -765,6 +1133,14 @@ test("scenario lab payload normalization turns markdown-heavy scenario outputs i
         "- Choose the metrics that trigger expansion.",
       ].join("\n"),
       branch_workspace_ids: ["focused-mvp"],
+      branch_index: [
+        {
+          workspace_id: "focused-mvp",
+          title: "Focused MVP",
+          label: "focused-mvp",
+          summary: "Launch narrowly to learn quickly.",
+        },
+      ],
     },
   });
 
@@ -779,6 +1155,73 @@ test("scenario lab payload normalization turns markdown-heavy scenario outputs i
     "Define the first target segment.",
     "Choose the metrics that trigger expansion.",
   ]);
+  assert.deepEqual(scenarioLab.comparisonArtifact.branchIndex, [
+    {
+      workspace_id: "focused-mvp",
+      workspaceId: "focused-mvp",
+      title: "Focused MVP",
+      label: "focused-mvp",
+      summary: "Launch narrowly to learn quickly.",
+    },
+  ]);
   assert.equal(scenarioLab.branches[0].riskSummary, "Feedback could be skewed by the initial segment.");
   assert.deepEqual(scenarioLab.branches[0].sections.openQuestions.items, ["Which segment is most diagnostic?"]);
+  assert.deepEqual(scenarioLab.comparisonArtifact.branchIndex, [
+    {
+      workspaceId: "focused-mvp",
+      workspace_id: "focused-mvp",
+      title: "Focused MVP",
+      label: "focused-mvp",
+      summary: "Launch narrowly to learn quickly.",
+    },
+  ]);
+});
+
+test("scenario lab branch index normalization falls back to branch cards and workspace ids without throwing", () => {
+  assert.deepEqual(
+    normalizeComparisonBranchIndex(
+      [
+        { workspace_id: "branch-a", title: "Branch A", summary: "First branch" },
+        { workspaceId: "branch-b", label: "Branch B", card: "Second branch" },
+      ],
+      ["branch-c"],
+    ),
+    [
+      { workspace_id: "branch-a", workspaceId: "branch-a", title: "Branch A", label: "", summary: "First branch" },
+      { workspace_id: "branch-b", workspaceId: "branch-b", title: "", label: "Branch B", summary: "Second branch", card: "Second branch" },
+    ],
+  );
+
+  assert.deepEqual(
+    normalizeComparisonBranchIndex([], ["branch-c"]),
+    [{ workspaceId: "branch-c", workspace_id: "branch-c" }],
+  );
+});
+
+test("scenario lab payload normalization falls back to branch cards when the comparison hub has no branch index yet", () => {
+  const scenarioLab = normalizeScenarioLabPayload({
+    comparison_question: "Which launch path should we choose?",
+    branches: [
+      {
+        workspace_id: "focused-mvp",
+        title: "Focused MVP",
+        label: "focused-mvp",
+        card: "Launch narrowly to learn quickly.",
+      },
+    ],
+    comparison_artifact: {
+      id: "launch-comparison",
+      title: "Launch Comparison",
+      branch_workspace_ids: ["focused-mvp"],
+      body: "# Launch Comparison\n\n## Recommendation\nStart with focused MVP.\n",
+    },
+  });
+
+  assert.equal(scenarioLab.branchCount, 1);
+  assert.equal(scenarioLab.comparisonArtifact.branchIndex.length, 1);
+  assert.equal(scenarioLab.comparisonArtifact.branchIndex[0].workspaceId, "focused-mvp");
+  assert.equal(scenarioLab.comparisonArtifact.branchIndex[0].workspace_id, "focused-mvp");
+  assert.equal(scenarioLab.comparisonArtifact.branchIndex[0].title, "Focused MVP");
+  assert.equal(scenarioLab.comparisonArtifact.branchIndex[0].label, "focused-mvp");
+  assert.equal(scenarioLab.comparisonArtifact.branchIndex[0].summary, "Launch narrowly to learn quickly.");
 });

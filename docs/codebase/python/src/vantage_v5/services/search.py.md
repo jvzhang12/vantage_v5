@@ -15,14 +15,16 @@ Implements keyword-style scoring across concepts, recent memory-trace records, s
 - `tokenize()` extracts alphanumeric tokens, removes stopwords when possible, and expands some aliases and word forms.
 - `ConceptSearchService.search()` and `search_context()` score record pools and return the top matches.
 - `search_memory()` and `search_context()` merge separately scored groups, then re-shape the shortlist with a source-repeat penalty so mixed-source sets stay balanced.
-- `search_context()` now accepts `memory_trace_records` so recent-history continuity can compete with concepts, saved notes, and reference notes during retrieval.
+- `search_context()` now accepts `memory_trace_records` plus optional current-whiteboard and preserved-context hints so recent-history continuity can compete with concepts, saved notes, and reference notes during retrieval without turning selected context into a hard side channel.
 - Each match becomes a `CandidateMemory`, which preserves the original record content and metadata for later stages.
+- `CandidateMemory.reason` stays the machine/debug scoring string, while `CandidateMemory.why_recalled` carries the shorter user-facing recall rationale that chat can expose separately in turn payloads.
 - `memory_trace` is intentionally a separate source with its own bonus and priority, so recent-history recall does not masquerade as a concept or saved note.
+- Memory Trace records now contribute structured frontmatter metadata as a separate ranking signal, so trace scope and grounding metadata can outrank transcript-body-only matches when recent history is the better continuity source. The scorer also applies bounded Memory Trace bonuses for recency, same-whiteboard continuity, visible-whiteboard agreement, and preserved-context matches when those hints are available.
 
 ## Key Classes / Functions
 
 - `SearchableRecord`: protocol describing the fields the scorer needs.
-- `CandidateMemory`: normalized search result with score, reason, source, trust, body, and optional path.
+- `CandidateMemory`: normalized search result with score, debug `reason`, user-facing `why_recalled`, source, trust, body, and optional path. `to_recall_dict()` emits the product-safe recall view with both `why_recalled` and canonical `recall_reason`, but without the raw debug scoring string.
 - `ConceptSearchService`: search façade for concept-only, memory-only, or mixed context queries.
 - `_search_records()`: applies weighted overlap scoring, phrase boosts, and filters out zero-score items.
 - `_token_variants()`: handles simple stemming and alias expansion.
@@ -32,7 +34,8 @@ Implements keyword-style scoring across concepts, recent memory-trace records, s
 ## Notable Edge Cases
 
 - If tokenization would otherwise return only stopwords, `tokenize()` falls back to the raw token set so the query is not empty.
-- Matching is intentionally approximate, with boosts for literal phrase matches in the searchable text, title, card, path, links, and lineage where available.
+- Matching is intentionally approximate, with boosts for literal phrase matches in the searchable text, title, card, path, links, lineage, and Memory Trace metadata where available.
 - Record body and searchable text are truncated before tokenization, which keeps scoring bounded and avoids overweighting huge documents.
 - Items with no lexical or phrase signal are dropped before source bias is applied, so low-signal records do not reach vetting just because they came from a favored bucket.
+- Memory Trace bonuses are intentionally small and metadata-driven; they tune recent-history continuity without making traces outrank stronger concept or saved-note matches by default.
 - `CandidateConcept` is just an alias of `CandidateMemory`, which keeps older type names compatible without duplicating logic.

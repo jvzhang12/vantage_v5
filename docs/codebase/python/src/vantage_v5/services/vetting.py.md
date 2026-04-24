@@ -15,7 +15,7 @@ Filters search candidates down to the small set that is actually relevant to the
 - The response is re-mapped back onto the original candidate objects so the caller keeps the full records.
 - Without a client, `_fallback_vet()` keeps items above a score threshold derived from the top result.
 - If the OpenAI vetting call raises at runtime, `vet()` logs the error and falls back to the same deterministic score-threshold path instead of bubbling an exception up to `/api/chat`.
-- Shared helpers now build a continuity hint for selected-record follow-ups, pending whiteboard continuations, and live whiteboard drafts, so chat and Scenario Lab can give the model the right semantic anchor without duplicating the same heuristics in multiple places. The hint is advisory only, summary-level context; it should not become a second hidden context channel that bypasses vetting, and selected-record hints are only emitted when preservation is actually in effect for the turn. Memory Trace retrieval should feed into the same bounded vetting pass once that store lands.
+- Shared helpers now build a continuity hint for selected-record follow-ups, pending whiteboard continuations, and live whiteboard drafts, so chat and Scenario Lab can give the model the right semantic anchor without duplicating the same heuristics in multiple places. The hint is advisory only, summary-level context; it should not become a second hidden context channel that bypasses vetting, and selected-record hints are only emitted when preservation is actually in effect for the turn. Automatic selected-record preservation now yields to pending whiteboard or live whiteboard continuity when the navigator has not made an explicit preserve decision. Memory Trace retrieval should feed into the same bounded vetting pass once that store lands.
 
 ## Key Classes / Functions
 
@@ -37,4 +37,4 @@ Filters search candidates down to the small set that is actually relevant to the
 - Provider/runtime failures on the OpenAI path now degrade to `_fallback_vet()` so chat can still complete with deterministic candidate selection.
 - The fallback threshold is `max(1.0, top_score * 0.35)`, so very weak candidate sets can still be filtered out entirely.
 - Result order in the fallback path follows the original ranked candidate order, not the model’s order.
-- Continuity hints are advisory context for the model, not hard selection rules; the actual candidate subset still comes from vetting, with a separate five-item cap when the selected record is explicitly preserved or the fallback heuristic agrees it is a real continuation.
+- Continuity hints are advisory context for the model, not hard selection rules; the actual candidate subset still comes from vetting, with a separate five-item cap when the selected record is explicitly preserved. When the navigator leaves preservation unset, pending whiteboard or live whiteboard continuity takes priority over the older short-follow-up heuristic.

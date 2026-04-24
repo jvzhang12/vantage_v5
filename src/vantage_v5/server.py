@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import logging
 from pathlib import Path
 import re
@@ -21,10 +22,12 @@ from vantage_v5.services.scenario_lab import ScenarioLabService
 from vantage_v5.services.search import ConceptSearchService
 from vantage_v5.services.vetting import ConceptVettingService
 from vantage_v5.storage.artifacts import ArtifactStore
+from vantage_v5.storage.artifacts import parse_artifact_lifecycle_metadata
 from vantage_v5.storage.concepts import ConceptStore
 from vantage_v5.storage.experiments import ExperimentSession
 from vantage_v5.storage.experiments import ExperimentSessionManager
 from vantage_v5.storage.memory_trace import MemoryTraceStore
+from vantage_v5.storage.memory_trace import parse_memory_trace_metadata
 from vantage_v5.storage.memories import MemoryStore
 from vantage_v5.storage.state import ActiveWorkspaceStateStore
 from vantage_v5.storage.vault import VaultNoteStore
@@ -40,6 +43,18 @@ EXPLICIT_WHITEBOARD_OPEN_RE = re.compile(
 )
 EXPLICIT_WHITEBOARD_DRAFT_RE = re.compile(
     r"\b(?:draft|write|put|move|build|plan|outline|sketch|work|create|review|refine|play)\b.{0,80}\b(?:in|on|into)\s+(?:the\s+)?whiteboard\b",
+    re.IGNORECASE,
+)
+NARROW_EXPLICIT_WHITEBOARD_OPEN_RE = re.compile(
+    r"^\s*(?:(?:yes|yeah|yep|sure|ok(?:ay)?|please do|go ahead|do it|start draft|open draft|open it|use it|sounds good|works for me|let'?s do that|that works|that sounds good)\s*[,.:;-]?\s+)?(?:please\s+)?(?:open|pull up|bring up|show|use|start|resume)\s+(?:the\s+)?whiteboard(?:\s+(?:for|about|with)\s+.{1,100})?\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+NARROW_EXPLICIT_WHITEBOARD_DEICTIC_RE = re.compile(
+    r"^\s*(?:(?:yes|yeah|yep|sure|ok(?:ay)?|please do|go ahead|do it|start draft|open draft|open it|use it|sounds good|works for me|let'?s do that|that works|that sounds good)\s*[,.:;-]?\s+)?(?:please\s+)?(?:put|move|place|add|draft|write|edit|revise|refine|update|change|adjust|include|incorporate|work on|build|create|outline|sketch|review|rewrite)\b.{0,40}\b(?:it|this|that|the draft|this draft|that draft|the current draft)\b.{0,40}\b(?:in|on|into|onto|to)\s+(?:the\s+)?whiteboard\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
+PENDING_DEICTIC_FOLLOW_UP_RE = re.compile(
+    r"^\s*(?:(?:please\s+)?(?:which one|what about(?:\s+(?:it|this|that|that one|this one|those|these))?|tell me more|go deeper|elaborate|expand(?:\s+on\s+(?:it|this|that))?|that one|this one|those|these))\s*[.!?]?\s*$",
     re.IGNORECASE,
 )
 WHITEBOARD_EDIT_VERB_RE = re.compile(
@@ -63,7 +78,7 @@ PENDING_REFERENCE_RE = re.compile(
     re.IGNORECASE,
 )
 PENDING_EDIT_TARGET_RE = re.compile(
-    r"\b(?:email|draft|whiteboard|plan|list|outline|essay|document|note|it|this|that)\b",
+    r"\b(?:email|draft|whiteboard|plan|list|outline|essay|document|note|signature|greeting|it|this|that)\b",
     re.IGNORECASE,
 )
 MAX_PENDING_FOLLOW_UP_LENGTH = 240
@@ -82,6 +97,7 @@ class ChatRequest(BaseModel):
     workspace_scope: str = "auto"
     workspace_content: str | None = None
     whiteboard_mode: str = "auto"
+    pinned_context_id: str | None = None
     selected_record_id: str | None = None
     memory_intent: str = "auto"
     pending_workspace_update: dict[str, Any] | None = None
@@ -92,6 +108,7 @@ class WhiteboardAcceptRequest(BaseModel):
     workspace_id: str | None = None
     workspace_scope: str = "auto"
     workspace_content: str | None = None
+    pinned_context_id: str | None = None
     selected_record_id: str | None = None
     memory_intent: str = "auto"
     pending_workspace_update: dict[str, Any]
@@ -122,16 +139,36 @@ class ExperimentStartRequest(BaseModel):
     seed_from_workspace: bool = False
 
 
-def _serialize_concept_card(concept: Any, *, scope: str = "durable") -> dict[str, Any]:
+def _lineage_payload(record: Any) -> dict[str, Any]:
+    comes_from = list(getattr(record, "comes_from", []) or [])
+    links_to = list(getattr(record, "links_to", []) or [])
+    record_id = str(getattr(record, "id", "") or "")
+    record_source = str(getattr(record, "source", "") or "")
+    metadata = getattr(record, "metadata", {}) if isinstance(getattr(record, "metadata", {}), dict) else {}
+    explicit_revision_parent = str(metadata.get("revision_of", "") or "").strip() or None
+    inferred_revision_parent = comes_from[0] if comes_from else None
+    revision_parent_id = explicit_revision_parent or (
+        inferred_revision_parent
+        if record_source == "concept" and bool(comes_from) and bool(re.search(r"--v\d+$", record_id))
+        else None
+    )
     return {
+        "links_to": links_to,
+        "comes_from": comes_from,
+        "derived_from_id": comes_from[0] if comes_from else None,
+        "revision_parent_id": revision_parent_id,
+        "lineage_kind": "revision" if revision_parent_id else ("provenance" if comes_from else "none"),
+    }
+
+
+def _serialize_concept_card(concept: Any, *, scope: str = "durable") -> dict[str, Any]:
+    payload = {
         "id": concept.id,
         "title": concept.title,
         "type": concept.type,
         "card": concept.card,
         "body": concept.body,
         "status": concept.status,
-        "links_to": concept.links_to,
-        "comes_from": concept.comes_from,
         "source": "concept",
         "source_label": "Experiment concepts" if scope == "experiment" else "Concept KB",
         "trust": "high",
@@ -139,6 +176,8 @@ def _serialize_concept_card(concept: Any, *, scope: str = "durable") -> dict[str
         "scope": scope,
         "filename": concept.path.name,
     }
+    payload.update(_lineage_payload(concept))
+    return payload
 
 
 def _serialize_saved_note_card(record: Any, *, scope: str = "durable") -> dict[str, Any]:
@@ -153,8 +192,6 @@ def _serialize_saved_note_card(record: Any, *, scope: str = "durable") -> dict[s
         "card": record.card,
         "body": record.body,
         "status": record.status,
-        "links_to": record.links_to,
-        "comes_from": record.comes_from,
         "source": record.source,
         "source_label": source_label,
         "trust": record.trust,
@@ -162,6 +199,9 @@ def _serialize_saved_note_card(record: Any, *, scope: str = "durable") -> dict[s
         "scope": scope,
         "filename": record.path.name,
     }
+    payload.update(_lineage_payload(record))
+    if getattr(record, "source", None) == "artifact":
+        payload.update(parse_artifact_lifecycle_metadata(record))
     payload.update(_scenario_payload(_saved_record_scenario_metadata(record)))
     return payload
 
@@ -201,15 +241,32 @@ def _clean_scenario_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] 
         return None
     cleaned: dict[str, Any] = {}
     for key, value in metadata.items():
-        if isinstance(value, list):
-            normalized_list = [str(item).strip() for item in value if str(item).strip()]
-            if normalized_list:
-                cleaned[key] = normalized_list
+        normalized_value = _clean_scenario_metadata_value(value)
+        if normalized_value in (None, "", [], {}):
             continue
-        normalized_value = str(value).strip()
-        if normalized_value:
-            cleaned[key] = normalized_value
+        cleaned[key] = normalized_value
     return cleaned or None
+
+
+def _clean_scenario_metadata_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            normalized = _clean_scenario_metadata_value(item)
+            if normalized in (None, "", [], {}):
+                continue
+            cleaned[str(key).strip()] = normalized
+        return cleaned
+    if isinstance(value, list):
+        cleaned_list: list[Any] = []
+        for item in value:
+            normalized = _clean_scenario_metadata_value(item)
+            if normalized in (None, "", [], {}):
+                continue
+            cleaned_list.append(normalized)
+        return cleaned_list
+    normalized_value = str(value).strip()
+    return normalized_value or None
 
 
 def _scenario_payload(metadata: dict[str, Any] | None) -> dict[str, Any]:
@@ -300,8 +357,8 @@ def _workspace_payload_for_turn(
 def _finalize_turn_payload(
     payload: dict[str, Any],
     *,
-    selected_record_id: str | None,
-    selected_record: dict[str, Any] | None,
+    pinned_context_id: str | None,
+    pinned_context: dict[str, Any] | None,
 ) -> dict[str, Any]:
     learned = payload.get("learned")
     if not isinstance(learned, list):
@@ -334,9 +391,19 @@ def _finalize_turn_payload(
         if workspace_status is not None:
             workspace_update["status"] = workspace_status
 
-    payload["selected_record_id"] = selected_record_id
-    payload["selected_record"] = selected_record
+    payload["pinned_context_id"] = pinned_context_id
+    payload["pinned_context"] = pinned_context
+    payload["selected_record_id"] = pinned_context_id
+    payload["selected_record"] = pinned_context
     return payload
+
+
+def _resolve_pinned_context_id(
+    *,
+    pinned_context_id: str | None,
+    selected_record_id: str | None,
+) -> str | None:
+    return pinned_context_id or selected_record_id
 
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
@@ -502,7 +569,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             + durable_artifact_store.list_artifacts()
         )
 
-    def _selected_record_summary(session: ExperimentSession | None, runtime: dict[str, Any], record_id: str | None) -> dict[str, Any] | None:
+    def _pinned_context_summary(session: ExperimentSession | None, runtime: dict[str, Any], record_id: str | None) -> dict[str, Any] | None:
         if not record_id:
             return None
         stores = [
@@ -528,12 +595,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     "source": record.source,
                     "scope": scope,
                     "body_excerpt": record.body[:1200],
-                    "comes_from": list(record.comes_from),
                     "is_scenario_comparison": (
                         scenario_payload["scenario_kind"] == "comparison"
                         or _is_scenario_comparison_record(record)
                     ),
                 }
+                payload.update(_lineage_payload(record))
                 payload.update(scenario_payload)
                 return payload
             except FileNotFoundError:
@@ -555,6 +622,163 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except FileNotFoundError:
             return None
 
+    def _selected_record_summary(session: ExperimentSession | None, runtime: dict[str, Any], record_id: str | None) -> dict[str, Any] | None:
+        return _pinned_context_summary(session, runtime, record_id)
+
+    def _navigator_record_summary(
+        session: ExperimentSession | None,
+        runtime: dict[str, Any],
+        record_id: str | None,
+    ) -> dict[str, Any] | None:
+        summary = _pinned_context_summary(session, runtime, record_id)
+        if summary is None:
+            return None
+        return {
+            "record_id": summary["id"],
+            "title": summary["title"],
+            "source": summary["source"],
+            "type": summary.get("type"),
+            "card": summary.get("card"),
+            "reopenable_in_whiteboard": summary.get("source") != "vault_note",
+        }
+
+    def _whiteboard_source_summary(
+        session: ExperimentSession | None,
+        runtime: dict[str, Any],
+        workspace_id: str | None,
+    ) -> dict[str, Any] | None:
+        if not workspace_id:
+            return None
+        summary = _pinned_context_summary(session, runtime, workspace_id)
+        if summary is None:
+            return None
+        return {
+            "source_record_id": summary["id"],
+            "source_record_title": summary["title"],
+            "source": summary["source"],
+            "type": summary.get("type"),
+        }
+
+    def _isoformat_utc(value: float | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            return datetime.fromtimestamp(value, tz=UTC).isoformat()
+        except (OverflowError, OSError, ValueError):
+            return None
+
+    def _single_line(value: str) -> str:
+        return " ".join(str(value or "").strip().split())
+
+    def _recent_whiteboard_summaries(
+        session: ExperimentSession | None,
+        runtime: dict[str, Any],
+        *,
+        current_workspace_id: str,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        workspaces_dir = runtime["workspace_store"].workspaces_dir
+        candidates: list[tuple[float, Path]] = []
+        for path in workspaces_dir.glob("*.md"):
+            try:
+                modified_at = path.stat().st_mtime
+            except OSError:
+                continue
+            candidates.append((modified_at, path))
+        candidates.sort(key=lambda item: (item[0], item[1].name), reverse=True)
+
+        summaries: list[dict[str, Any]] = []
+        for modified_at, path in candidates:
+            workspace_id = path.stem
+            if workspace_id == current_workspace_id:
+                continue
+            try:
+                document = runtime["workspace_store"].load(workspace_id)
+            except FileNotFoundError:
+                continue
+            source_summary = _whiteboard_source_summary(session, runtime, workspace_id)
+            kind = "whiteboard"
+            if (document.scenario_metadata or {}).get("scenario_kind") == "branch":
+                kind = "scenario_branch"
+            elif source_summary is not None:
+                kind = "reopened_saved_item"
+            summary = {
+                "workspace_id": document.workspace_id,
+                "title": document.title,
+                "kind": kind,
+                "last_active_at": _isoformat_utc(modified_at),
+                "content_excerpt": _single_line(document.content)[:240] if document.content.strip() else "",
+            }
+            if source_summary is not None:
+                summary.update(source_summary)
+            summaries.append(summary)
+            if len(summaries) >= limit:
+                break
+        return summaries
+
+    def _last_turn_continuity_context(
+        session: ExperimentSession | None,
+        runtime: dict[str, Any],
+    ) -> dict[str, Any]:
+        traces = runtime["memory_trace_store"].list_recent_traces(limit=6)
+        if not traces:
+            return {
+                "last_turn_referenced_record": None,
+                "last_turn_recall": [],
+            }
+        latest = traces[0]
+        metadata = parse_memory_trace_metadata(latest)
+        raw_metadata = dict(latest.metadata) if isinstance(getattr(latest, "metadata", {}), dict) else {}
+        recall_items: list[dict[str, Any]] = []
+        for record_id in metadata.get("recalled_ids", [])[:3]:
+            summary = _navigator_record_summary(session, runtime, record_id)
+            if summary is not None:
+                recall_items.append(summary)
+
+        referenced_record = None
+        referenced_record_id = str(raw_metadata.get("referenced_record_id") or "").strip()
+        if referenced_record_id:
+            referenced_record = _navigator_record_summary(session, runtime, referenced_record_id)
+        preserved_context_id = metadata.get("preserved_context_id")
+        if referenced_record is None and preserved_context_id:
+            referenced_record = _navigator_record_summary(session, runtime, preserved_context_id)
+        if referenced_record is None:
+            reopenable = [item for item in recall_items if item.get("reopenable_in_whiteboard")]
+            if len(reopenable) == 1:
+                referenced_record = reopenable[0]
+        return {
+            "last_turn_referenced_record": referenced_record,
+            "last_turn_recall": recall_items,
+        }
+
+    def _navigator_continuity_context(
+        session: ExperimentSession | None,
+        runtime: dict[str, Any],
+        *,
+        workspace: WorkspaceDocument,
+        workspace_scope: str,
+    ) -> dict[str, Any]:
+        source_summary = _whiteboard_source_summary(session, runtime, workspace.workspace_id)
+        current_whiteboard = {
+            "workspace_id": workspace.workspace_id,
+            "title": workspace.title,
+            "scope": workspace_scope,
+            "in_scope": workspace_scope != "excluded",
+            "has_content": bool(workspace.content.strip()),
+            "content_excerpt": _single_line(workspace.content)[:240] if workspace_scope != "excluded" and workspace.content.strip() else "",
+        }
+        if source_summary is not None:
+            current_whiteboard.update(source_summary)
+        continuity = _last_turn_continuity_context(session, runtime)
+        continuity["current_whiteboard"] = current_whiteboard
+        continuity["recent_whiteboards"] = _recent_whiteboard_summaries(
+            session,
+            runtime,
+            current_workspace_id=workspace.workspace_id,
+            limit=3,
+        )
+        return continuity
+
     def _chat_turn_response(
         *,
         message: str,
@@ -563,7 +787,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         workspace_scope: str,
         workspace_content: str | None,
         whiteboard_mode: str,
-        selected_record_id: str | None,
+        pinned_context_id: str | None,
         memory_intent: str,
         pending_workspace_update: dict[str, Any] | None,
         navigation: NavigationDecision | None = None,
@@ -577,9 +801,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             workspace_content=workspace_content,
             user_message=message,
         )
+        workspace_loaded = True
         try:
             workspace = runtime["workspace_store"].load(resolved_workspace_id)
         except FileNotFoundError:
+            workspace_loaded = False
             if normalized_workspace_scope == "excluded":
                 workspace = _workspace_from_unsaved_buffer(runtime["workspace_store"], resolved_workspace_id, "")
             elif workspace_content is None:
@@ -591,23 +817,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             workspace = _workspace_without_context(workspace)
         elif workspace_content is not None:
             workspace = _workspace_from_buffer(workspace, workspace_content)
-        resolved_selected_record_id = selected_record_id
-        selected_record = _selected_record_summary(session, runtime, resolved_selected_record_id)
+        resolved_pinned_context_id = pinned_context_id
+        pinned_context = _pinned_context_summary(session, runtime, resolved_pinned_context_id)
         normalized_pending_workspace_update = _normalized_pending_workspace_update(pending_workspace_update)
         if (
             not force_pending_workspace_update
             and not _should_carry_pending_workspace_update(message, normalized_pending_workspace_update)
         ):
             normalized_pending_workspace_update = None
+        whiteboard_entry_mode = _whiteboard_entry_mode(
+            workspace_loaded=workspace_loaded,
+            workspace_content=workspace_content,
+            workspace_scope=normalized_workspace_scope,
+            source_summary=_whiteboard_source_summary(session, runtime, resolved_workspace_id) if workspace_loaded else None,
+        )
+        continuity_context = _navigator_continuity_context(
+            session,
+            runtime,
+            workspace=workspace,
+            workspace_scope=normalized_workspace_scope,
+        )
         if navigation is None:
             navigation = navigator_service.route_turn(
                 user_message=message,
                 history=history,
                 workspace=workspace,
                 requested_whiteboard_mode=whiteboard_mode,
-                selected_record_id=resolved_selected_record_id,
-                selected_record=selected_record,
+                pinned_context_id=resolved_pinned_context_id,
+                pinned_context=pinned_context,
+                selected_record_id=resolved_pinned_context_id,
+                selected_record=pinned_context,
                 pending_workspace_update=normalized_pending_workspace_update,
+                continuity_context=continuity_context,
             )
         resolved_whiteboard_mode = _resolved_whiteboard_mode(
             whiteboard_mode,
@@ -622,15 +863,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     workspace=workspace,
                     history=history,
                     navigation=navigation,
-                    selected_record_id=resolved_selected_record_id,
+                    selected_record_id=resolved_pinned_context_id,
                     pending_workspace_update=normalized_pending_workspace_update,
                 )
             except Exception as exc:
                 scenario_lab_error = {
                     "status": "failed",
                     "navigation": navigation.to_dict(),
-                    "selected_record_id": resolved_selected_record_id,
-                    "selected_record": selected_record,
+                    "pinned_context_id": resolved_pinned_context_id,
+                    "pinned_context": pinned_context,
+                    "selected_record_id": resolved_pinned_context_id,
+                    "selected_record": pinned_context,
                     "comparison_question": navigation.comparison_question,
                     "reason": navigation.reason,
                     "error": {
@@ -645,25 +888,31 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     workspace=workspace,
                     history=history,
                     memory_intent=memory_intent,
-                    selected_record_id=resolved_selected_record_id,
+                    selected_record_id=resolved_pinned_context_id,
                     whiteboard_mode=resolved_whiteboard_mode,
-                    preserve_selected_record=navigation.preserve_selected_record,
-                    selected_record_reason=navigation.selected_record_reason,
+                    preserve_selected_record=(
+                        navigation.preserve_pinned_context
+                        if navigation.preserve_pinned_context is not None
+                        else navigation.preserve_selected_record
+                    ),
+                    selected_record_reason=navigation.pinned_context_reason or navigation.selected_record_reason,
                     pending_workspace_update=normalized_pending_workspace_update,
                     workspace_is_transient=transient_workspace,
                     workspace_scope=normalized_workspace_scope,
                 )
                 payload = _finalize_turn_payload(
                     turn.to_dict(),
-                    selected_record_id=resolved_selected_record_id,
-                    selected_record=selected_record,
+                    pinned_context_id=resolved_pinned_context_id,
+                    pinned_context=pinned_context,
                 )
                 scenario_lab_error["chat_turn_mode"] = payload.get("mode")
                 payload["scenario_lab"] = scenario_lab_error
                 payload["scenario_lab_error"] = scenario_lab_error["error"]
                 payload["scenario_lab"]["navigation"] = navigation.to_dict()
-                payload["scenario_lab"]["selected_record"] = selected_record
-                payload["scenario_lab"]["selected_record_id"] = resolved_selected_record_id
+                payload["scenario_lab"]["pinned_context"] = pinned_context
+                payload["scenario_lab"]["pinned_context_id"] = resolved_pinned_context_id
+                payload["scenario_lab"]["selected_record"] = pinned_context
+                payload["scenario_lab"]["selected_record_id"] = resolved_pinned_context_id
                 payload["scenario_lab"]["comparison_question"] = navigation.comparison_question
                 payload["scenario_lab"]["reason"] = navigation.reason
                 payload["scenario_lab"]["error"] = scenario_lab_error["error"]
@@ -672,6 +921,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     navigation,
                     requested_whiteboard_mode=whiteboard_mode,
                     resolved_whiteboard_mode=resolved_whiteboard_mode,
+                    whiteboard_entry_mode=whiteboard_entry_mode,
                     user_message=message,
                 )
                 payload["workspace"] = _workspace_payload_for_turn(
@@ -689,23 +939,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 workspace=workspace,
                 history=history,
                 memory_intent=memory_intent,
-                selected_record_id=resolved_selected_record_id,
+                selected_record_id=resolved_pinned_context_id,
                 whiteboard_mode=resolved_whiteboard_mode,
-                preserve_selected_record=navigation.preserve_selected_record,
-                selected_record_reason=navigation.selected_record_reason,
+                preserve_selected_record=(
+                    navigation.preserve_pinned_context
+                    if navigation.preserve_pinned_context is not None
+                    else navigation.preserve_selected_record
+                ),
+                selected_record_reason=navigation.pinned_context_reason or navigation.selected_record_reason,
                 pending_workspace_update=normalized_pending_workspace_update,
                 workspace_is_transient=transient_workspace,
                 workspace_scope=normalized_workspace_scope,
             )
         payload = _finalize_turn_payload(
             turn.to_dict(),
-            selected_record_id=resolved_selected_record_id,
-            selected_record=selected_record,
+            pinned_context_id=resolved_pinned_context_id,
+            pinned_context=pinned_context,
         )
         payload["turn_interpretation"] = _turn_interpretation_payload(
             navigation,
             requested_whiteboard_mode=whiteboard_mode,
             resolved_whiteboard_mode=resolved_whiteboard_mode,
+            whiteboard_entry_mode=whiteboard_entry_mode,
             user_message=message,
         )
         payload["workspace"] = _workspace_payload_for_turn(
@@ -900,9 +1155,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         session = experiment_manager.get_active_session()
         runtime = _runtime(session)
         workspace_id = request.workspace_id or runtime["state_store"].get_active_workspace_id(default_workspace_id=cfg.active_workspace)
-        workspace = runtime["workspace_store"].load(workspace_id)
-        if request.content is not None:
-            workspace = runtime["workspace_store"].save(workspace_id, request.content)
+        try:
+            workspace = runtime["workspace_store"].load(workspace_id)
+        except FileNotFoundError:
+            if request.content is None:
+                raise
+            workspace = _workspace_from_unsaved_buffer(runtime["workspace_store"], workspace_id, request.content)
+        else:
+            if request.content is not None:
+                workspace = _workspace_from_buffer(workspace, request.content)
         action = runtime["executor"].promote_workspace(
             workspace=workspace,
             title=request.title,
@@ -938,7 +1199,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 workspace_scope=request.workspace_scope,
                 workspace_content=request.workspace_content,
                 whiteboard_mode=request.whiteboard_mode,
-                selected_record_id=request.selected_record_id,
+                pinned_context_id=_resolve_pinned_context_id(
+                    pinned_context_id=request.pinned_context_id,
+                    selected_record_id=request.selected_record_id,
+                ),
                 memory_intent=request.memory_intent,
                 pending_workspace_update=request.pending_workspace_update,
             )
@@ -964,7 +1228,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 workspace_scope=request.workspace_scope,
                 workspace_content=request.workspace_content,
                 whiteboard_mode="draft",
-                selected_record_id=request.selected_record_id,
+                pinned_context_id=_resolve_pinned_context_id(
+                    pinned_context_id=request.pinned_context_id,
+                    selected_record_id=request.selected_record_id,
+                ),
                 memory_intent=request.memory_intent,
                 pending_workspace_update=normalized_pending_workspace_update,
                 navigation=NavigationDecision(
@@ -1036,9 +1303,16 @@ def _turn_interpretation_payload(
     *,
     requested_whiteboard_mode: str | None,
     resolved_whiteboard_mode: str,
+    whiteboard_entry_mode: str | None,
     user_message: str | None,
 ) -> dict[str, Any]:
     requested_mode = _normalized_requested_whiteboard_mode(requested_whiteboard_mode)
+    preserve_pinned_context = decision.preserve_pinned_context
+    if preserve_pinned_context is None:
+        preserve_pinned_context = decision.preserve_selected_record
+    pinned_context_reason = decision.pinned_context_reason
+    if pinned_context_reason is None:
+        pinned_context_reason = decision.selected_record_reason
     return {
         "mode": decision.mode,
         "confidence": decision.confidence,
@@ -1051,8 +1325,11 @@ def _turn_interpretation_payload(
             resolved_whiteboard_mode,
             user_message=user_message,
         ),
-        "preserve_selected_record": decision.preserve_selected_record,
-        "selected_record_reason": decision.selected_record_reason,
+        "whiteboard_entry_mode": whiteboard_entry_mode,
+        "preserve_pinned_context": preserve_pinned_context,
+        "pinned_context_reason": pinned_context_reason,
+        "preserve_selected_record": preserve_pinned_context,
+        "selected_record_reason": pinned_context_reason,
     }
 
 
@@ -1082,6 +1359,22 @@ def _whiteboard_mode_source(
     if resolved_whiteboard_mode == "auto":
         return "default"
     return None
+
+
+def _whiteboard_entry_mode(
+    *,
+    workspace_loaded: bool,
+    workspace_content: str | None,
+    workspace_scope: str,
+    source_summary: dict[str, Any] | None,
+) -> str | None:
+    if workspace_scope == "excluded":
+        return None
+    if workspace_loaded and source_summary is not None:
+        return "started_from_prior_material"
+    if workspace_content is None:
+        return None
+    return "continued_current" if workspace_loaded else "started_fresh"
 
 
 def _is_explicit_whiteboard_draft_request(message: str | None) -> bool:
@@ -1131,11 +1424,17 @@ def _should_carry_pending_workspace_update(
     if not _is_pending_workspace_update_active(pending_workspace_update):
         return False
     text = _normalize_message(message)
-    if _is_explicit_whiteboard_draft_request(text):
+    if NARROW_EXPLICIT_WHITEBOARD_OPEN_RE.search(text) or NARROW_EXPLICIT_WHITEBOARD_DEICTIC_RE.search(text):
         return True
+    if _is_explicit_whiteboard_draft_request(text):
+        return False
+    if len(text) > MAX_PENDING_FOLLOW_UP_LENGTH:
+        return False
     if _is_pending_accept_follow_up(text):
         return True
     if _is_pending_edit_follow_up(text):
+        return True
+    if PENDING_DEICTIC_FOLLOW_UP_RE.search(text):
         return True
     return False
 

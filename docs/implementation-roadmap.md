@@ -346,7 +346,7 @@ Definition of done:
 
 Goal:
 
-- preserve the right continuity anchor when the user is clearly continuing an active draft, a selected record, or a Scenario Lab comparison artifact
+- preserve the right continuity anchor when the user is clearly continuing an active draft, pinned context, or a Scenario Lab comparison artifact
 - keep LLM vetting as the semantic selector rather than replacing it with rigid deterministic anchoring
 
 Files to touch:
@@ -363,7 +363,7 @@ Key coverage:
 
 - follow-ups after artifact promotion
 - selected-record continuation
-- scenario comparison revisits
+- scenario comparison revisits with stable comparison-artifact branch metadata
 - continuity anchor preserved without crowding out the rest of the 5-item working set
 
 Major risk:
@@ -400,7 +400,7 @@ Tests to update:
 
 Key coverage:
 
-- canonical `selected_record_id`
+- canonical `pinned_context_id`, with `selected_record_id` retained only as a compatibility alias at the public/client seam
 - canonical `learned`, with `created_record` treated as the compatibility alias
 - canonical `record_id`
 - canonical `workspace_update.status`
@@ -447,12 +447,16 @@ Current status:
 
 - `memory_trace/` is live for normal chat and Scenario Lab turns
 - retrieval can already surface `memory_trace` candidates
-- follow-on work should focus on tuning, inspection, and deeper whiteboard-trace semantics rather than introducing the first store
+- recent trace ranking now has structured metadata signals in frontmatter, so trace scope and grounding can outrank body-only matches
+- Memory Trace frontmatter now also carries turn mode, recalled ids/sources, learned ids/sources, history count, and preserved-context ids, and those fields are exposed back through turn payloads for inspection
+- recent trace ranking now also applies bounded continuity bonuses for same-whiteboard recency and preserved-context matches without turning traces into a hard side channel
 
 Key coverage:
 
 - recent trace records persist independently of JSON debug traces
 - retrieval can surface recent trace items as a distinct candidate source
+- recent trace metadata can influence ranking separately from transcript body text
+- current-turn payloads can expose Memory Trace metadata truthfully without turning the UI into a raw trace browser
 - Recall can include trace-backed items when they are relevant
 - UI disclosures still distinguish Recall from other grounded context
 
@@ -465,6 +469,10 @@ Definition of done:
 - the repo has a clear markdown-backed recent-history layer alongside `traces/`
 - retrieval can use that layer without collapsing it into the Library or the whiteboard
 - grounding disclosures still read naturally as Recall vs other grounded context
+
+Implementation status:
+
+- landed: Memory Trace now stores richer structured frontmatter, retrieval uses bounded recency / whiteboard / preserved-context bonuses for trace candidates, and turn payloads expose normalized trace metadata for inspection
 
 ## Track D: Scenario Lab As A Durable Reasoning Product
 
@@ -510,7 +518,8 @@ Definition of done:
 Goal:
 
 - make Scenario Lab read as a distinct reasoning mode inside the current product
-- surface the comparison question, recommendation, branch assumptions, risks, and stronger reopen/inspect actions
+- surface the comparison question, recommendation, branch assumptions, risks, the saved comparison artifact’s branch roster, and stronger reopen/inspect actions
+- use the saved comparison artifact as the durable comparison hub without requiring more backend orchestration
 
 Files to touch:
 
@@ -532,6 +541,7 @@ Definition of done:
 
 - Scenario Lab feels like a first-class reasoning mode
 - revisit and inspection actions are obvious
+- the saved comparison hub is the clearest reopen/inspect path, while richer branch detail still lives alongside it
 
 ## Deferred Architecture Checkpoint
 
@@ -546,11 +556,19 @@ Questions to revisit later:
 - when is a whiteboard draft too large or too durable for the whiteboard surface?
 - do long-form plans, essays, or papers need a distinct artifact-oriented surface?
 
+Concrete planning doc:
+
+- `docs/archive/implementation-plans/e1-full-artifact-surface-plan.md`
+
 Status:
 
-- deferred
+- implemented as a focused pass without introducing a separate artifact surface
 
 ### E2. Revision Lineage As First-Class Product Behavior
+
+Implementation plan:
+
+- `docs/archive/implementation-plans/e2-revision-lineage-plan.md`
 
 Questions to revisit later:
 
@@ -567,7 +585,10 @@ Files that would matter later:
 
 Status:
 
-- deferred unless explicitly reprioritized
+- partially implemented:
+  - E2-A lineage payload and inspector contract pass landed
+  - E2-B constrained concept-revision action landed
+  - E2-C artifact provenance cue pass landed: whiteboard snapshots, promoted artifacts, and Scenario Lab comparison hubs now carry explicit artifact lifecycle fields through write, serialization, and UI rendering
 
 ### E3. Heavier Retrieval Architecture
 

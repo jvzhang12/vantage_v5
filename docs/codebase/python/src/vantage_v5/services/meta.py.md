@@ -1,11 +1,12 @@
 # `src/vantage_v5/services/meta.py`
 
-Decides whether a chat turn should create durable graph state, and if so, what kind of record to write. It turns a user/assistant exchange plus nearby context into a `MetaDecision` that stays concept-forward for stable, generalizable turns while preserving `dont_save` and pending-whiteboard guardrails.
+Decides whether a chat turn should create durable graph state, and if so, what kind of record to write. It turns a user/assistant exchange plus nearby context into a `MetaDecision` that stays concept-forward for stable, generalizable turns while preserving `dont_save` and pending-whiteboard guardrails, and it now supports constrained concept revision as a deliberate action when there is a clear vetted concept target.
 
 ## Purpose
 
-- Classify the current turn as `no_op`, `create_concept`, `create_memory`, or `promote_workspace_to_artifact`.
+- Classify the current turn as `no_op`, `create_concept`, `create_revision`, `create_memory`, or `promote_workspace_to_artifact`.
 - Prefer concept creation for stable, generalizable novelty when the turn is durable enough to matter.
+- Allow concept revision only when the turn is clearly revising one existing vetted concept.
 - Link nearby related concepts through `links_to` instead of suppressing every related concept write.
 - Prefer no write when the intent is ambiguous or blocked by guardrails.
 - Build lightweight titles, cards, bodies, and links for downstream stores.
@@ -14,8 +15,8 @@ Decides whether a chat turn should create durable graph state, and if so, what k
 
 - `MetaService.decide()` checks `memory_mode` first and immediately suppresses writes when the user disabled memory saving.
 - `MetaService.decide()` also checks for pending whiteboard offers or drafts and blocks all durable writes on those turns, even if the user combines drafting language with explicit remember/save/promote language in the same message.
-- If an OpenAI client is available, `_openai_decide()` sends the turn, workspace excerpt, history, and vetted items to the model and parses a JSON decision. The model prompt asks for concept-forward behavior on stable/generalizable turns, and the method now applies a small deterministic backstop so near-duplicate concepts are suppressed and related vetted concepts are preserved in `links_to` even if the model omits them.
-- If the model call fails or no API key is configured, `_fallback_decide()` applies deterministic phrase matching and simple heuristics that stay concept-forward for explanatory turns, while still blocking near-exact duplicates.
+- If an OpenAI client is available, `_openai_decide()` sends the turn, workspace excerpt, history, and vetted items to the model and parses a JSON decision. The model prompt now distinguishes `create_revision` from `create_concept`, and the method applies deterministic guardrails so revision requires a clear vetted target, near-duplicate explicit revision requests can upgrade into `create_revision` instead of being suppressed, and revision targets are excluded from semantic `links_to`.
+- If the model call fails or no API key is configured, `_fallback_decide()` applies deterministic phrase matching and simple heuristics that stay concept-forward for explanatory turns, while still blocking near-exact duplicates and allowing explicit revision requests only when one clear vetted concept target exists.
 - The returned `MetaDecision` is later consumed by the executor to actually write concepts, memories, or artifacts.
 
 ## Key Classes / Functions
@@ -23,9 +24,11 @@ Decides whether a chat turn should create durable graph state, and if so, what k
 - `MetaDecision`: dataclass describing the proposed graph action and optional fields like title, card, body, target concept, and links.
 - `MetaService`: orchestrates model-backed and fallback decisioning.
 - `_openai_decide()`: prepares the payload, constrains the allowed actions, and parses the JSON response.
-- `_fallback_decide()`: handles explicit user phrases such as “save as concept,” “promote workspace,” and “remember this,” then otherwise applies concept-forward heuristics for reusable knowledge turns.
+- `_fallback_decide()`: handles explicit user phrases such as “save as concept,” deliberate concept-revision requests, “promote workspace,” and “remember this,” then otherwise applies concept-forward heuristics for reusable knowledge turns.
 - `_related_concept_links()`: filters vetted concepts down to the subset that actually overlaps with the current turn before adding them as `links_to`.
 - `_validated_link_targets()`: limits model-returned `links_to` values to vetted concept ids so the write path cannot introduce arbitrary concept references.
+- `_resolved_revision_target()`: chooses a valid revision target from the model-returned target, a duplicate concept, or a sole vetted concept when the request is explicitly revision-shaped.
+- `_is_explicit_revision_request()`: narrow phrase matcher that keeps fallback revision creation deliberate rather than default.
 - `_is_pending_whiteboard_update()`: enforces the non-durable whiteboard guardrail before either meta path runs.
 - `_title_from_message()`: shortens and title-cases user text for record titles.
 - `_sentence_card_from_text()`: extracts a compact first sentence for cards.
@@ -38,6 +41,7 @@ Decides whether a chat turn should create durable graph state, and if so, what k
 - The OpenAI path is wrapped in a broad `try/except`, so any API or parsing failure silently falls back to deterministic logic.
 - The concept-forward direction lives in the policy prompt and repo documentation, with the fallback path adding only lightweight duplicate checks and durable-turn heuristics.
 - Similar vetted concepts are allowed to remain as `links_to` context for new concepts; only near-duplicate restatements are suppressed.
+- Revision is intentionally narrower than concept creation: it requires a clear vetted concept target and the target concept is removed from `links_to` so ancestry and semantic neighborhood do not collapse into the same relation.
 - Explicit fallback memory phrases now win even when saved notes were already retrieved, which keeps direct user save requests from being suppressed by retrieval noise.
 - Fallback concept and memory writes reuse the same title/card/body shaping helpers, which means the saved record may reflect either the user message or assistant reply depending on available text.
 - `links_to` is normalized to an empty list in `to_dict()` so downstream code does not have to handle `None`.

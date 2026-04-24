@@ -65,6 +65,7 @@ class CandidateMemory:
     trust: str
     body: str = ""
     path: str | None = None
+    why_recalled: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -80,6 +81,23 @@ class CandidateMemory:
             "body": self.body,
             "path": self.path,
         }
+
+    def to_recall_dict(self) -> dict:
+        payload = {
+            "id": self.id,
+            "title": self.title,
+            "type": self.type,
+            "card": self.card,
+            "source": self.source,
+            "source_label": _source_label(self.source),
+            "trust": self.trust,
+            "body": self.body,
+            "path": self.path,
+        }
+        if self.why_recalled:
+            payload["recall_reason"] = self.why_recalled
+            payload["why_recalled"] = self.why_recalled
+        return payload
 
 
 CandidateConcept = CandidateMemory
@@ -123,9 +141,23 @@ class ConceptSearchService:
         concept_records: list[SearchableRecord],
         saved_note_records: list[SearchableRecord],
         vault_records: list[SearchableRecord],
+        workspace_id: str | None = None,
+        workspace_title: str | None = None,
+        workspace_scope: str | None = None,
+        selected_record_id: str | None = None,
+        selected_record_source: str | None = None,
         limit: int = 16,
     ) -> list[CandidateMemory]:
-        memory_trace = self._search_records(query=query, records=memory_trace_records or [], limit=limit)
+        memory_trace = self._search_records(
+            query=query,
+            records=memory_trace_records or [],
+            limit=limit,
+            workspace_id=workspace_id,
+            workspace_title=workspace_title,
+            workspace_scope=workspace_scope,
+            selected_record_id=selected_record_id,
+            selected_record_source=selected_record_source,
+        )
         concepts = self._search_records(query=query, records=concept_records, limit=limit)
         saved_notes = self._search_records(query=query, records=saved_note_records, limit=limit)
         vault = self._search_records(query=query, records=vault_records, limit=limit)
@@ -137,15 +169,22 @@ class ConceptSearchService:
         query: str,
         records: list[SearchableRecord],
         limit: int,
+        workspace_id: str | None = None,
+        workspace_title: str | None = None,
+        workspace_scope: str | None = None,
+        selected_record_id: str | None = None,
+        selected_record_source: str | None = None,
     ) -> list[CandidateMemory]:
         query_tokens = tokenize(query)
         query_phrase = _normalized_phrase(query)
         candidates: list[CandidateMemory] = []
 
-        for record in records:
+        for index, record in enumerate(records):
             title_tokens = tokenize(record.title)
             card_tokens = tokenize(record.card)
             body_tokens = tokenize(record.body[:1000])
+            metadata_text = _record_metadata_text(record)
+            metadata_tokens = tokenize(metadata_text)
             path_text = _record_path_text(record)
             path_tokens = tokenize(path_text)
             links_text = _record_joined_text(getattr(record, "links_to", []))
@@ -157,10 +196,16 @@ class ConceptSearchService:
             title_overlap = len(query_tokens & title_tokens)
             card_overlap = len(query_tokens & card_tokens)
             body_overlap = len(query_tokens & body_tokens)
+            metadata_overlap = len(query_tokens & metadata_tokens)
             path_overlap = len(query_tokens & path_tokens)
             links_overlap = len(query_tokens & links_tokens)
             lineage_overlap = len(query_tokens & lineage_tokens)
             context_overlap = len(query_tokens & context_tokens)
+
+            metadata_weight = 2.35 if record.source == "memory_trace" else 0.5
+            metadata_phrase_weight = 1.5 if record.source == "memory_trace" else 0.35
+            body_weight = 0.75 if record.source == "memory_trace" else 1.0
+            context_weight = 0.3 if record.source == "memory_trace" else 0.35
 
             signal_score = (
                 (title_overlap * 3.0)
@@ -168,19 +213,30 @@ class ConceptSearchService:
                 + (path_overlap * 2.15)
                 + (links_overlap * 1.8)
                 + (lineage_overlap * 1.55)
-                + (body_overlap * 1.0)
-                + (context_overlap * 0.35)
+                + (metadata_overlap * metadata_weight)
+                + (body_overlap * body_weight)
+                + (context_overlap * context_weight)
             )
             signal_score += _phrase_bonus(query_phrase, record.title, weight=1.65)
             signal_score += _phrase_bonus(query_phrase, record.card, weight=1.2)
             signal_score += _phrase_bonus(query_phrase, path_text, weight=1.55)
             signal_score += _phrase_bonus(query_phrase, links_text, weight=0.9)
             signal_score += _phrase_bonus(query_phrase, lineage_text, weight=0.9)
-            signal_score += _phrase_bonus(query_phrase, record.body, weight=0.45)
+            signal_score += _phrase_bonus(query_phrase, metadata_text, weight=metadata_phrase_weight)
+            signal_score += _phrase_bonus(query_phrase, record.body, weight=0.45 if record.source != "memory_trace" else 0.3)
             signal_score += _phrase_bonus(query_phrase, record.searchable_text, weight=0.45)
             if signal_score <= 0:
                 continue
-            score = signal_score + _source_bonus(record.source)
+            trace_bonus, trace_reason = _memory_trace_bonus(
+                record,
+                position=index,
+                workspace_id=workspace_id,
+                workspace_title=workspace_title,
+                workspace_scope=workspace_scope,
+                selected_record_id=selected_record_id,
+                selected_record_source=selected_record_source,
+            )
+            score = signal_score + _source_bonus(record.source) + trace_bonus
 
             candidates.append(
                 CandidateMemory(
@@ -193,7 +249,16 @@ class ConceptSearchService:
                         f"{record.source}: title={title_overlap} "
                         f"card={card_overlap} path={path_overlap} "
                         f"links={links_overlap} lineage={lineage_overlap} "
-                        f"body={body_overlap} context={context_overlap}"
+                        f"metadata={metadata_overlap} body={body_overlap} context={context_overlap}"
+                        f"{trace_reason}"
+                    ),
+                    why_recalled=_why_recalled(
+                        record,
+                        workspace_id=workspace_id,
+                        workspace_title=workspace_title,
+                        workspace_scope=workspace_scope,
+                        selected_record_id=selected_record_id,
+                        selected_record_source=selected_record_source,
                     ),
                     source=record.source,
                     trust=record.trust,
@@ -319,3 +384,135 @@ def _record_path_text(record: SearchableRecord) -> str:
         _record_joined_text(getattr(record, "path_hint", "")),
     ]
     return " ".join(part for part in parts if part)
+
+
+def _record_metadata_text(record: SearchableRecord) -> str:
+    metadata = getattr(record, "metadata", None)
+    if not metadata:
+        return ""
+    return _metadata_text(metadata)
+
+
+def _why_recalled(
+    record: SearchableRecord,
+    *,
+    workspace_id: str | None,
+    workspace_title: str | None,
+    workspace_scope: str | None,
+    selected_record_id: str | None,
+    selected_record_source: str | None,
+) -> str | None:
+    if record.source == "memory_trace":
+        metadata = getattr(record, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata_workspace_id = _record_joined_text(metadata.get("workspace_id"))
+        metadata_workspace_title = _record_joined_text(metadata.get("workspace_title"))
+        metadata_workspace_scope = _record_joined_text(metadata.get("workspace_scope")).lower()
+        metadata_preserved_context_id = _record_joined_text(metadata.get("preserved_context_id"))
+        metadata_preserved_context_source = _record_joined_text(metadata.get("preserved_context_source")).lower()
+        if (
+            selected_record_id
+            and metadata_preserved_context_id
+            and metadata_preserved_context_id == selected_record_id
+            and (
+                not selected_record_source
+                or not metadata_preserved_context_source
+                or metadata_preserved_context_source == str(selected_record_source).strip().lower()
+            )
+        ):
+            return "Preserved continuity trace for the selected context."
+        if workspace_id and metadata_workspace_id and metadata_workspace_id == workspace_id:
+            if str(workspace_scope or "").strip().lower() == "visible" and metadata_workspace_scope == "visible":
+                return "Recent trace from the active whiteboard."
+            if workspace_title and metadata_workspace_title and metadata_workspace_title == workspace_title:
+                return "Recent trace from the current workspace."
+            return "Recent trace from the current workspace."
+        return "Recent Memory Trace item relevant to the request."
+    if record.source == "concept":
+        return "Concept KB item relevant to the request."
+    if record.source in {"memory", "artifact"}:
+        return "Saved item relevant for continuity with earlier work."
+    if record.source == "vault_note":
+        return "Reference note relevant to the request."
+    return None
+
+
+def _metadata_text(value: object) -> str:
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for key, item in value.items():
+            key_text = _record_joined_text(key)
+            if key_text:
+                parts.append(key_text)
+            item_text = _metadata_text(item)
+            if item_text:
+                parts.append(item_text)
+        return " ".join(parts)
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            item_text = _metadata_text(item)
+            if item_text:
+                parts.append(item_text)
+        return " ".join(parts)
+    if value is None:
+        return ""
+    return _record_joined_text(value)
+
+
+def _memory_trace_bonus(
+    record: SearchableRecord,
+    *,
+    position: int,
+    workspace_id: str | None,
+    workspace_title: str | None,
+    workspace_scope: str | None,
+    selected_record_id: str | None,
+    selected_record_source: str | None,
+) -> tuple[float, str]:
+    if record.source != "memory_trace":
+        return 0.0, ""
+    metadata = getattr(record, "metadata", None)
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    recency_bonus = max(0.0, 0.66 - (position * 0.06))
+    same_workspace_bonus = 0.0
+    same_title_bonus = 0.0
+    visible_whiteboard_bonus = 0.0
+    preserved_context_bonus = 0.0
+
+    metadata_workspace_id = _record_joined_text(metadata.get("workspace_id"))
+    metadata_workspace_title = _record_joined_text(metadata.get("workspace_title"))
+    metadata_workspace_scope = _record_joined_text(metadata.get("workspace_scope")).lower()
+    metadata_preserved_context_id = _record_joined_text(metadata.get("preserved_context_id"))
+    metadata_preserved_context_source = _record_joined_text(metadata.get("preserved_context_source")).lower()
+
+    if workspace_id and metadata_workspace_id and metadata_workspace_id == workspace_id:
+        same_workspace_bonus = 0.9 if str(workspace_scope or "").strip().lower() == "visible" else 0.55
+    if workspace_title and metadata_workspace_title and metadata_workspace_title == workspace_title:
+        same_title_bonus = 0.2
+    if same_workspace_bonus and metadata_workspace_scope == "visible" and str(workspace_scope or "").strip().lower() == "visible":
+        visible_whiteboard_bonus = 0.2
+    if (
+        selected_record_id
+        and metadata_preserved_context_id
+        and metadata_preserved_context_id == selected_record_id
+        and (
+            not selected_record_source
+            or not metadata_preserved_context_source
+            or metadata_preserved_context_source == str(selected_record_source).strip().lower()
+        )
+    ):
+        preserved_context_bonus = 0.45
+
+    total_bonus = recency_bonus + same_workspace_bonus + same_title_bonus + visible_whiteboard_bonus + preserved_context_bonus
+    return total_bonus, (
+        f" trace_bonus={total_bonus:.2f}"
+        f" recency={recency_bonus:.2f}"
+        f" workspace={same_workspace_bonus:.2f}"
+        f" title={same_title_bonus:.2f}"
+        f" whiteboard={visible_whiteboard_bonus:.2f}"
+        f" preserved={preserved_context_bonus:.2f}"
+    )

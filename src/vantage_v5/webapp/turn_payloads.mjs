@@ -103,10 +103,22 @@ export function normalizeScenarioLabPayload(scenarioLab) {
   if (!scenarioLab || typeof scenarioLab !== "object") {
     return null;
   }
-  const comparisonArtifact = normalizeScenarioArtifact(scenarioLab.comparison_artifact);
   const branches = Array.isArray(scenarioLab.branches)
     ? scenarioLab.branches.map((branch) => normalizeScenarioBranch(branch)).filter(Boolean)
     : [];
+  const rawComparisonArtifact = normalizeScenarioArtifact(scenarioLab.comparison_artifact);
+  const derivedBranchIndex = branches
+    .map((branch) => normalizeComparisonBranchIndex([branch]))
+    .flat();
+  const artifactBranchIndex = rawComparisonArtifact?.branchIndex || [];
+  const artifactBranchIndexHasDetail = artifactBranchIndex.some((branch) => branch?.title || branch?.label || branch?.summary);
+  const comparisonArtifact = rawComparisonArtifact
+    ? {
+      ...rawComparisonArtifact,
+      branchIndex: artifactBranchIndexHasDetail ? artifactBranchIndex : (derivedBranchIndex.length ? derivedBranchIndex : artifactBranchIndex),
+      branch_index: artifactBranchIndexHasDetail ? artifactBranchIndex : (derivedBranchIndex.length ? derivedBranchIndex : artifactBranchIndex),
+    }
+    : null;
   const question = firstNonEmptyString(
     scenarioLab.question,
     scenarioLab.comparison_question,
@@ -122,13 +134,14 @@ export function normalizeScenarioLabPayload(scenarioLab) {
     comparisonArtifact?.recommendation,
     comparisonArtifact?.sections.recommendation.text,
   );
+  const branchCount = branches.length || comparisonArtifact?.branchIndex?.length || comparisonArtifact?.branchWorkspaceIds?.length || 0;
   return {
     ...scenarioLab,
     question,
     comparison_question: question,
     summary,
     recommendation,
-    branchCount: branches.length,
+    branchCount,
     branches,
     comparisonArtifact,
     sharedContext: comparisonArtifact?.sections.sharedContext.text || "",
@@ -141,6 +154,7 @@ export function normalizeScenarioLabPayload(scenarioLab) {
 export function normalizeTurnPayload(payload) {
   const normalizedPayload = payload && typeof payload === "object" ? payload : {};
   const recallItems = normalizeRecallItems(normalizedPayload);
+  const pinnedContext = normalizedPayload.pinned_context || normalizedPayload.pinnedContext || normalizedPayload.selected_record || normalizedPayload.selectedRecord || null;
   return {
     recallItems,
     workingMemoryItems: recallItems,
@@ -150,6 +164,10 @@ export function normalizeTurnPayload(payload) {
     scenarioLab: normalizeScenarioLabPayload(normalizedPayload.scenario_lab),
     workspaceUpdate: normalizeWorkspaceUpdate(normalizedPayload.workspace_update, normalizedPayload.workspace),
     workspaceContextScope: normalizeWorkspaceContextScope(normalizedPayload.workspace?.context_scope),
+    pinnedContextId: normalizedPayload.pinned_context_id || normalizedPayload.pinnedContextId || normalizedPayload.selected_record_id || normalizedPayload.selectedRecordId || null,
+    pinnedContext,
+    selectedRecordId: normalizedPayload.selected_record_id || normalizedPayload.selectedRecordId || normalizedPayload.pinned_context_id || normalizedPayload.pinnedContextId || null,
+    selectedRecord: pinnedContext,
   };
 }
 
@@ -594,6 +612,14 @@ function normalizeScenarioArtifact(artifact) {
     nextSteps: normalizeScenarioSection(sectionLines.next_steps),
   };
   const recommendation = firstNonEmptyString(artifact.recommendation, sections.recommendation.text);
+  const branchIndex = normalizeComparisonBranchIndex(artifact.branch_index || artifact.branchIndex, artifact.branch_workspace_ids || artifact.branchWorkspaceIds);
+  const branchWorkspaceIds = branchIndex.length
+    ? branchIndex.map((branch) => branch.workspace_id).filter(Boolean)
+    : Array.isArray(artifact.branch_workspace_ids)
+      ? artifact.branch_workspace_ids.map((item) => String(item || "").trim()).filter(Boolean)
+      : Array.isArray(artifact.branchWorkspaceIds)
+        ? artifact.branchWorkspaceIds.map((item) => String(item || "").trim()).filter(Boolean)
+        : [];
   return {
     ...artifact,
     id: normalizeRecordId(artifact),
@@ -602,11 +628,50 @@ function normalizeScenarioArtifact(artifact) {
     body,
     recommendation,
     comparisonQuestion: firstNonEmptyString(artifact.comparison_question),
-    branchWorkspaceIds: Array.isArray(artifact.branch_workspace_ids)
-      ? artifact.branch_workspace_ids.map((item) => String(item || "").trim()).filter(Boolean)
-      : [],
+    branchWorkspaceIds,
+    branchIndex,
+    branch_index: branchIndex,
     sections,
   };
+}
+
+export function normalizeComparisonBranchIndex(branchIndex, branchWorkspaceIds = []) {
+  const normalized = [];
+  const source = Array.isArray(branchIndex) ? branchIndex : [];
+  for (const item of source) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const workspaceId = firstNonEmptyString(item.workspace_id, item.workspaceId, item.id);
+    if (!workspaceId) {
+      continue;
+    }
+    const entry = {
+      ...item,
+      workspaceId,
+      workspace_id: workspaceId,
+      title: firstNonEmptyString(item.title) || "",
+      label: firstNonEmptyString(item.label) || "",
+      summary: firstNonEmptyString(item.summary, item.card) || "",
+    };
+    normalized.push(entry);
+  }
+  if (normalized.length) {
+    return normalized;
+  }
+  return normalizeBranchWorkspaceIds(branchWorkspaceIds);
+}
+
+function normalizeBranchWorkspaceIds(branchWorkspaceIds) {
+  if (!Array.isArray(branchWorkspaceIds)) {
+    return [];
+  }
+  return branchWorkspaceIds
+    .map((workspaceId) => {
+      const normalized = firstNonEmptyString(workspaceId);
+      return normalized ? { workspaceId: normalized, workspace_id: normalized } : null;
+    })
+    .filter(Boolean);
 }
 
 function joinReadableList(items) {
@@ -627,6 +692,19 @@ export function normalizeTurnInterpretation(interpretation) {
     return null;
   }
   const confidence = Number(interpretation.confidence);
+  const preservePinnedContext = normalizeInterpretationBoolean(
+    interpretation.preserve_pinned_context
+      ?? interpretation.preservePinnedContext
+      ?? interpretation.preserve_selected_record
+      ?? interpretation.preserveSelectedRecord,
+  );
+  const pinnedContextReason = String(
+    interpretation.pinned_context_reason
+      ?? interpretation.pinnedContextReason
+      ?? interpretation.selected_record_reason
+      ?? interpretation.selectedRecordReason
+      ?? "",
+  ).trim() || "";
   return {
     mode: String(interpretation.mode || "").trim().toLowerCase() || "chat",
     confidence: Number.isFinite(confidence) ? confidence : 0,
@@ -634,9 +712,28 @@ export function normalizeTurnInterpretation(interpretation) {
     requestedWhiteboardMode: String(interpretation.requested_whiteboard_mode || "").trim().toLowerCase() || null,
     resolvedWhiteboardMode: String(interpretation.resolved_whiteboard_mode || "").trim().toLowerCase() || null,
     whiteboardModeSource: String(interpretation.whiteboard_mode_source || "").trim().toLowerCase() || null,
-    preserveSelectedRecord: interpretation.preserve_selected_record ?? null,
-    selectedRecordReason: String(interpretation.selected_record_reason || "").trim() || "",
+    preservePinnedContext,
+    pinnedContextReason,
+    preserveSelectedRecord: preservePinnedContext,
+    selectedRecordReason: pinnedContextReason,
   };
+}
+
+function normalizeInterpretationBoolean(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "yes", "1"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "no", "0"].includes(normalized)) {
+    return false;
+  }
+  return null;
 }
 
 export function normalizeWorkspaceUpdate(workspaceUpdate, workspacePayload = {}) {
@@ -659,9 +756,9 @@ export function normalizeWorkspaceUpdate(workspaceUpdate, workspacePayload = {})
   };
   if (!normalized.summary) {
     if (normalized.status === "offered") {
-      normalized.summary = "Vantage suggested continuing this work product in the whiteboard.";
+      normalized.summary = "Vantage suggested continuing this work in the whiteboard.";
     } else if (normalized.status === "draft_ready") {
-      normalized.summary = "A whiteboard draft is ready to review before it changes the whiteboard.";
+      normalized.summary = "A whiteboard draft is ready to review before it enters the whiteboard.";
     } else if (normalized.status === "updated") {
       normalized.summary = "The whiteboard was updated from this turn.";
     }

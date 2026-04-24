@@ -11,11 +11,15 @@ from vantage_v5.config import AppConfig
 from vantage_v5.services.meta import MetaDecision
 from vantage_v5.services.meta import MetaService
 from vantage_v5.services.navigator import NavigationDecision
+from vantage_v5.services.navigator import NavigatorService
 from vantage_v5.services.scenario_lab import ScenarioBranchPlan
 from vantage_v5.services.scenario_lab import ScenarioComparisonPlan
 from vantage_v5.services.scenario_lab import ScenarioPlan
 from vantage_v5.services.search import CandidateMemory
 from vantage_v5.server import create_app
+from vantage_v5.storage.artifacts import ArtifactStore
+from vantage_v5.storage.concepts import ConceptStore
+from vantage_v5.storage.memory_trace import MemoryTraceStore
 from vantage_v5.storage.workspaces import WorkspaceDocument
 
 
@@ -377,6 +381,8 @@ def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     assert payload["response_mode"]["label"] == "Recall"
     assert payload["learned"] == []
     assert payload["created_record"] is None
+    assert payload["pinned_context"] is None
+    assert payload["pinned_context_id"] is None
     assert payload["selected_record"] is None
     assert payload["selected_record_id"] is None
     assert payload["turn_interpretation"]["mode"] == "chat"
@@ -427,17 +433,30 @@ def test_chat_can_route_into_scenario_lab_and_open_branch(tmp_path: Path, monkey
     assert payload["created_record"]["scenario_kind"] == "comparison"
     assert payload["created_record"]["scope"] == "durable"
     assert payload["learned"] == [payload["created_record"]]
+    assert payload["pinned_context"] is None
+    assert payload["pinned_context_id"] is None
     assert payload["selected_record"] is None
     assert payload["selected_record_id"] is None
     assert payload["scenario_lab"]["comparison_artifact"]["id"] == payload["created_record"]["id"]
     assert payload["scenario_lab"]["comparison_artifact"]["scenario_kind"] == "comparison"
+    assert payload["scenario_lab"]["comparison_artifact"]["artifact_origin"] == "scenario_lab"
+    assert payload["scenario_lab"]["comparison_artifact"]["artifact_lifecycle"] == "comparison_hub"
     assert payload["scenario_lab"]["comparison_question"] == "What if we cut milestone 1 scope by 40%?"
     assert len(payload["scenario_lab"]["branches"]) == 3
-    assert any(item["source"] == "concept" for item in payload["concept_cards"])
+    assert len(payload["recall"]) >= 1
 
     artifact_id = payload["created_record"]["id"]
     assert (repo_root / "artifacts" / f"{artifact_id}.md").exists()
 
+    expected_branch_index = [
+        {
+            "workspace_id": branch["workspace_id"],
+            "title": branch["title"],
+            "label": branch["label"],
+            "summary": branch["summary"],
+        }
+        for branch in payload["scenario_lab"]["branches"]
+    ]
     branch_ids = [branch["workspace_id"] for branch in payload["scenario_lab"]["branches"]]
     assert branch_ids == [
         "v5-milestone-1--baseline",
@@ -446,9 +465,13 @@ def test_chat_can_route_into_scenario_lab_and_open_branch(tmp_path: Path, monkey
     ]
     assert payload["created_record"]["base_workspace_id"] == "v5-milestone-1"
     assert payload["created_record"]["branch_workspace_ids"] == branch_ids
+    assert payload["created_record"]["branch_index"] == expected_branch_index
+    assert payload["created_record"]["artifact_origin"] == "scenario_lab"
+    assert payload["created_record"]["artifact_lifecycle"] == "comparison_hub"
     assert payload["created_record"]["scenario_namespace_id"] == "v5-milestone-1"
     assert payload["created_record"]["namespace_mode"] == "anchored"
     assert payload["scenario_lab"]["comparison_artifact"]["branch_workspace_ids"] == branch_ids
+    assert payload["scenario_lab"]["comparison_artifact"]["branch_index"] == expected_branch_index
     for branch_id in branch_ids:
         branch_path = repo_root / "workspaces" / f"{branch_id}.md"
         assert branch_path.exists()
@@ -488,6 +511,7 @@ def test_chat_can_route_into_scenario_lab_and_open_branch(tmp_path: Path, monkey
         "comparison_question": "What if we cut milestone 1 scope by 40%?",
         "comparison_artifact_id": artifact_id,
         "branch_workspace_ids": branch_ids,
+        "branch_index": expected_branch_index,
         "scenario_namespace_id": "v5-milestone-1",
         "namespace_mode": "anchored",
     }
@@ -865,6 +889,15 @@ def test_generic_scenario_uses_detached_namespace_instead_of_workspace_id(tmp_pa
 
     artifact_id = payload["created_record"]["id"]
     branch_ids = [branch["workspace_id"] for branch in payload["scenario_lab"]["branches"]]
+    expected_branch_index = [
+        {
+            "workspace_id": branch["workspace_id"],
+            "title": branch["title"],
+            "label": branch["label"],
+            "summary": branch["summary"],
+        }
+        for branch in payload["scenario_lab"]["branches"]
+    ]
     assert branch_ids == [
         "launch-strategy--conservative-rollout",
         "launch-strategy--focused-mvp",
@@ -873,6 +906,7 @@ def test_generic_scenario_uses_detached_namespace_instead_of_workspace_id(tmp_pa
     assert payload["created_record"]["scenario_namespace_id"] == "launch-strategy"
     assert payload["created_record"]["namespace_mode"] == "detached"
     assert payload["created_record"]["branch_workspace_ids"] == branch_ids
+    assert payload["created_record"]["branch_index"] == expected_branch_index
     assert all(not branch_id.startswith("thanksgiving-holiday--") for branch_id in branch_ids)
     for branch_id in branch_ids:
         assert (repo_root / "workspaces" / f"{branch_id}.md").exists()
@@ -895,6 +929,7 @@ def test_generic_scenario_uses_detached_namespace_instead_of_workspace_id(tmp_pa
     artifact_payload = artifact_item.json()["item"]
     assert artifact_payload["scenario_kind"] == "comparison"
     assert artifact_payload["scenario"]["branch_workspace_ids"] == branch_ids
+    assert artifact_payload["scenario"]["branch_index"] == expected_branch_index
     assert artifact_payload["scenario"]["scenario_namespace_id"] == "launch-strategy"
     assert artifact_payload["scenario"]["namespace_mode"] == "detached"
 
@@ -1055,6 +1090,7 @@ def test_follow_up_on_selected_scenario_artifact_stays_in_chat(tmp_path: Path, m
     call_count = {"route": 0}
     created_artifact_id = {"value": None}
     created_branch_ids = {"value": []}
+    created_branch_index = {"value": []}
 
     def _route(self, **kwargs):
         call_count["route"] += 1
@@ -1072,6 +1108,7 @@ def test_follow_up_on_selected_scenario_artifact_stays_in_chat(tmp_path: Path, m
             "comparison_question": "Which launch strategy is best for a new software product?",
             "comparison_artifact_id": created_artifact_id["value"],
             "branch_workspace_ids": created_branch_ids["value"],
+            "branch_index": created_branch_index["value"],
             "scenario_namespace_id": "launch-strategy",
             "namespace_mode": "detached",
         }
@@ -1108,6 +1145,15 @@ def test_follow_up_on_selected_scenario_artifact_stays_in_chat(tmp_path: Path, m
     assert initial_payload["mode"] == "scenario_lab"
     created_artifact_id["value"] = initial_payload["created_record"]["id"]
     created_branch_ids["value"] = [branch["workspace_id"] for branch in initial_payload["scenario_lab"]["branches"]]
+    created_branch_index["value"] = [
+        {
+            "workspace_id": branch["workspace_id"],
+            "title": branch["title"],
+            "label": branch["label"],
+            "summary": branch["summary"],
+        }
+        for branch in initial_payload["scenario_lab"]["branches"]
+    ]
 
     follow_up = client.post(
         "/api/chat",
@@ -1133,6 +1179,7 @@ def test_follow_up_on_selected_scenario_artifact_stays_in_chat(tmp_path: Path, m
     assert len(follow_up_payload["working_memory"]) <= 5
     assert follow_up_payload["selected_record"]["scenario_kind"] == "comparison"
     assert follow_up_payload["selected_record"]["scenario"]["branch_workspace_ids"] == created_branch_ids["value"]
+    assert follow_up_payload["selected_record"]["scenario"]["branch_index"] == created_branch_index["value"]
     assert follow_up_payload["selected_record"]["scenario"]["comparison_artifact_id"] == created_artifact_id["value"]
     assert follow_up_payload["turn_interpretation"]["preserve_selected_record"] is True
     assert follow_up_payload["turn_interpretation"]["selected_record_reason"] == "The selected scenario comparison artifact remains the continuity anchor."
@@ -1289,6 +1336,9 @@ def test_scenario_lab_selected_record_payload_preserves_legacy_comparison_lineag
             "launch-strategy--focused-mvp",
             "launch-strategy--aggressive-launch",
         ]
+        assert selected_payload["lineage_kind"] == "provenance"
+        assert selected_payload["derived_from_id"] == "thanksgiving-holiday"
+        assert selected_payload["revision_parent_id"] is None
         assert selected_payload["scenario_kind"] == "comparison"
         assert selected_payload["scenario"] == expected_scenario
         assert selected_payload["base_workspace_id"] == "thanksgiving-holiday"
@@ -1315,6 +1365,130 @@ def test_scenario_lab_selected_record_payload_preserves_legacy_comparison_lineag
     )
     assert response.status_code == 200
     assert response.json()["mode"] == "scenario_lab"
+
+
+def test_generic_legacy_comparison_artifact_recovers_scenario_metadata_from_body(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path)
+
+    (repo_root / "artifacts" / "legacy-launch-comparison.md").write_text(
+        (
+            "---\n"
+            "id: legacy-launch-comparison\n"
+            "title: Legacy Launch Comparison\n"
+            "type: artifact\n"
+            "card: Older comparison artifact before explicit scenario typing.\n"
+            "created_at: 2026-04-13\n"
+            "updated_at: 2026-04-13\n"
+            "links_to: []\n"
+            "comes_from:\n"
+            "  - thanksgiving-holiday\n"
+            "  - launch-strategy--conservative-rollout\n"
+            "  - launch-strategy--focused-mvp\n"
+            "  - launch-strategy--aggressive-launch\n"
+            "status: active\n"
+            "---\n\n"
+            "# Legacy Launch Comparison\n\n"
+            "Base Workspace: thanksgiving-holiday\n"
+            "Question: Which launch approach should we choose?\n\n"
+            "## Branches Compared\n"
+            "- launch-strategy--conservative-rollout\n"
+            "- launch-strategy--focused-mvp\n"
+            "- launch-strategy--aggressive-launch\n\n"
+            "## Recommendation\n"
+            "Focused MVP is the best balance of learning and risk.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.get("/api/memory/legacy-launch-comparison")
+
+    assert response.status_code == 200
+    payload = response.json()["item"]
+    assert payload["type"] == "artifact"
+    assert payload["scenario_kind"] == "comparison"
+    assert payload["scenario"] == {
+        "scenario_kind": "comparison",
+        "base_workspace_id": "thanksgiving-holiday",
+        "comparison_question": "Which launch approach should we choose?",
+        "comparison_artifact_id": "legacy-launch-comparison",
+        "branch_workspace_ids": [
+            "launch-strategy--conservative-rollout",
+            "launch-strategy--focused-mvp",
+            "launch-strategy--aggressive-launch",
+        ],
+        "scenario_namespace_id": "launch-strategy",
+        "namespace_mode": "detached",
+    }
+
+
+def test_comparison_artifact_frontmatter_branch_index_surfaces_without_body_index(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path)
+
+    (repo_root / "artifacts" / "frontmatter-launch-comparison.md").write_text(
+        (
+            "---\n"
+            "id: frontmatter-launch-comparison\n"
+            "title: Frontmatter Launch Comparison\n"
+            "type: scenario_comparison\n"
+            "card: Comparison artifact with branch index in frontmatter only.\n"
+            "created_at: 2026-04-13\n"
+            "updated_at: 2026-04-13\n"
+            "links_to: []\n"
+            "comes_from:\n"
+            "  - thanksgiving-holiday\n"
+            "  - launch-strategy--conservative-rollout\n"
+            "  - launch-strategy--focused-mvp\n"
+            "status: active\n"
+            "scenario_kind: comparison\n"
+            "base_workspace_id: thanksgiving-holiday\n"
+            "comparison_question: Which launch approach should we choose?\n"
+            "comparison_artifact_id: frontmatter-launch-comparison\n"
+            "branch_workspace_ids:\n"
+            "  - launch-strategy--conservative-rollout\n"
+            "  - launch-strategy--focused-mvp\n"
+            "branch_index:\n"
+            "  - workspace_id: launch-strategy--conservative-rollout\n"
+            "    title: Conservative Rollout\n"
+            "    label: conservative-rollout\n"
+            "    summary: Lower risk of catastrophic failure.\n"
+            "  - workspace_id: launch-strategy--focused-mvp\n"
+            "    title: Focused MVP\n"
+            "    label: focused-mvp\n"
+            "    summary: Accelerated learning from a real user base.\n"
+            "scenario_namespace_id: launch-strategy\n"
+            "namespace_mode: detached\n"
+            "---\n\n"
+            "# Frontmatter Launch Comparison\n\n"
+            "Base Workspace: thanksgiving-holiday\n"
+            "Question: Which launch approach should we choose?\n\n"
+            "## Branches Compared\n"
+            "- launch-strategy--conservative-rollout\n"
+            "- launch-strategy--focused-mvp\n\n"
+            "## Recommendation\n"
+            "Focused MVP is the best balance of learning and risk.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    response = client.get("/api/memory/frontmatter-launch-comparison")
+
+    assert response.status_code == 200
+    payload = response.json()["item"]
+    assert payload["scenario_kind"] == "comparison"
+    assert payload["scenario"]["branch_index"] == [
+        {
+            "workspace_id": "launch-strategy--conservative-rollout",
+            "title": "Conservative Rollout",
+            "label": "conservative-rollout",
+            "summary": "Lower risk of catastrophic failure.",
+        },
+        {
+            "workspace_id": "launch-strategy--focused-mvp",
+            "title": "Focused MVP",
+            "label": "focused-mvp",
+            "summary": "Accelerated learning from a real user base.",
+        },
+    ]
 
 
 def test_low_context_follow_up_keeps_selected_concept_in_turn_memory(tmp_path: Path, monkeypatch) -> None:
@@ -1431,6 +1605,12 @@ def test_chat_turn_writes_memory_trace_and_can_recall_it_without_promoting_it(tm
     assert first.status_code == 200
     first_payload = first.json()
     assert first_payload["memory_trace_record"]["source"] == "memory_trace"
+    assert first_payload["memory_trace_record"]["turn_mode"] == "chat"
+    assert first_payload["memory_trace_record"]["workspace_scope"] == "excluded"
+    assert first_payload["memory_trace_record"]["history_count"] == 0
+    assert first_payload["memory_trace_record"]["recalled_ids"] == [
+        item["id"] for item in first_payload["working_memory"]
+    ]
     assert (repo_root / "memory_trace" / f"{first_payload['memory_trace_record']['id']}.md").exists()
     assert first_payload["learned"] == []
 
@@ -1470,6 +1650,8 @@ def test_experiment_chat_writes_memory_trace_inside_experiment_scope(tmp_path: P
     assert response.status_code == 200
     payload = response.json()
     assert payload["memory_trace_record"]["scope"] == "experiment"
+    assert payload["memory_trace_record"]["trace_scope"] == "experiment"
+    assert payload["memory_trace_record"]["turn_mode"] == "chat"
     experiment_trace_path = repo_root / "state" / "experiments" / session_id / "memory_trace" / f"{payload['memory_trace_record']['id']}.md"
     assert experiment_trace_path.exists()
 
@@ -1491,6 +1673,8 @@ def test_scenario_lab_turn_writes_memory_trace(tmp_path: Path, monkeypatch) -> N
     payload = response.json()
     assert payload["mode"] == "scenario_lab"
     assert payload["memory_trace_record"]["source"] == "memory_trace"
+    assert payload["memory_trace_record"]["turn_mode"] == "scenario_lab"
+    assert payload["memory_trace_record"]["learned_count"] == 1
     assert (repo_root / "memory_trace" / f"{payload['memory_trace_record']['id']}.md").exists()
 
 
@@ -1574,6 +1758,54 @@ def test_fallback_turn_links_only_related_concepts(tmp_path: Path, monkeypatch) 
     assert payload["created_record"]["links_to"] == [related_concept.id]
 
 
+def test_fallback_turn_can_create_revision_for_explicit_concept_update(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path)
+    concept_store = ConceptStore(repo_root / "concepts")
+    concept_store.create_concept(
+        title="Rules of Hangman (game)",
+        card="Basic rules and gameplay flow for Hangman.",
+        body="Players guess letters one at a time.",
+    )
+    matching_concept = _concept_candidate_for_tests(
+        id="rules-of-hangman-game",
+        title="Rules of Hangman (game)",
+        card="Basic rules and gameplay flow for Hangman.",
+        body="Players guess letters one at a time.",
+    )
+
+    def _vet(self, *, message, candidates, continuity_hint=None):
+        return [matching_concept], {
+            "selected_ids": [matching_concept.id],
+            "none_relevant": False,
+            "rationale": "Test vetting path selected the existing Hangman rules concept.",
+        }
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _vet)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Revise this concept so it says players get 6 wrong guesses.",
+            "history": [],
+            "workspace_id": "v5-milestone-1",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta_action"]["action"] == "create_revision"
+    assert payload["graph_action"]["type"] == "create_revision"
+    assert payload["created_record"]["source"] == "concept"
+    assert payload["created_record"]["lineage_kind"] == "revision"
+    assert payload["created_record"]["revision_parent_id"] == "rules-of-hangman-game"
+    assert payload["created_record"]["derived_from_id"] == "rules-of-hangman-game"
+    created_record = client.get(f"/api/concepts/{payload['created_record']['id']}")
+    assert created_record.status_code == 200
+    created_payload = created_record.json()
+    assert created_payload["lineage_kind"] == "revision"
+    assert created_payload["revision_parent_id"] == "rules-of-hangman-game"
+    assert created_payload["derived_from_id"] == "rules-of-hangman-game"
+
+
 def test_meta_fallback_skips_near_duplicate_concept_title(tmp_path: Path) -> None:
     workspace = WorkspaceDocument(
         workspace_id="v5-milestone-1",
@@ -1603,6 +1835,34 @@ def test_meta_fallback_skips_near_duplicate_concept_title(tmp_path: Path) -> Non
     assert decision.action == "no_op"
     assert decision.links_to == [matching_concept.id]
     assert "near-duplicate concept already exists" in decision.rationale
+
+
+def test_meta_fallback_explicit_revision_request_targets_single_vetted_concept(tmp_path: Path) -> None:
+    workspace = WorkspaceDocument(
+        workspace_id="v5-milestone-1",
+        title="Shared Workspace",
+        content="",
+        path=tmp_path / "workspaces" / "v5-milestone-1.md",
+    )
+    service = MetaService(model="gpt-4.1", openai_api_key=None)
+    matching_concept = _concept_candidate_for_tests(
+        id="rules-of-hangman-game",
+        title="Rules of Hangman (game)",
+        card="Basic rules and gameplay flow for Hangman.",
+        body="Players guess letters one at a time.",
+    )
+
+    decision = service._fallback_decide(
+        user_message="Revise this concept so it says players get 6 wrong guesses.",
+        assistant_message="I revised the rules to make the max incorrect guesses 6.",
+        workspace=workspace,
+        vetted_items=[matching_concept],
+        memory_mode="auto",
+    )
+
+    assert decision.action == "create_revision"
+    assert decision.target_concept_id == "rules-of-hangman-game"
+    assert decision.links_to == []
 
 
 def test_meta_openai_prompt_biases_toward_create_concept_and_links_related_concepts(tmp_path: Path) -> None:
@@ -1665,6 +1925,68 @@ def test_meta_openai_prompt_biases_toward_create_concept_and_links_related_conce
     assert decision.links_to == ["hangman-word-game"]
 
 
+def test_meta_openai_decide_supports_constrained_create_revision(tmp_path: Path) -> None:
+    workspace = WorkspaceDocument(
+        workspace_id="v5-milestone-1",
+        title="Shared Workspace",
+        content="",
+        path=tmp_path / "workspaces" / "v5-milestone-1.md",
+    )
+    service = MetaService(model="gpt-4.1", openai_api_key="test-key")
+    target_concept = _concept_candidate_for_tests(
+        id="rules-of-hangman-game",
+        title="Rules of Hangman (game)",
+        card="Basic rules and gameplay flow for Hangman.",
+        body="Players guess letters one at a time.",
+    )
+    related_concept = _concept_candidate_for_tests(
+        id="hangman-word-game",
+        title="Hangman (Word Game)",
+        card="A classic word-guessing game.",
+        body="A durable concept about the core Hangman game.",
+    )
+    captured: dict[str, object] = {}
+
+    class _FakeResponses:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return type(
+                "FakeResponse",
+                (),
+                {
+                    "output_text": json.dumps(
+                        {
+                            "action": "create_revision",
+                            "rationale": "This turn deliberately updates the existing Hangman rules concept.",
+                            "title": "Rules Of Hangman",
+                            "card": "The updated rules of Hangman.",
+                            "body": "A revised Hangman rules concept with max guesses set to 6.",
+                            "target_concept_id": "rules-of-hangman-game",
+                            "links_to": ["rules-of-hangman-game", "hangman-word-game"],
+                        }
+                    )
+                },
+            )()
+
+    service.client = type("FakeClient", (), {"responses": _FakeResponses()})()
+
+    decision = service._openai_decide(
+        user_message="Revise the concept about Hangman rules so it says players get 6 wrong guesses.",
+        assistant_message="I revised the rules to make the max incorrect guesses 6.",
+        workspace=workspace,
+        vetted_items=[target_concept, related_concept],
+        history=[],
+        memory_mode="auto",
+    )
+
+    instructions = str(captured["instructions"])
+    assert "Create_revision is a deliberate action" in instructions
+    assert "Do not use create_revision for merely related knowledge" in instructions
+    assert decision.action == "create_revision"
+    assert decision.target_concept_id == "rules-of-hangman-game"
+    assert decision.links_to == ["hangman-word-game"]
+
+
 def test_meta_openai_decide_backfills_related_links_when_model_omits_them(tmp_path: Path) -> None:
     workspace = WorkspaceDocument(
         workspace_id="v5-milestone-1",
@@ -1713,6 +2035,56 @@ def test_meta_openai_decide_backfills_related_links_when_model_omits_them(tmp_pa
 
     assert decision.action == "create_concept"
     assert decision.links_to == ["hangman-word-game"]
+
+
+def test_meta_openai_decide_upgrades_explicit_revision_request_instead_of_suppressing_duplicate(tmp_path: Path) -> None:
+    workspace = WorkspaceDocument(
+        workspace_id="v5-milestone-1",
+        title="Shared Workspace",
+        content="",
+        path=tmp_path / "workspaces" / "v5-milestone-1.md",
+    )
+    service = MetaService(model="gpt-4.1", openai_api_key="test-key")
+    duplicate_concept = _concept_candidate_for_tests(
+        id="what-are-the-rules-of-hangman",
+        title="What Are The Rules Of Hangman",
+        card="Here are the basic rules of Hangman.",
+        body="A saved concept for Hangman rules.",
+    )
+
+    class _FakeResponses:
+        def create(self, **kwargs):
+            return type(
+                "FakeResponse",
+                (),
+                {
+                    "output_text": json.dumps(
+                        {
+                            "action": "create_concept",
+                            "rationale": "This should be saved durably.",
+                            "title": "What Are The Rules Of Hangman",
+                            "card": "Here are the updated rules of Hangman.",
+                            "body": "A revised version of the saved Hangman rules concept.",
+                            "target_concept_id": None,
+                            "links_to": [],
+                        }
+                    )
+                },
+            )()
+
+    service.client = type("FakeClient", (), {"responses": _FakeResponses()})()
+
+    decision = service._openai_decide(
+        user_message="Revise the concept about Hangman rules so it says players get 6 wrong guesses.",
+        assistant_message="I revised the rules to make the max incorrect guesses 6.",
+        workspace=workspace,
+        vetted_items=[duplicate_concept],
+        history=[],
+        memory_mode="auto",
+    )
+
+    assert decision.action == "create_revision"
+    assert decision.target_concept_id == "what-are-the-rules-of-hangman"
 
 
 def test_meta_openai_decide_suppresses_near_duplicate_concept(tmp_path: Path) -> None:
@@ -1885,6 +2257,8 @@ def test_whiteboard_accept_route_drafts_without_fabricated_user_message(tmp_path
     assert "pending_whiteboard" in payload["response_mode"]["context_sources"]
     assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
     assert payload["created_record"]["source"] == "artifact"
+    assert payload["created_record"]["artifact_origin"] == "whiteboard"
+    assert payload["created_record"]["artifact_lifecycle"] == "whiteboard_snapshot"
     assert payload["workspace_update"]["artifact_snapshot_id"] == payload["created_record"]["id"]
     assert (repo_root / "artifacts" / f"{payload['created_record']['id']}.md").exists()
     assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
@@ -1935,6 +2309,8 @@ def test_open_promote_and_remember_flow(tmp_path: Path) -> None:
     promoted_artifact = promoted_payload["promoted_record"]
     assert promoted_artifact["id"].startswith("shared-workspace-snapshot")
     assert promoted_artifact["source"] == "artifact"
+    assert promoted_artifact["artifact_origin"] == "whiteboard"
+    assert promoted_artifact["artifact_lifecycle"] == "promoted_artifact"
     assert (repo_root / "artifacts" / f"{promoted_artifact['id']}.md").exists()
 
     chat = client.post(
@@ -1974,14 +2350,16 @@ def test_follow_up_after_artifact_promotion_keeps_selected_artifact_in_focus(tmp
     promoted_artifact = promoted.json()["promoted_record"]
 
     def _route(self, **kwargs):
-        selected_record = kwargs["selected_record"]
-        assert selected_record is not None
-        assert selected_record["id"] == promoted_artifact["id"]
-        assert selected_record["source"] == "artifact"
+        pinned_context = kwargs["pinned_context"]
+        assert pinned_context is not None
+        assert pinned_context["id"] == promoted_artifact["id"]
+        assert pinned_context["source"] == "artifact"
         return NavigationDecision(
             mode="chat",
             confidence=0.96,
             reason="The user is following up on the promoted artifact.",
+            preserve_pinned_context=True,
+            pinned_context_reason="The promoted artifact stays in focus for the follow-up.",
             preserve_selected_record=True,
             selected_record_reason="The promoted artifact stays in focus for the follow-up.",
         )
@@ -2004,20 +2382,493 @@ def test_follow_up_after_artifact_promotion_keeps_selected_artifact_in_focus(tmp
                 }
             ],
             "workspace_id": "v5-milestone-1",
-            "selected_record_id": promoted_artifact["id"],
+            "pinned_context_id": promoted_artifact["id"],
         },
     )
     assert follow_up.status_code == 200
     payload = follow_up.json()
     assert payload["mode"] == "fallback"
+    assert payload["pinned_context_id"] == promoted_artifact["id"]
+    assert payload["pinned_context"]["id"] == promoted_artifact["id"]
     assert payload["selected_record_id"] == promoted_artifact["id"]
     assert payload["selected_record"]["id"] == promoted_artifact["id"]
     assert payload["selected_record"]["source"] == "artifact"
     assert any(item["id"] == promoted_artifact["id"] for item in payload["working_memory"])
+    assert payload["turn_interpretation"]["preserve_pinned_context"] is True
+    assert payload["turn_interpretation"]["pinned_context_reason"] == "The promoted artifact stays in focus for the follow-up."
     assert payload["turn_interpretation"]["preserve_selected_record"] is True
     assert payload["turn_interpretation"]["selected_record_reason"] == "The promoted artifact stays in focus for the follow-up."
     assert len(payload["working_memory"]) <= 5
     assert payload["response_mode"]["kind"] == "grounded"
+
+
+def test_promote_unsaved_whiteboard_draft_to_artifact_without_persisting_workspace(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path)
+
+    promoted = client.post(
+        "/api/concepts/promote",
+        json={
+            "workspace_id": "email-draft-insights-on-predicting-behavior-and-the-importan",
+            "title": "Email Draft: Insights on Predicting Behavior",
+            "content": "# Email Draft: Insights on Predicting Behavior\n\nHi Michael,\n\nHere are a few thoughts on predicting behavior.",
+        },
+    )
+
+    assert promoted.status_code == 200
+    payload = promoted.json()
+    promoted_artifact = payload["promoted_record"]
+    assert promoted_artifact["source"] == "artifact"
+    assert promoted_artifact["title"] == "Email Draft: Insights on Predicting Behavior"
+    assert promoted_artifact["lineage_kind"] == "provenance"
+    assert promoted_artifact["derived_from_id"] == "email-draft-insights-on-predicting-behavior-and-the-importan"
+    assert promoted_artifact["revision_parent_id"] is None
+    assert (repo_root / "artifacts" / f"{promoted_artifact['id']}.md").exists()
+    assert not (repo_root / "workspaces" / "email-draft-insights-on-predicting-behavior-and-the-importan.md").exists()
+
+
+def test_concept_revision_payload_exposes_revision_parent(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path)
+
+    concept_store = ConceptStore(repo_root / "concepts")
+    concept_store.create_concept(
+        title="Rules of Hangman (game)",
+        card="Basic rules and gameplay flow for Hangman.",
+        body="Players guess letters one at a time.",
+    )
+    revision = concept_store.create_revision(
+        base_concept_id="rules-of-hangman-game",
+        title="Rules of Hangman (game) Revision",
+        card="Revised rules of Hangman.",
+        body="A revised description of Hangman.",
+        links_to=["what-are-the-rules-of-hangman"],
+    )
+
+    concept_response = client.get(f"/api/concepts/{revision.id}")
+    assert concept_response.status_code == 200
+    concept_payload = concept_response.json()
+    assert concept_payload["lineage_kind"] == "revision"
+    assert concept_payload["revision_parent_id"] == "rules-of-hangman-game"
+    assert concept_payload["derived_from_id"] == "rules-of-hangman-game"
+    assert concept_payload["comes_from"] == ["rules-of-hangman-game"]
+
+
+def test_whiteboard_accept_uses_canonical_pinned_context_fields(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path)
+    observed: dict[str, object] = {}
+
+    (repo_root / "artifacts" / "launch-comparison.md").write_text(
+        (
+            "---\n"
+            "id: launch-comparison\n"
+            "title: Launch Strategy Comparison\n"
+            "type: scenario_comparison\n"
+            "card: Comparison artifact for launch strategy branches.\n"
+            "created_at: 2026-04-13\n"
+            "updated_at: 2026-04-13\n"
+            "links_to: []\n"
+            "comes_from: []\n"
+            "status: active\n"
+            "---\n\n"
+            "Baseline versus constrained versus aggressive launch options.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    class DummyTurn:
+        def to_dict(self) -> dict[str, object]:
+            return {
+                "mode": "fallback",
+                "assistant_message": "done",
+                "response_mode": {
+                    "kind": "grounded",
+                    "label": "Recall",
+                    "recallCount": 0,
+                    "workingMemoryCount": 0,
+                    "groundingMode": "recall",
+                    "groundingSources": [],
+                    "contextSources": [],
+                },
+            }
+
+    def _reply(self, **kwargs):
+        observed.update(kwargs)
+        return DummyTurn()
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", _reply)
+
+    response = client.post(
+        "/api/chat/whiteboard/accept",
+        json={
+            "history": [],
+            "workspace_id": "v5-milestone-1",
+            "pinned_context_id": "launch-comparison",
+            "pending_workspace_update": {
+                "origin_user_message": "Draft a launch comparison in the whiteboard.",
+                "status": "offered",
+                "type": "offer_whiteboard",
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert observed["selected_record_id"] == "launch-comparison"
+    assert observed["selected_record_reason"] is None
+    assert observed["preserve_selected_record"] is None
+    assert payload["pinned_context_id"] == "launch-comparison"
+    assert payload["selected_record_id"] == "launch-comparison"
+    assert payload["pinned_context"]["id"] == "launch-comparison"
+    assert payload["selected_record"]["id"] == "launch-comparison"
+    assert payload["turn_interpretation"]["preserve_pinned_context"] is None
+    assert payload["turn_interpretation"]["pinned_context_reason"] is None
+    assert payload["turn_interpretation"]["preserve_selected_record"] is None
+    assert payload["turn_interpretation"]["selected_record_reason"] is None
+
+
+def test_navigator_openai_payload_uses_pinned_context_as_the_model_contract(tmp_path: Path) -> None:
+    workspace = WorkspaceDocument(
+        workspace_id="v5-milestone-1",
+        title="Shared Workspace",
+        content="# Shared Workspace\n\nDraft content for inspection.\n",
+        path=tmp_path / "workspaces" / "v5-milestone-1.md",
+    )
+    service = NavigatorService(model="gpt-4.1", openai_api_key="test-key")
+    captured: dict[str, object] = {}
+
+    class _FakeResponses:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return type(
+                "FakeResponse",
+                (),
+                {
+                    "output_text": json.dumps(
+                        {
+                            "mode": "chat",
+                            "confidence": 0.91,
+                            "reason": "Pinned context is already enough for this follow-up.",
+                            "comparison_question": None,
+                            "branch_count": 0,
+                            "branch_labels": [],
+                            "whiteboard_mode": "chat",
+                            "pinned_context_id": "pinned-comparison",
+                            "pinned_context": {"id": "pinned-comparison", "title": "Pinned comparison"},
+                            "preserve_pinned_context": True,
+                            "pinned_context_reason": "Keep the pinned comparison in focus.",
+                        }
+                    )
+                },
+            )()
+
+    service.client = type("FakeClient", (), {"responses": _FakeResponses()})()
+
+    decision = service.route_turn(
+        user_message="What should we do next?",
+        history=[{"role": "user", "content": "Earlier context."}],
+        workspace=workspace,
+        requested_whiteboard_mode="auto",
+        pinned_context_id="pinned-comparison",
+        pinned_context={"id": "pinned-comparison", "title": "Pinned comparison"},
+        selected_record_id="legacy-selected-record",
+        selected_record={"id": "legacy-selected-record", "title": "Legacy selected record"},
+        pending_workspace_update=None,
+        continuity_context={
+            "current_whiteboard": {
+                "workspace_id": "v5-milestone-1",
+                "title": "Shared Workspace",
+            },
+            "recent_whiteboards": [
+                {
+                    "workspace_id": "email-insights-on-predicting-behavior",
+                    "title": "Predicting Behavior Email",
+                }
+            ],
+            "last_turn_referenced_record": {
+                "record_id": "email-insights-on-predicting-behavior",
+                "title": "Predicting Behavior Email",
+                "source": "artifact",
+                "reopenable_in_whiteboard": True,
+            },
+            "last_turn_recall": [
+                {
+                    "record_id": "email-insights-on-predicting-behavior",
+                    "title": "Predicting Behavior Email",
+                    "source": "artifact",
+                }
+            ],
+        },
+    )
+
+    payload = json.loads(str(captured["input"]))
+    schema = captured["text"]["format"]["schema"]
+    assert payload["pinned_context_id"] == "pinned-comparison"
+    assert payload["pinned_context"]["id"] == "pinned-comparison"
+    assert payload["continuity_context"]["current_whiteboard"]["workspace_id"] == "v5-milestone-1"
+    assert payload["continuity_context"]["last_turn_referenced_record"]["record_id"] == "email-insights-on-predicting-behavior"
+    assert "selected_record_id" not in payload
+    assert "selected_record" not in payload
+    assert "selected_record_id" not in schema["properties"]
+    assert "selected_record" not in schema["properties"]
+    assert decision.to_dict()["preserve_pinned_context"] is True
+    assert decision.to_dict()["preserve_selected_record"] is True
+    assert decision.to_dict()["pinned_context_reason"] == "Keep the pinned comparison in focus."
+
+
+def test_chat_builds_navigator_continuity_context_from_recent_whiteboards_and_memory_trace(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    artifact_store = ArtifactStore(repo_root / "artifacts")
+    trace_store = MemoryTraceStore(repo_root / "memory_trace")
+
+    artifact = artifact_store.create_artifact(
+        record_id="email-insights-on-predicting-behavior",
+        title="Email Draft: Insights on Predicting Behavior and the Importance of Representation",
+        card="A saved email draft about representation and predicting behavior.",
+        body="Hi Joe,\n\nGood representations matter for predicting behavior.\n",
+    )
+    second_artifact = artifact_store.create_artifact(
+        record_id="email-to-jerry",
+        title="Draft Email to Jerry",
+        card="A second saved email draft.",
+        body="Hi Jerry,\n\nHow is your day going?\n",
+    )
+    (repo_root / "workspaces" / "email-insights-on-predicting-behavior.md").write_text(
+        "# Email Draft: Insights on Predicting Behavior and the Importance of Representation\n\nHi Joe,\n\nGood representations matter for predicting behavior.\n",
+        encoding="utf-8",
+    )
+    (repo_root / "workspaces" / "roadmap-draft.md").write_text(
+        "# Roadmap Draft\n\nA second recent whiteboard.\n",
+        encoding="utf-8",
+    )
+
+    trace_store.create_turn_trace(
+        user_message="what was the other email we were drafting?",
+        assistant_message=(
+            'The other email draft in our records is titled "Email Draft: Insights on Predicting Behavior and the Importance of Representation."'
+        ),
+        working_memory=[
+            {
+                "id": artifact.id,
+                "title": artifact.title,
+                "source": artifact.source,
+                "card": artifact.card,
+            },
+            {
+                "id": second_artifact.id,
+                "title": second_artifact.title,
+                "source": second_artifact.source,
+                "card": second_artifact.card,
+            },
+        ],
+        history=[],
+        workspace_id="v5-milestone-1",
+        workspace_title="Shared Workspace",
+        workspace_content=None,
+        workspace_scope="excluded",
+        learned=[],
+        response_mode={
+            "kind": "grounded",
+            "label": "Recall",
+            "grounding_mode": "recall",
+            "context_sources": ["recall"],
+            "recall_count": 1,
+            "working_memory_count": 1,
+        },
+        scope="durable",
+        referenced_record={
+            "id": artifact.id,
+            "title": artifact.title,
+            "source": artifact.source,
+        },
+    )
+
+    observed: dict[str, object] = {}
+
+    def _route(self, **kwargs):
+        observed.update(kwargs)
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.92,
+            reason="Continuity context is available for this follow-up.",
+            whiteboard_mode="chat",
+        )
+
+    class DummyTurn:
+        def to_dict(self):
+            return {
+                "user_message": "yea can you pull that up on the whiteboard?",
+                "assistant_message": "Stub reply.",
+                "mode": "openai",
+                "response_mode": {
+                    "kind": "grounded",
+                    "label": "Recall",
+                    "note": "Supported by 1 recalled item from Recall.",
+                    "grounding_mode": "recall",
+                    "grounding_sources": ["recall"],
+                    "context_sources": ["recall"],
+                    "recall_count": 1,
+                    "working_memory_count": 1,
+                },
+                "workspace": {
+                    "workspace_id": "v5-milestone-1",
+                    "title": "Shared Workspace",
+                    "content": None,
+                },
+                "working_memory": [],
+                "recall": [],
+                "learned": [],
+                "workspace_update": None,
+                "graph_action": None,
+                "memory_trace_record": None,
+                "meta_action": {"action": "no_op", "rationale": "Test stub."},
+            }
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", lambda self, **kwargs: DummyTurn())
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "yea can you pull that up on the whiteboard?",
+            "history": [
+                {
+                    "user_message": "what was the other email we were drafting?",
+                    "assistant_message": (
+                        'The other email draft in our records is titled "Email Draft: Insights on Predicting Behavior and the Importance of Representation."'
+                    ),
+                }
+            ],
+            "workspace_id": "v5-milestone-1",
+        },
+    )
+    assert response.status_code == 200
+    continuity_context = observed["continuity_context"]
+    assert continuity_context["current_whiteboard"]["workspace_id"] == "v5-milestone-1"
+    assert continuity_context["last_turn_referenced_record"]["record_id"] == "email-insights-on-predicting-behavior"
+    assert continuity_context["last_turn_recall"][0]["record_id"] == "email-insights-on-predicting-behavior"
+    assert continuity_context["last_turn_recall"][1]["record_id"] == "email-to-jerry"
+    assert len(continuity_context["recent_whiteboards"]) <= 3
+    assert any(
+        item["workspace_id"] == "email-insights-on-predicting-behavior"
+        for item in continuity_context["recent_whiteboards"]
+    )
+
+
+def test_chat_keeps_last_turn_referenced_record_empty_when_latest_recall_is_ambiguous(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    artifact_store = ArtifactStore(repo_root / "artifacts")
+    trace_store = MemoryTraceStore(repo_root / "memory_trace")
+
+    first = artifact_store.create_artifact(
+        record_id="email-to-jerry",
+        title="Draft Email to Jerry",
+        card="A saved email draft to Jerry.",
+        body="Hi Jerry,\n\nHow is your day going?\n",
+    )
+    second = artifact_store.create_artifact(
+        record_id="email-to-jay",
+        title="Draft Email to Jay",
+        card="A saved email draft to Jay.",
+        body="Hi Jay,\n\nHow is the project moving along?\n",
+    )
+
+    trace_store.create_turn_trace(
+        user_message="what were the two emails we were working on?",
+        assistant_message="We were working on a draft to Jerry and a draft to Jay.",
+        working_memory=[
+            {
+                "id": first.id,
+                "title": first.title,
+                "source": first.source,
+                "card": first.card,
+            },
+            {
+                "id": second.id,
+                "title": second.title,
+                "source": second.source,
+                "card": second.card,
+            },
+        ],
+        history=[],
+        workspace_id="v5-milestone-1",
+        workspace_title="Shared Workspace",
+        workspace_content=None,
+        workspace_scope="excluded",
+        learned=[],
+        response_mode={
+            "kind": "grounded",
+            "label": "Recall",
+            "grounding_mode": "recall",
+            "context_sources": ["recall"],
+            "recall_count": 2,
+            "working_memory_count": 2,
+        },
+        scope="durable",
+    )
+
+    observed: dict[str, object] = {}
+
+    def _route(self, **kwargs):
+        observed.update(kwargs)
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.81,
+            reason="Continuity context is ambiguous, so keep the turn conservative.",
+            whiteboard_mode="chat",
+        )
+
+    class DummyTurn:
+        def to_dict(self):
+            return {
+                "user_message": "pull that up on the whiteboard",
+                "assistant_message": "Stub reply.",
+                "mode": "openai",
+                "response_mode": {
+                    "kind": "grounded",
+                    "label": "Recall",
+                    "note": "Supported by recalled items from Recall.",
+                    "grounding_mode": "recall",
+                    "grounding_sources": ["recall"],
+                    "context_sources": ["recall"],
+                    "recall_count": 2,
+                    "working_memory_count": 2,
+                },
+                "workspace": {
+                    "workspace_id": "v5-milestone-1",
+                    "title": "Shared Workspace",
+                    "content": None,
+                },
+                "working_memory": [],
+                "recall": [],
+                "learned": [],
+                "workspace_update": None,
+                "graph_action": None,
+                "memory_trace_record": None,
+                "meta_action": {"action": "no_op", "rationale": "Test stub."},
+            }
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", lambda self, **kwargs: DummyTurn())
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "pull that up on the whiteboard",
+            "history": [
+                {
+                    "user_message": "what were the two emails we were working on?",
+                    "assistant_message": "We were working on a draft to Jerry and a draft to Jay.",
+                }
+            ],
+            "workspace_id": "v5-milestone-1",
+        },
+    )
+    assert response.status_code == 200
+    continuity_context = observed["continuity_context"]
+    assert continuity_context["last_turn_referenced_record"] is None
+    assert {item["record_id"] for item in continuity_context["last_turn_recall"]} == {
+        "email-to-jerry",
+        "email-to-jay",
+    }
 
 
 def test_workspace_save_can_target_new_workspace_id_and_activate_it(tmp_path: Path) -> None:
@@ -2036,6 +2887,8 @@ def test_workspace_save_can_target_new_workspace_id_and_activate_it(tmp_path: Pa
     assert payload["title"] == "Thank You Email to Judy"
     assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
     assert payload["artifact_snapshot"]["source"] == "artifact"
+    assert payload["artifact_snapshot"]["artifact_origin"] == "whiteboard"
+    assert payload["artifact_snapshot"]["artifact_lifecycle"] == "whiteboard_snapshot"
     assert (repo_root / "workspaces" / "thank-you-email-to-judy.md").exists()
     assert (repo_root / "artifacts" / f"{payload['artifact_snapshot']['id']}.md").exists()
 
@@ -2177,6 +3030,7 @@ def test_open_accepts_record_id_alias_for_memory(tmp_path: Path) -> None:
     assert opened_payload["scope"] == "durable"
     assert "# User Prefers Chat-First UX" in opened_payload["content"]
     assert "normal LLM conversation" in opened_payload["content"]
+    assert opened_payload["graph_action"]["type"] == "open_saved_item_into_workspace"
     assert opened_payload["graph_action"]["record_id"] == "user-prefers-chat-first-ux"
     assert opened_payload["graph_action"]["concept_id"] == "user-prefers-chat-first-ux"
     assert opened_payload["graph_action"]["source"] == "memory"
@@ -2369,19 +3223,22 @@ def test_navigation_can_drive_auto_whiteboard_offer(tmp_path: Path, monkeypatch)
 def test_explicit_whiteboard_request_bypasses_offer_step(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path, openai_api_key="test-key")
     original_workspace = (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8")
+    pending_workspace_update = _pending_offer_update()
 
-    monkeypatch.setattr(
-        "vantage_v5.server.NavigatorService.route_turn",
-        lambda self, **kwargs: NavigationDecision(
+    def _route(self, **kwargs):
+        assert kwargs["pending_workspace_update"] is None
+        return NavigationDecision(
             mode="chat",
             confidence=0.89,
             reason="The turn is a concrete draft request that would normally invite whiteboard collaboration first.",
             whiteboard_mode="offer",
-        ),
-    )
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
 
     def _reply(self, **kwargs):
+        assert kwargs["pending_workspace_update"] is None
         assert kwargs["whiteboard_mode"] == "draft"
         return (
             "CHAT_RESPONSE: I drafted the thank-you email into the whiteboard so we can refine it together.\n\n"
@@ -2409,6 +3266,7 @@ def test_explicit_whiteboard_request_bypasses_offer_step(tmp_path: Path, monkeyp
             "message": "Open the whiteboard and draft a thank-you email to Judy for the flowers she dropped off.",
             "history": [],
             "workspace_id": "v5-milestone-1",
+            "pending_workspace_update": pending_workspace_update,
         },
     )
     assert response.status_code == 200
@@ -2428,6 +3286,115 @@ def test_explicit_whiteboard_request_bypasses_offer_step(tmp_path: Path, monkeyp
     assert payload["workspace_update"]["artifact_snapshot_id"] == payload["created_record"]["id"]
     assert (repo_root / "artifacts" / f"{payload['created_record']['id']}.md").exists()
     assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
+
+
+def test_pending_whiteboard_offer_deictic_whiteboard_follow_up_carries(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+    pending_workspace_update = _pending_offer_update()
+
+    def _route(self, **kwargs):
+        assert kwargs["pending_workspace_update"] == pending_workspace_update
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.93,
+            reason="The user is pointing back to the pending draft with a narrow whiteboard follow-up.",
+            whiteboard_mode="draft",
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+
+    def _reply(self, **kwargs):
+        assert kwargs["pending_workspace_update"] == pending_workspace_update
+        assert kwargs["whiteboard_mode"] == "draft"
+        return (
+            "CHAT_RESPONSE: I put that in the whiteboard so we can keep refining it.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# Thank You Email To Judy\n\n"
+            "Hi Judy,\n\n"
+            "Thank you again for the flowers.\n"
+        )
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="A narrow deictic whiteboard follow-up should stay pending."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Open it, put that in the whiteboard.",
+            "history": [
+                {
+                    "user_message": pending_workspace_update["origin_user_message"],
+                    "assistant_message": pending_workspace_update["origin_assistant_message"],
+                }
+            ],
+            "workspace_id": "v5-milestone-1",
+            "pending_workspace_update": pending_workspace_update,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workspace_update"]["type"] == "draft_whiteboard"
+    assert payload["response_mode"]["grounding_mode"] == "mixed_context"
+    assert "pending_whiteboard" in payload["response_mode"]["context_sources"]
+    assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "draft"
+
+
+def test_pending_whiteboard_offer_new_explicit_whiteboard_request_drops_stale_pending_context(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+    pending_workspace_update = _pending_offer_update()
+
+    def _route(self, **kwargs):
+        assert kwargs["pending_workspace_update"] is None
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.91,
+            reason="This is a fresh whiteboard drafting request, not acceptance of the older pending offer.",
+            whiteboard_mode="auto",
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+
+    def _reply(self, **kwargs):
+        assert kwargs["pending_workspace_update"] is None
+        assert kwargs["whiteboard_mode"] == "draft"
+        return (
+            "CHAT_RESPONSE: I drafted the 7-day road trip itinerary into the whiteboard so we can refine it there.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# 7-Day Road Trip Itinerary\n\n"
+            "Day 1: Depart and drive north.\n"
+        )
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="A fresh explicit whiteboard request should stay temporary without carrying stale pending context."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Okay, draft a 7-day road trip itinerary in the whiteboard.",
+            "history": [
+                {
+                    "user_message": pending_workspace_update["origin_user_message"],
+                    "assistant_message": pending_workspace_update["origin_assistant_message"],
+                }
+            ],
+            "workspace_id": "v5-milestone-1",
+            "pending_workspace_update": pending_workspace_update,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workspace_update"]["type"] == "draft_whiteboard"
+    assert "pending_whiteboard" not in payload["response_mode"]["context_sources"]
+    assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "draft"
+    assert payload["turn_interpretation"]["whiteboard_mode_source"] == "request"
 
 
 def test_pending_whiteboard_offer_follow_up_can_drive_draft_mode(tmp_path: Path, monkeypatch) -> None:
@@ -2928,6 +3895,359 @@ def test_visible_whiteboard_greeting_edit_follow_up_prefers_draft_over_offer(tmp
     assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
 
 
+def test_visible_whiteboard_edit_follow_up_with_preserve_none_does_not_auto_preserve_selected_record(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    selected_record_path = repo_root / "concepts" / "rules-of-hangman-game.md"
+    selected_record_path.write_text(
+        (
+            "---\n"
+            "id: rules-of-hangman-game\n"
+            "title: Rules of Hangman (game)\n"
+            "type: concept\n"
+            "card: Basic rules and gameplay flow for Hangman, a classic word-guessing game.\n"
+            "created_at: 2026-04-13\n"
+            "updated_at: 2026-04-13\n"
+            "links_to: []\n"
+            "comes_from: []\n"
+            "status: active\n"
+            "---\n\n"
+            "Players guess letters one at a time, with up to 6 incorrect guesses before the game ends.\n"
+        ),
+        encoding="utf-8",
+    )
+    live_whiteboard = "# Thank You Email\n\nHi Jerry,\n\nI hope your day is going well.\n"
+
+    def _route(self, **kwargs):
+        assert kwargs["workspace"].content == live_whiteboard
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.91,
+            reason="The user is editing the live whiteboard draft, so the whiteboard should stay in focus.",
+            whiteboard_mode="draft",
+            preserve_selected_record=None,
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr(
+        "vantage_v5.services.search.ConceptSearchService.search_context",
+        lambda self, **kwargs: [
+            CandidateMemory(
+                id="email-polish",
+                title="Email Polish",
+                type="concept",
+                card="Ways to tighten the draft email.",
+                score=9.2,
+                reason="The user is revising an email draft.",
+                source="concept",
+                trust="high",
+            ),
+            CandidateMemory(
+                id="signature-note",
+                title="Signature Note",
+                type="concept",
+                card="A reminder to add a closing signature.",
+                score=8.9,
+                reason="Another whiteboard-adjacent concept candidate.",
+                source="concept",
+                trust="high",
+            ),
+        ],
+    )
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+
+    def _reply(self, **kwargs):
+        assert kwargs["workspace"].content == live_whiteboard
+        assert kwargs["selected_memory"] is None
+        assert all(item.id != "rules-of-hangman-game" for item in kwargs["vetted_memory"])
+        return "I updated the draft without pulling the selected record back in."
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="no_op",
+            rationale="Live whiteboard edits should not auto-preserve an unrelated selected record.",
+        ),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Add it.",
+            "history": [
+                {
+                    "user_message": "Change the greeting in the draft.",
+                    "assistant_message": "Sure, I can adjust the draft.",
+                }
+            ],
+            "workspace_id": "v5-milestone-1",
+            "workspace_scope": "visible",
+            "workspace_content": live_whiteboard,
+            "selected_record_id": "rules-of-hangman-game",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "I updated the draft without pulling the selected record back in."
+    assert payload["turn_interpretation"]["preserve_selected_record"] is None
+    assert all(item["id"] != "rules-of-hangman-game" for item in payload["working_memory"])
+
+
+def test_pending_whiteboard_follow_up_with_preserve_none_does_not_auto_preserve_selected_record(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    selected_record_path = repo_root / "concepts" / "rules-of-hangman-game.md"
+    selected_record_path.write_text(
+        (
+            "---\n"
+            "id: rules-of-hangman-game\n"
+            "title: Rules of Hangman (game)\n"
+            "type: concept\n"
+            "card: Basic rules and gameplay flow for Hangman, a classic word-guessing game.\n"
+            "created_at: 2026-04-13\n"
+            "updated_at: 2026-04-13\n"
+            "links_to: []\n"
+            "comes_from: []\n"
+            "status: active\n"
+            "---\n\n"
+            "Players guess letters one at a time, with up to 6 incorrect guesses before the game ends.\n"
+        ),
+        encoding="utf-8",
+    )
+    pending_workspace_update = _pending_offer_update()
+
+    def _route(self, **kwargs):
+        assert kwargs["pending_workspace_update"] == pending_workspace_update
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.93,
+            reason="The user is asking a short deictic follow-up on the pending whiteboard flow, so the whiteboard should stay in focus.",
+            whiteboard_mode="draft",
+            preserve_selected_record=None,
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr(
+        "vantage_v5.services.search.ConceptSearchService.search_context",
+        lambda self, **kwargs: [
+            CandidateMemory(
+                id="email-polish",
+                title="Email Polish",
+                type="concept",
+                card="Ways to tighten the draft email.",
+                score=9.2,
+                reason="The user is continuing a whiteboard-related follow-up.",
+                source="concept",
+                trust="high",
+            ),
+            CandidateMemory(
+                id="tone-note",
+                title="Tone Note",
+                type="concept",
+                card="A reminder to keep the tone warm.",
+                score=8.9,
+                reason="Another candidate for the current drafting session.",
+                source="concept",
+                trust="high",
+            ),
+        ],
+    )
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+
+    def _reply(self, **kwargs):
+        assert kwargs["pending_workspace_update"] == pending_workspace_update
+        assert kwargs["selected_memory"] is None
+        assert all(item.id != "rules-of-hangman-game" for item in kwargs["vetted_memory"])
+        return "I carried the pending draft forward without reusing the selected record."
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="no_op",
+            rationale="Pending whiteboard continuity should outrank an unrelated selected record.",
+        ),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Which one?",
+            "history": [
+                {
+                    "user_message": pending_workspace_update["origin_user_message"],
+                    "assistant_message": pending_workspace_update["origin_assistant_message"],
+                }
+            ],
+            "workspace_id": "v5-milestone-1",
+            "pending_workspace_update": pending_workspace_update,
+            "selected_record_id": "rules-of-hangman-game",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "I carried the pending draft forward without reusing the selected record."
+    assert payload["turn_interpretation"]["preserve_selected_record"] is None
+    assert "pending_whiteboard" in payload["response_mode"]["context_sources"]
+    assert all(item["id"] != "rules-of-hangman-game" for item in payload["working_memory"])
+
+
+def test_pending_whiteboard_offer_signature_edit_follow_up_carries(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+    pending_workspace_update = _pending_offer_update()
+
+    def _route(self, **kwargs):
+        assert kwargs["pending_workspace_update"] == pending_workspace_update
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.92,
+            reason="The user is making a greeting/signature edit to the pending draft.",
+            whiteboard_mode="draft",
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+
+    def _reply(self, **kwargs):
+        assert kwargs["pending_workspace_update"] == pending_workspace_update
+        assert kwargs["whiteboard_mode"] == "draft"
+        return (
+            "CHAT_RESPONSE: I updated the pending draft with the new greeting and signature.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# Thank You Email To Judy\n\n"
+            "Dear Judy,\n\n"
+            "Thank you again for the flowers.\n\n"
+            "Best,\n"
+            "Jordan\n"
+        )
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Greeting/signature edit should stay in the pending whiteboard flow."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "add a signature and greeting",
+            "history": [
+                {
+                    "user_message": pending_workspace_update["origin_user_message"],
+                    "assistant_message": pending_workspace_update["origin_assistant_message"],
+                }
+            ],
+            "workspace_id": "v5-milestone-1",
+            "pending_workspace_update": pending_workspace_update,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["workspace_update"]["type"] == "draft_whiteboard"
+    assert "pending_whiteboard" in payload["response_mode"]["context_sources"]
+    assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "draft"
+
+
+def test_visible_whiteboard_edit_follow_up_respects_explicit_selected_record_preservation(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    selected_record_path = repo_root / "concepts" / "rules-of-hangman-game.md"
+    selected_record_path.write_text(
+        (
+            "---\n"
+            "id: rules-of-hangman-game\n"
+            "title: Rules of Hangman (game)\n"
+            "type: concept\n"
+            "card: Basic rules and gameplay flow for Hangman, a classic word-guessing game.\n"
+            "created_at: 2026-04-13\n"
+            "updated_at: 2026-04-13\n"
+            "links_to: []\n"
+            "comes_from: []\n"
+            "status: active\n"
+            "---\n\n"
+            "Players guess letters one at a time, with up to 6 incorrect guesses before the game ends.\n"
+        ),
+        encoding="utf-8",
+    )
+    live_whiteboard = "# Thank You Email\n\nHi Jerry,\n\nI hope your day is going well.\n"
+    selected_record_reason = "Keep the selected record anchored even with the live whiteboard draft."
+
+    monkeypatch.setattr(
+        "vantage_v5.server.NavigatorService.route_turn",
+        lambda self, **kwargs: NavigationDecision(
+            mode="chat",
+            confidence=0.96,
+            reason="The navigator explicitly keeps the selected record in focus even though the whiteboard is active.",
+            whiteboard_mode="draft",
+            preserve_selected_record=True,
+            selected_record_reason=selected_record_reason,
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.search.ConceptSearchService.search_context",
+        lambda self, **kwargs: [
+            CandidateMemory(
+                id="email-polish",
+                title="Email Polish",
+                type="concept",
+                card="Ways to tighten the draft email.",
+                score=9.2,
+                reason="The user is revising an email draft.",
+                source="concept",
+                trust="high",
+            ),
+            CandidateMemory(
+                id="signature-note",
+                title="Signature Note",
+                type="concept",
+                card="A reminder to add a closing signature.",
+                score=8.9,
+                reason="Another whiteboard-adjacent concept candidate.",
+                source="concept",
+                trust="high",
+            ),
+        ],
+    )
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+
+    def _reply(self, **kwargs):
+        assert kwargs["workspace"].content == live_whiteboard
+        assert kwargs["selected_memory"] is not None
+        assert kwargs["selected_memory"].id == "rules-of-hangman-game"
+        assert any(item.id == "rules-of-hangman-game" for item in kwargs["vetted_memory"])
+        return "I kept the selected record in scope even with the live whiteboard."
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="no_op",
+            rationale="An explicit navigator preserve request should win over whiteboard continuity.",
+        ),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Add it.",
+            "history": [
+                {
+                    "user_message": "Change the greeting in the draft.",
+                    "assistant_message": "Sure, I can adjust the draft.",
+                }
+            ],
+            "workspace_id": "v5-milestone-1",
+            "workspace_scope": "visible",
+            "workspace_content": live_whiteboard,
+            "selected_record_id": "rules-of-hangman-game",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "I kept the selected record in scope even with the live whiteboard."
+    assert any(item["id"] == "rules-of-hangman-game" for item in payload["working_memory"])
+    assert payload["turn_interpretation"]["preserve_selected_record"] is True
+    assert payload["turn_interpretation"]["selected_record_reason"] == selected_record_reason
+
+
 def test_hidden_whiteboard_stale_pending_offer_stays_out_of_scope(tmp_path: Path, monkeypatch) -> None:
     client, _ = _client(tmp_path, openai_api_key="test-key")
     pending_workspace_update = _pending_offer_update()
@@ -3062,6 +4382,7 @@ def test_chat_uses_current_whiteboard_buffer_before_reply(tmp_path: Path, monkey
     assert payload["assistant_message"] == "I used the current whiteboard."
     assert payload["workspace"]["title"] == "Live Draft"
     assert payload["workspace"]["content"] == live_whiteboard
+    assert payload["turn_interpretation"]["whiteboard_entry_mode"] == "continued_current"
     assert payload["workspace_update"] is None
     assert payload["response_mode"]["grounding_mode"] == "mixed_context"
     assert payload["response_mode"]["grounding_sources"] == ["recall", "whiteboard"]
@@ -3069,6 +4390,83 @@ def test_chat_uses_current_whiteboard_buffer_before_reply(tmp_path: Path, monkey
     assert payload["response_mode"]["legacy_context_sources"] == ["working_memory", "whiteboard"]
     assert payload["response_mode"]["label"] == "Recall + Whiteboard"
     assert workspace_path.read_text(encoding="utf-8") == original_workspace
+
+
+def test_whiteboard_entry_mode_distinguishes_fresh_current_and_prior_material(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "I used the current whiteboard.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="The turn stays chat-only while we inspect entry mode."),
+    )
+
+    fresh_response = client.post(
+        "/api/chat",
+        json={
+            "message": "Start a fresh draft in the whiteboard.",
+            "history": [],
+            "workspace_id": "fresh-whiteboard-draft",
+            "workspace_scope": "visible",
+            "workspace_content": "# Fresh Draft\n\nThis draft starts from scratch.",
+        },
+    )
+    assert fresh_response.status_code == 200
+    fresh_payload = fresh_response.json()
+    assert fresh_payload["turn_interpretation"]["whiteboard_entry_mode"] == "started_fresh"
+
+    existing_response = client.post(
+        "/api/chat",
+        json={
+            "message": "What do you think of the current whiteboard?",
+            "history": [],
+            "workspace_id": "v5-milestone-1",
+            "workspace_scope": "visible",
+            "workspace_content": "# Live Draft\n\nThis whiteboard content has not been manually saved yet.",
+        },
+    )
+    assert existing_response.status_code == 200
+    existing_payload = existing_response.json()
+    assert existing_payload["turn_interpretation"]["whiteboard_entry_mode"] == "continued_current"
+
+    (repo_root / "concepts" / "whiteboard-source.md").write_text(
+        (
+            "---\n"
+            "id: whiteboard-source\n"
+            "title: Whiteboard Source\n"
+            "type: concept\n"
+            "card: Source material reopened into the whiteboard.\n"
+            "created_at: 2026-04-13\n"
+            "updated_at: 2026-04-13\n"
+            "links_to: []\n"
+            "comes_from: []\n"
+            "status: active\n"
+            "---\n\n"
+            "This concept can be reopened into the whiteboard.\n"
+        ),
+        encoding="utf-8",
+    )
+    opened = client.post("/api/concepts/open", json={"record_id": "whiteboard-source"})
+    assert opened.status_code == 200
+    opened_payload = opened.json()
+
+    prior_response = client.post(
+        "/api/chat",
+        json={
+            "message": "Add a follow-up note.",
+            "history": [],
+            "workspace_id": "whiteboard-source",
+            "workspace_scope": "visible",
+            "workspace_content": opened_payload["content"],
+        },
+    )
+    assert prior_response.status_code == 200
+    prior_payload = prior_response.json()
+    assert prior_payload["turn_interpretation"]["whiteboard_entry_mode"] == "started_from_prior_material"
 
 
 def test_keep_in_chat_mode_ignores_whiteboard_signals(tmp_path: Path, monkeypatch) -> None:
@@ -3178,7 +4576,10 @@ def test_navigation_can_preserve_selected_context_for_semantic_follow_up(tmp_pat
     assert payload["mode"] == "openai"
     assert payload["assistant_message"] == "The selected rules stay in scope for this turn."
     assert any(item["id"] == "rules-of-hangman-game" for item in payload["concept_cards"])
-    assert any(item["id"] == "rules-of-hangman-game" and item["reason"] == selected_record_reason for item in payload["working_memory"])
+    assert any(
+        item["id"] == "rules-of-hangman-game" and item["recall_reason"] == selected_record_reason
+        for item in payload["working_memory"]
+    )
     assert payload["response_mode"]["kind"] == "grounded"
     assert payload["turn_interpretation"]["mode"] == "chat"
     assert payload["turn_interpretation"]["preserve_selected_record"] is True
@@ -3543,8 +4944,6 @@ def test_off_topic_selected_scenario_comparison_does_not_anchor_short_turn(tmp_p
             "title": "Email Drafting",
             "type": "concept",
             "card": "Draft and refine short emails.",
-            "score": 9.0,
-            "reason": "The user is asking for a new email draft.",
             "source": "concept",
             "source_label": "Concept KB",
             "trust": "high",
@@ -3751,6 +5150,9 @@ def test_experiment_mode_keeps_temporary_memory_isolated(tmp_path: Path) -> None
     record_id = chat_payload["created_record"]["id"]
     assert chat_payload["created_record"]["scope"] == "experiment"
     assert chat_payload["created_record"]["source"] == "memory"
+    assert chat_payload["created_record"]["durability"] == "temporary"
+    assert chat_payload["created_record"]["why_learned"] == "Saved as memory because the user asked Vantage to remember it."
+    assert chat_payload["created_record"]["correction_affordance"]["kind"] == "open_in_whiteboard"
     assert (session_root / "memories" / f"{record_id}.md").exists()
     assert not (repo_root / "memories" / f"{record_id}.md").exists()
 
@@ -3797,6 +5199,9 @@ def test_experiment_mode_keeps_scenario_outputs_isolated(tmp_path: Path, monkeyp
     assert payload["mode"] == "scenario_lab"
     assert payload["experiment"]["active"] is True
     assert payload["created_record"]["scope"] == "experiment"
+    assert payload["created_record"]["durability"] == "temporary"
+    assert payload["created_record"]["why_learned"] == "Saved as a Scenario Lab comparison hub so the branch comparison can be revisited."
+    assert payload["created_record"]["correction_affordance"]["kind"] == "open_in_whiteboard"
 
     artifact_id = payload["created_record"]["id"]
     assert (session_root / "artifacts" / f"{artifact_id}.md").exists()

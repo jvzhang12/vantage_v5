@@ -111,6 +111,34 @@ export function closeVantageSurface(surface = {}) {
   };
 }
 
+function normalizeRestoredPinnedContext(pinnedContext) {
+  return pinnedContext && typeof pinnedContext === "object"
+    ? {
+        id: pinnedContext.id || "",
+        kind: pinnedContext.kind || "concept",
+      }
+    : null;
+}
+
+export function normalizeRestoredTurnSnapshotState(
+  snapshot = {},
+  { scopeScopedFallback = false } = {},
+) {
+  const normalizedSurface = normalizeSurfaceState(snapshot.surface || snapshot.view || {});
+  const surface = scopeScopedFallback && normalizedSurface.current === SURFACE_VANTAGE
+    ? closeVantageSurface(normalizedSurface)
+    : normalizedSurface;
+
+  return {
+    surface,
+    selectedConceptId: scopeScopedFallback ? "" : snapshot.selectedConceptId || "",
+    selectedVaultNoteId: scopeScopedFallback ? "" : snapshot.selectedVaultNoteId || "",
+    selectionOrigin: scopeScopedFallback ? "bootstrap" : snapshot.selectionOrigin || "bootstrap",
+    pinnedContext: normalizeRestoredPinnedContext(snapshot.pinnedContext),
+    workspaceContextScope: snapshot.turn?.workspaceContextScope || "excluded",
+  };
+}
+
 export function toggleWhiteboardSurface(surface = {}) {
   const normalized = normalizeSurfaceState(surface);
   if (normalized.current === SURFACE_WHITEBOARD) {

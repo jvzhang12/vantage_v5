@@ -232,11 +232,22 @@ def should_preserve_selected_record(
     message: str,
     history: list[dict[str, str]],
     selected_memory: CandidateMemory | None,
+    pending_workspace_update: dict[str, Any] | None = None,
+    workspace: WorkspaceDocument | None = None,
+    workspace_scope: str = "excluded",
 ) -> bool:
     if selected_memory is None or not history:
         return False
     normalized = " ".join(message.strip().split())
     if not normalized:
+        return False
+    if _pending_workspace_summary(message=normalized, pending_workspace_update=pending_workspace_update) is not None:
+        return False
+    if workspace is not None and _workspace_continuity_summary(
+        message=normalized,
+        workspace=workspace,
+        workspace_scope=workspace_scope,
+    ) is not None:
         return False
     tokens = LOW_CONTEXT_TURN_RE.findall(normalized)
     token_count = len(tokens)

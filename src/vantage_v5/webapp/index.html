@@ -4,29 +4,35 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vantage V5</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260419-reasoning-detail" />
+    <link rel="stylesheet" href="/static/vendor/highlight-github.min.css?v=20260421-math-render-code" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260423-simple-composer-pass01" />
   </head>
   <body>
     <div class="notice-rail" id="noticeRail" aria-live="polite"></div>
     <div class="shell" id="shell">
       <section class="panel chat-panel">
-        <header class="panel-head">
-          <div>
-            <p class="eyebrow">Vantage V5</p>
-            <h1 id="chatSurfaceTitle">Chat first.</h1>
-            <p class="subtle hero-copy" id="chatSurfaceSubtitle">Ask naturally. Open Vantage when you want to inspect what shaped the answer. Use the whiteboard when you want a shared draft.</p>
-            <p class="subtle hero-copy" id="experimentBadge">Durable mode. Notes persist unless you start an experiment.</p>
+        <header class="panel-head chat-masthead">
+          <div class="chat-masthead-copy">
+            <div class="chat-masthead-utility">
+              <p class="eyebrow chat-brand-mark">Vantage V5</p>
+              <span class="status-pill status-pill--soft chat-status-inline" id="statusPill" hidden>Loading</span>
+            </div>
+            <h1 id="chatSurfaceTitle" hidden></h1>
+            <p class="subtle hero-copy" id="chatSurfaceSubtitle" hidden></p>
+            <div class="chat-session-row" hidden>
+              <p class="subtle hero-copy" id="experimentBadge">Durable by default. Use an experiment for temporary notes.</p>
+              <button type="button" class="button button--secondary chat-session-button" id="experimentToggleButton">Start experiment</button>
+            </div>
           </div>
-          <div class="button-row">
-            <button type="button" id="startExperimentButton">Start experiment</button>
-            <button type="button" id="endExperimentButton">End experiment</button>
+          <div class="button-row chat-utility-actions">
             <button type="button" class="button button--secondary" id="whiteboardToggleButton">Whiteboard</button>
             <button type="button" class="button button--secondary" id="vantageToggleButton">Vantage</button>
-            <span class="status-pill" id="statusPill">Loading</span>
           </div>
         </header>
 
-        <div class="transcript" id="transcript"></div>
+        <div class="transcript-shell">
+          <div class="transcript" id="transcript"></div>
+        </div>
 
         <section class="turn-workspace-update chat-workspace-update" id="workspaceUpdatePanel" hidden>
           <div class="section-label" id="workspaceUpdateLabel">Whiteboard Offer</div>
@@ -35,7 +41,7 @@
         </section>
 
         <form class="composer" id="composer">
-          <textarea id="messageInput" rows="3" placeholder="Ask anything. Mention the whiteboard when you want a shared draft..."></textarea>
+          <textarea id="messageInput" rows="3" placeholder="Ask anything."></textarea>
           <div class="composer-actions">
             <button type="button" id="seedPrompt">Use sample prompt</button>
             <button type="submit" id="sendButton">Send</button>
@@ -44,42 +50,57 @@
       </section>
 
       <aside class="panel whiteboard-panel" id="workspaceDock" hidden>
-        <header class="panel-head">
-          <div>
-            <p class="eyebrow">Whiteboard</p>
-            <div class="whiteboard-heading">
-              <h2 id="workspaceTitle">Whiteboard</h2>
-              <span class="subtle whiteboard-panel-label" id="workspaceDockLabel">Ready</span>
-            </div>
-            <p class="subtle hero-copy">Draft here. Chat stays available in the sidebar.</p>
+        <header class="panel-head whiteboard-utility-bar">
+          <div class="whiteboard-utility-copy">
+            <p class="eyebrow">Shared Whiteboard</p>
+            <p class="subtle hero-copy">This is the shared draft surface. Chat stays in the sidebar, and Vantage stays available for review.</p>
           </div>
-          <div class="whiteboard-action-groups">
-            <div class="button-row button-row--cluster">
-              <button id="hideWhiteboardButton" type="button">Back to chat</button>
-            </div>
-            <div class="button-row button-row--cluster button-row--work">
-              <button id="saveWorkspaceButton" type="button">Save</button>
-              <button id="promoteWorkspaceButton" type="button">Save as artifact</button>
-            </div>
+          <div class="button-row button-row--work whiteboard-actions">
+            <button id="hideWhiteboardButton" type="button" class="button button--secondary">Back to chat</button>
+            <button id="saveWorkspaceButton" type="button">Save whiteboard</button>
+            <button id="promoteWorkspaceButton" type="button">Publish artifact</button>
           </div>
         </header>
         <section class="whiteboard-surface">
-          <div class="workspace-meta" id="workspaceMeta">Whiteboard ready.</div>
-          <section class="turn-workspace-update whiteboard-decision-panel" id="whiteboardDecisionPanel" hidden>
-            <div class="section-label" id="whiteboardDecisionLabel">Whiteboard Decision</div>
-            <div class="turn-notice turn-notice--decision" id="whiteboardDecisionSummary">Whiteboard decisions will appear here when needed.</div>
-            <div class="chip-row" id="whiteboardDecisionActions"></div>
-          </section>
-          <textarea class="workspace-editor" id="workspaceEditor"></textarea>
+          <div class="whiteboard-page">
+            <section class="whiteboard-title-deck">
+              <div class="whiteboard-heading">
+                <div class="section-label section-label--document">Whiteboard</div>
+                <span class="subtle whiteboard-panel-label" id="workspaceDockLabel">Ready to write</span>
+              </div>
+              <h2 id="workspaceTitle">Working Draft</h2>
+              <div class="workspace-meta" id="workspaceMeta">Document surface ready.</div>
+            </section>
+            <section class="turn-workspace-update whiteboard-decision-panel" id="whiteboardDecisionPanel" hidden>
+              <div class="section-label" id="whiteboardDecisionLabel">Whiteboard Decision</div>
+              <div class="turn-notice turn-notice--decision" id="whiteboardDecisionSummary">Whiteboard decisions will appear here when needed.</div>
+              <div class="chip-row" id="whiteboardDecisionActions"></div>
+            </section>
+            <section class="turn-workspace-update whiteboard-artifact-panel" id="workspaceArtifactPanel" hidden>
+              <div class="turn-notice" id="workspaceArtifactSummary">The latest durable work product will appear here after you save the whiteboard.</div>
+              <div class="chip-row" id="workspaceArtifactActions"></div>
+            </section>
+            <div class="document-sheet">
+              <textarea class="workspace-editor" id="workspaceEditor"></textarea>
+            </div>
+            <section class="whiteboard-preview" id="workspacePreviewSection" hidden>
+              <div class="section-head">
+                <div>
+                  <div class="section-label section-label--document">Rendered Preview</div>
+                  <div class="subtle whiteboard-preview-copy">Math and code render here when the draft needs a reading view. The editable source stays above.</div>
+                </div>
+              </div>
+              <div class="whiteboard-preview-surface" id="workspacePreview"></div>
+            </section>
+          </div>
         </section>
       </aside>
 
       <aside class="panel vantage-panel" id="vantagePanel" hidden>
         <header class="panel-head">
           <div>
-            <p class="eyebrow">Vantage</p>
-            <h2>Guided Inspection</h2>
-            <p class="subtle hero-copy" id="vantageSummary">Inspect the reasoning path, the recall, the memory trace, the learned items, and the library.</p>
+            <h2>Vantage</h2>
+            <p class="subtle hero-copy" id="vantageSummary">Start with the short answer, then inspect what entered Working Memory, what was recalled, and what was learned.</p>
           </div>
           <div class="button-row">
             <button type="button" class="button button--secondary" id="closeVantageButton">Back to chat</button>
@@ -90,42 +111,113 @@
           <details class="dock" id="answerDock" open>
             <summary class="dock-summary">
               <div>
-                <p class="eyebrow">Working Memory</p>
-                <h2>What Influenced This Response?</h2>
+                <p class="eyebrow">Provenance</p>
+                <h2>Why This Answer</h2>
+                <p class="subtle dock-summary-copy">Start here for the answer summary, what entered Working Memory, what was recalled, and what changed after the turn.</p>
               </div>
               <span class="subtle dock-label" id="answerDockLabel">Idle</span>
             </summary>
             <section class="panel turn-panel">
               <header class="panel-head">
-                <div>
-                  <p class="eyebrow">Working Memory</p>
-                  <h2 id="turnTitle">What Influenced This Response?</h2>
-                </div>
+              <div>
+                <p class="eyebrow">This turn</p>
+                <h2 id="turnTitle">This turn</h2>
+              </div>
                 <div class="turn-head-meta">
                   <span class="subtle" id="turnMeta">Waiting for a turn</span>
                   <span class="status-pill status-pill--soft" id="turnIntent">Idle</span>
                 </div>
               </header>
-              <div class="chip-row" id="turnActions" hidden>
-                <button id="rememberButton" type="button">Next turn: remember</button>
-                <button id="dontSaveButton" type="button">Next turn: don't save</button>
-                <button id="showRelatedButton" type="button">Open related now</button>
-              </div>
-              <section class="turn-reasoning-path" id="turnReasoningPathSection" hidden>
-                <div class="section-label">Reasoning Path</div>
-                <div class="turn-notice turn-notice--decision" id="turnReasoningPathSummary">Vantage will show how this turn was routed and what entered Working Memory.</div>
-                <div class="turn-reasoning-path-meta" id="turnReasoningPathMeta"></div>
-                <div class="reasoning-path-rail" id="turnReasoningPathRail"></div>
+              <section class="turn-summary-block">
+                <div class="section-label">At a glance</div>
+                <div class="turn-notice" id="turnNotice">Why this answer happened, what supported it, and what changed after the turn.</div>
+                <div class="turn-summary-facts" id="turnSummaryFacts"></div>
               </section>
-              <div class="section-label">Answer summary</div>
-              <div class="turn-notice" id="turnNotice">This section will show the response mode, recall, and rationale behind the answer. Whiteboard decisions stay separate.</div>
-              <div class="section-label">Recall</div>
-              <div class="concept-list compact" id="turnWorkingMemoryList"></div>
-              <div class="section-label">Memory Trace</div>
-              <div class="turn-notice" id="turnTraceNotice">Recent searchable history for this turn will appear here.</div>
-              <div class="concept-list compact" id="turnTraceList"></div>
-              <div class="section-label">What did the system learn?</div>
-              <div class="concept-list compact" id="turnLearnedList"></div>
+              <section class="turn-support-group turn-support-group--working-memory">
+                <div class="section-head">
+                  <div>
+                    <div class="section-label">Working Memory</div>
+                    <div class="subtle" id="turnWorkingMemorySummaryMeta">Everything that was in scope for generation, not just the retrieved subset.</div>
+                  </div>
+                </div>
+                <section class="turn-working-memory-block">
+                  <div class="turn-notice" id="turnWorkingMemoryNotice">Working Memory is the bounded context that was in scope for generation.</div>
+                  <div class="turn-summary-facts turn-summary-facts--working-memory" id="turnWorkingMemoryFacts"></div>
+                </section>
+              </section>
+              <section class="turn-support-group">
+                <div class="section-head">
+                  <div>
+                    <div class="section-label">Recall</div>
+                    <div class="subtle">Retrieved items pulled into the turn from your library and recent continuity.</div>
+                  </div>
+                </div>
+                <details class="turn-support-details" id="turnRecallSection" open>
+                  <summary class="turn-support-details__summary">
+                    <span class="section-label section-label--subtle">Recalled items</span>
+                    <span class="subtle turn-support-details__meta" id="turnRecallSummaryMeta">No recall yet</span>
+                  </summary>
+                  <div class="turn-support-block">
+                    <div class="concept-list compact" id="turnWorkingMemoryList"></div>
+                  </div>
+                </details>
+              </section>
+              <section class="turn-support-group">
+                <div class="section-head">
+                  <div>
+                    <div class="section-label">Learned</div>
+                    <div class="subtle">What the system saved or updated from this turn and why.</div>
+                  </div>
+                </div>
+                <details class="turn-support-details" id="turnLearnedSection" open>
+                  <summary class="turn-support-details__summary">
+                    <span class="section-label section-label--subtle">Saved from this turn</span>
+                    <span class="subtle turn-support-details__meta" id="turnLearnedSummaryMeta">Nothing new yet</span>
+                  </summary>
+                  <div class="turn-support-block">
+                    <div class="concept-list compact" id="turnLearnedList"></div>
+                  </div>
+                </details>
+              </section>
+              <section class="turn-support-group turn-support-group--deep">
+                <div class="section-head">
+                  <div>
+                    <div class="section-label">Look deeper</div>
+                    <div class="subtle">Open these when you want route detail or recent-turn continuity.</div>
+                  </div>
+                </div>
+                <details class="turn-support-details" id="turnTraceSection">
+                  <summary class="turn-support-details__summary">
+                    <span class="section-label section-label--subtle">Memory Trace</span>
+                    <span class="subtle turn-support-details__meta" id="turnTraceSummaryMeta">Quiet</span>
+                  </summary>
+                  <div class="turn-support-block">
+                    <div class="turn-notice" id="turnTraceNotice">Recent searchable history for this turn will appear here.</div>
+                    <div class="concept-list compact" id="turnTraceList"></div>
+                  </div>
+                </details>
+                <details class="turn-support-details turn-support-details--secondary turn-learned-correction" id="turnLearnedCorrectionPanel" hidden>
+                  <summary class="turn-support-details__summary">
+                    <span class="section-label section-label--subtle">Correction path</span>
+                    <span class="subtle turn-support-details__meta" id="turnLearnedCorrectionMeta">Collapsed</span>
+                  </summary>
+                  <div class="turn-support-block">
+                    <div class="turn-notice turn-notice--decision" id="turnLearnedCorrectionSummary">Learned-item correction options will appear here.</div>
+                    <div class="chip-row" id="turnLearnedCorrectionActions"></div>
+                  </div>
+                </details>
+                <details class="turn-reasoning-path" id="turnReasoningPathSection" hidden>
+                  <summary class="turn-reasoning-path__summary">
+                    <div>
+                      <div class="section-label">Reasoning Path</div>
+                      <div class="subtle turn-reasoning-path__summary-copy" id="turnReasoningPathSummary">Open the full reasoning path when you want the staged route and Working Memory details.</div>
+                    </div>
+                    <span class="subtle turn-reasoning-path__summary-state" id="turnReasoningPathState">Collapsed</span>
+                  </summary>
+                  <div class="turn-reasoning-path-meta" id="turnReasoningPathMeta"></div>
+                  <div class="reasoning-path-rail" id="turnReasoningPathRail"></div>
+                </details>
+              </section>
             </section>
           </details>
 
@@ -134,7 +226,7 @@
               <div>
                 <p class="eyebrow">Scenario Lab</p>
                 <h2>Scenario Review</h2>
-                <p class="subtle dock-summary-copy">Comparison question, recommendation, branch paths, and the saved comparison artifact.</p>
+                <p class="subtle dock-summary-copy">Start here for the comparison question, recommendation, durable hub, and the related branch set.</p>
               </div>
               <span class="subtle dock-label" id="scenarioDockLabel">Idle</span>
             </summary>
@@ -143,7 +235,7 @@
             </section>
           </details>
 
-          <details class="dock" id="memoryDock">
+          <details class="dock" id="memoryDock" hidden>
             <summary class="dock-summary">
               <div>
                 <p class="eyebrow">Library</p>
@@ -152,28 +244,28 @@
               <span class="subtle dock-label" id="memoryDockLabel">0 notes</span>
             </summary>
             <section class="panel concepts-panel">
-              <header class="panel-head">
+              <header class="panel-head" hidden>
                 <div>
                   <p class="eyebrow">Library</p>
                   <h2 id="conceptsTitle">What Else Exists In The Library?</h2>
                 </div>
-                <span class="subtle" id="conceptsCount">0 concepts · 0 memories · 0 artifacts · 0 references</span>
+                <span class="subtle" id="conceptsCount">0 insights · 0 memories · 0 work products · 0 references</span>
               </header>
               <div class="memory-tools">
-                <input id="memorySearch" type="search" placeholder="Search concepts, memories, artifacts, and references..." />
+                <input id="memorySearch" type="search" placeholder="Search insights, memories, work products, and references..." />
                 <button id="clearSearchButton" type="button">Clear</button>
                 <button id="refreshConceptsButton" type="button">Refresh</button>
               </div>
               <div class="memory-summary" id="memorySummary">
-                <span class="badge badge--accent" id="conceptsSummary">Concepts: 0</span>
+                <span class="badge badge--accent" id="conceptsSummary">Ideas: 0</span>
                 <span class="badge badge--soft" id="memoriesSummary">Memories: 0</span>
-                <span class="badge badge--soft" id="artifactsSummary">Artifacts: 0</span>
+                <span class="badge badge--soft" id="artifactsSummary">Work products: 0</span>
                 <span class="badge badge--soft" id="vaultNotesSummary">References: 0</span>
               </div>
               <section class="memory-context-bar">
                 <div>
                   <div class="section-label">Pinned Context</div>
-                  <div class="subtle" id="nextTurnContextStatus">Selection only opens something in review. Pinning keeps it in the next-turn context until you clear it.</div>
+                  <div class="subtle" id="nextTurnContextStatus">Selection only opens something in review. Pinning keeps it in context until you clear it.</div>
                 </div>
                 <div class="button-row">
                   <button id="pinSelectedContextButton" type="button">Pin selected context</button>
@@ -184,42 +276,42 @@
                 <section class="memory-section memory-section--concepts">
                   <div class="section-head">
                     <div>
-                      <div class="section-label">Concept KB</div>
-                      <div class="subtle" id="conceptsHint">Durable reasoning concepts</div>
-                    </div>
-                  </div>
-                  <div class="concept-list" id="conceptList"></div>
-                </section>
-                <section class="memory-section memory-section--concepts">
-                  <div class="section-head">
-                    <div>
+                  <div class="section-label">Reusable ideas</div>
+                  <div class="subtle" id="conceptsHint">Saved reusable ideas</div>
+                </div>
+              </div>
+              <div class="concept-list" id="conceptList"></div>
+            </section>
+            <section class="memory-section memory-section--concepts">
+                <div class="section-head">
+                  <div>
                       <div class="section-label">Memories</div>
-                      <div class="subtle" id="memoriesHint">Durable continuity notes</div>
-                    </div>
+                      <div class="subtle" id="memoriesHint">Saved things to remember</div>
                   </div>
-                  <div class="concept-list" id="memoryList"></div>
-                </section>
-                <section class="memory-section memory-section--artifacts">
-                  <div class="section-head">
-                    <div>
-                      <div class="section-label section-label--artifact">Artifacts</div>
-                      <div class="subtle" id="artifactsHint">Durable work products and snapshots</div>
-                    </div>
+                </div>
+                <div class="concept-list" id="memoryList"></div>
+            </section>
+            <section class="memory-section memory-section--artifacts">
+                <div class="section-head">
+                  <div>
+                      <div class="section-label section-label--artifact">Work products</div>
+                      <div class="subtle" id="artifactsHint">Saved work products and snapshots</div>
                   </div>
-                  <div class="concept-list" id="artifactList"></div>
-                </section>
-                <section class="memory-section memory-section--vault">
-                  <div class="section-head">
-                    <div>
-                      <div class="section-label section-label--vault">Reference Notes</div>
+                </div>
+                <div class="concept-list" id="artifactList"></div>
+            </section>
+            <section class="memory-section memory-section--vault">
+                <div class="section-head">
+                  <div>
+                      <div class="section-label section-label--vault">Reference notes</div>
                       <div class="subtle" id="vaultNotesHint">Read-only Nexus references</div>
-                    </div>
                   </div>
+                </div>
                   <div class="concept-list" id="vaultNoteList"></div>
                 </section>
               </div>
               <div class="concept-inspector" id="conceptInspector">
-                <div class="empty-note">Select something in the library to inspect it here. Selection alone does not change next-turn context.</div>
+                <div class="empty-note">Select something in the library to inspect it here. Selection alone does not keep it in scope for the next turn.</div>
               </div>
             </section>
           </details>
@@ -243,7 +335,7 @@
           <span class="concept-id"></span>
         </div>
         <h3 class="concept-title"></h3>
-        <p class="concept-card-text"></p>
+        <div class="concept-card-text"></div>
         <div class="concept-actions">
           <button type="button" class="concept-open-button">Open</button>
           <button type="button" class="concept-inspect-button">Inspect</button>
@@ -251,6 +343,8 @@
       </article>
     </template>
 
-    <script type="module" src="/static/app.js?v=20260419-working-memory-scope"></script>
+    <script src="/static/vendor/katex.min.js?v=20260421-math-render-code"></script>
+    <script src="/static/vendor/highlight.min.js?v=20260421-math-render-code"></script>
+    <script type="module" src="/static/app.js?v=20260423-simple-composer-pass01"></script>
   </body>
 </html>

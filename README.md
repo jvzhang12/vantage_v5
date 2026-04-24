@@ -6,6 +6,19 @@ The core reset is simple:
 
 `Vantage should feel like talking to any other good LLM, while quietly building durable concept-based memory behind the scenes.`
 
+## Documentation
+
+For the fastest path into the current repository docs, start with:
+
+- [docs/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/README.md)
+
+That guide points to:
+
+- current product semantics
+- active implementation plans
+- UI research and frontend slices
+- archived historical plans
+
 ## Product Principles
 
 ### 1. Chat First
@@ -46,6 +59,7 @@ The user and assistant should be able to:
 - surface whiteboard offers as chat-level prompts until the user opens the whiteboard
 - stage replace-or-append choices as explicit in-product whiteboard decisions rather than browser-native confirmation dialogs
 - keep whiteboard lifecycle cues legible as a transient draft, saved whiteboard, or promoted artifact
+- carry those lifecycle cues through saved artifact payloads so the UI can distinguish whiteboard snapshots, promoted artifacts, and Scenario Lab comparison hubs without guessing from raw provenance
 - later promote it into a durable artifact when appropriate
 - derive a concept from it only when the goal is timeless knowledge rather than preserving the draft itself
 
@@ -126,6 +140,7 @@ This means:
 - every turn should leave memory trace
 - memory trace now has a first-class Markdown store in `memory_trace/`, distinct from JSON debug traces in `traces/`
 - a whiteboard document can later be promoted into an artifact
+- durable artifacts should be inspected in `Vantage` and reopened into the whiteboard when the user wants to continue from a saved version
 - a concept can also be derived from a whiteboard document instead of being a raw copy of it
 - the whiteboard should stay visibly separate from working memory, from the durable library, and from the default chat surface
 
@@ -226,9 +241,14 @@ In practice:
 - the turn interpreter should decide whether a turn stays in chat or enters Scenario Lab
 - the turn interpreter should decide whether selected context should stay anchored for continuity
 - the turn interpreter should decide whether normal chat should stay in chat, invite the whiteboard, or draft there
+- the turn interpreter should eventually receive a small continuity frame for the current whiteboard, a very short recent-whiteboards list, the strongest last-turn referenced saved record, and the top last-turn recalled items so follow-ups like `pull that up on the whiteboard` can be interpreted semantically without overloading the navigator call
 - deterministic code should validate schemas, enforce guardrails, merge explicit UI choices, and perform durable writes
 
 This keeps routing fluid and semantic without making persistence or safety brittle.
+
+See also:
+
+- [docs/navigator-continuity-contract.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/navigator-continuity-contract.md)
 
 ## Meta Call
 
@@ -332,6 +352,7 @@ If the accepted draft is clearly a different document from the currently active 
 For durable concepts, revisions should create a new concept rather than overwrite the old one by default.
 
 The new concept should link back to the old one using `comes from`.
+When Vantage deliberately revises a concept, it should treat that as a constrained revision action against one clear existing concept, not as the default outcome for merely related knowledge.
 
 ## Search and Vetting Roles
 

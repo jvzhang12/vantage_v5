@@ -10,21 +10,25 @@ from typing import Any
 
 from openai import OpenAI
 
+from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_card_fields
+from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_kind
 from vantage_v5.services.executor import ExecutedAction
 from vantage_v5.services.executor import GraphActionExecutor
 from vantage_v5.services.meta import MetaDecision
 from vantage_v5.services.meta import MetaService
+from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.response_mode import build_response_mode_payload
 from vantage_v5.services.response_mode import finalize_assistant_message
 from vantage_v5.services.search import CandidateMemory
 from vantage_v5.services.search import ConceptSearchService
+from vantage_v5.services.turn_payloads import assemble_chat_turn_body
+from vantage_v5.services.turn_payloads import ChatTurnBodyParts
 from vantage_v5.services.vetting import anchor_selected_record_candidate
 from vantage_v5.services.vetting import build_continuity_hint
 from vantage_v5.services.vetting import resolve_selected_record_candidate
 from vantage_v5.services.vetting import should_preserve_selected_record
 from vantage_v5.services.vetting import ConceptVettingService
 from vantage_v5.storage.artifacts import ArtifactStore
-from vantage_v5.storage.artifacts import parse_artifact_lifecycle_metadata
 from vantage_v5.storage.concepts import ConceptStore
 from vantage_v5.storage.memory_trace import parse_memory_trace_metadata
 from vantage_v5.storage.memory_trace import MemoryTraceStore
@@ -84,44 +88,37 @@ class ChatTurn:
     graph_action: dict | None = None
     created_record: dict | None = None
 
+    def to_body_parts(self) -> ChatTurnBodyParts:
+        return ChatTurnBodyParts(
+            user_message=self.user_message,
+            assistant_message=self.assistant_message,
+            workspace_id=self.workspace_id,
+            workspace_title=self.workspace_title,
+            workspace_content=self.workspace_content,
+            workspace_update=self.workspace_update,
+            concept_cards=self.concept_cards,
+            trace_notes=self.trace_notes,
+            saved_notes=self.saved_notes,
+            vault_notes=self.vault_notes,
+            candidate_concepts=self.candidate_concepts,
+            candidate_trace_notes=self.candidate_trace_notes,
+            candidate_saved_notes=self.candidate_saved_notes,
+            candidate_vault_notes=self.candidate_vault_notes,
+            candidate_memory=self.candidate_memory,
+            working_memory=self.working_memory,
+            recall_details=self.recall_details,
+            learned=self.learned,
+            memory_trace_record=self.memory_trace_record,
+            response_mode=self.response_mode,
+            vetting=self.vetting,
+            mode=self.mode,
+            meta_action=self.meta_action,
+            graph_action=self.graph_action,
+            created_record=self.created_record,
+        )
+
     def to_dict(self) -> dict:
-        created_record = self.created_record or (self.learned[0] if self.learned else None)
-        selected_memory = _group_memory_payload(self.saved_notes, self.vault_notes)
-        candidate_memory = _group_memory_payload(self.candidate_saved_notes, self.candidate_vault_notes)
-        return {
-            "user_message": self.user_message,
-            "assistant_message": self.assistant_message,
-            "workspace": {
-                "workspace_id": self.workspace_id,
-                "title": self.workspace_title,
-                "content": self.workspace_content,
-            },
-            "workspace_update": self.workspace_update,
-            "memory": selected_memory,
-            "selected_memory": selected_memory,
-            "candidate_memory": candidate_memory,
-            "concept_cards": self.concept_cards,
-            "saved_notes": self.saved_notes,
-            "vault_notes": self.vault_notes,
-            "turn_vault_notes": self.vault_notes,
-            "candidate_concepts": self.candidate_concepts,
-            "trace_notes": self.trace_notes,
-            "candidate_trace_notes": self.candidate_trace_notes,
-            "candidate_saved_notes": self.candidate_saved_notes,
-            "candidate_vault_notes": self.candidate_vault_notes,
-            "candidate_memory_results": self.candidate_memory,
-            "recall": self.working_memory,
-            "working_memory": self.working_memory,
-            "recall_details": self.recall_details,
-            "learned": self.learned,
-            "memory_trace_record": self.memory_trace_record,
-            "response_mode": self.response_mode,
-            "vetting": self.vetting,
-            "mode": self.mode,
-            "meta_action": self.meta_action,
-            "graph_action": self.graph_action,
-            "created_record": created_record,
-        }
+        return assemble_chat_turn_body(self.to_body_parts())
 
 
 class ChatService:
@@ -143,6 +140,7 @@ class ChatService:
         search_service: ConceptSearchService,
         vetting_service: ConceptVettingService,
         meta_service: MetaService,
+        protocol_engine: ProtocolEngine,
         executor: GraphActionExecutor,
         traces_dir: Path,
     ) -> None:
@@ -160,6 +158,7 @@ class ChatService:
         self.search_service = search_service
         self.vetting_service = vetting_service
         self.meta_service = meta_service
+        self.protocol_engine = protocol_engine
         self.executor = executor
         self.traces_dir = traces_dir
         self.client = OpenAI(api_key=openai_api_key) if openai_api_key else None
@@ -178,6 +177,7 @@ class ChatService:
         pending_workspace_update: dict[str, Any] | None = None,
         workspace_is_transient: bool = False,
         workspace_scope: str = "excluded",
+        applied_protocol_kinds: list[str] | None = None,
     ) -> ChatTurn:
         memory_mode = _normalize_memory_mode(memory_intent)
         whiteboard_mode = _normalize_whiteboard_mode(whiteboard_mode)
@@ -185,6 +185,14 @@ class ChatService:
             self.concept_store.list_concepts(),
             self.reference_concept_store.list_concepts() if self.reference_concept_store else [],
         )
+        protocol_turn = self.protocol_engine.interpret_and_apply(
+            message=message,
+            history=history,
+            concept_records=concepts,
+            concept_store=self.concept_store,
+        )
+        concepts = list(protocol_turn.concept_records)
+        protocol_action = protocol_turn.protocol_action
         memory_traces = _merge_records(
             self.memory_trace_store.list_recent_traces(),
             self.reference_memory_trace_store.list_recent_traces() if self.reference_memory_trace_store else [],
@@ -246,6 +254,16 @@ class ChatService:
             selected_record_source=selected_memory.source if preserve_selected_memory and selected_memory else None,
             limit=16,
         )
+        protocol_guidance = self.protocol_engine.build_guidance(
+            protocol_kinds=[
+                *(applied_protocol_kinds or []),
+                *protocol_turn.recall_protocol_kinds,
+            ],
+            concept_records=concepts,
+        )
+        protocol_candidates = protocol_guidance.candidate_memory()
+        if protocol_candidates:
+            candidate_memory = _merge_candidate_memory(protocol_candidates, candidate_memory, limit=16)
         if preserve_selected_memory and selected_memory is not None:
             candidate_memory = _merge_candidate_memory([selected_memory], candidate_memory, limit=16)
         vetted_memory, vetting = self.vetting_service.vet(
@@ -362,18 +380,32 @@ class ChatService:
                 "content": None,
                 "persisted": False,
             }
-        meta = self.meta_service.decide(
-            user_message=message,
-            assistant_message=assistant_message,
-            workspace=workspace,
-            vetted_items=vetted_memory,
-            history=history,
-            memory_mode=memory_mode,
-            workspace_update=workspace_update,
-        )
-        executed_action = self.executor.execute(meta, workspace=workspace)
+        if protocol_action is not None:
+            meta = MetaDecision(
+                action="no_op",
+                rationale=(
+                    "A reusable protocol was updated deterministically, so no separate meta write was needed."
+                ),
+            )
+            executed_action = None
+        else:
+            meta = self.meta_service.decide(
+                user_message=message,
+                assistant_message=assistant_message,
+                workspace=workspace,
+                vetted_items=vetted_memory,
+                history=history,
+                memory_mode=memory_mode,
+                workspace_update=workspace_update,
+            )
+            executed_action = self.executor.execute(meta, workspace=workspace)
         created_record = self._created_record_payload(executed_action)
-        learned_records = [record for record in [created_record, auto_artifact_record] if record is not None]
+        protocol_record_payload = self._created_record_payload(protocol_action)
+        learned_records = [
+            record
+            for record in [protocol_record_payload, created_record, auto_artifact_record]
+            if record is not None
+        ]
         memory_trace_record = self.memory_trace_store.create_turn_trace(
             user_message=message,
             assistant_message=assistant_message,
@@ -420,8 +452,9 @@ class ChatService:
             mode=mode,
             meta_action=meta.to_dict(),
             graph_action=_graph_action_payload(executed_action, meta)
-            or _auto_graph_action_payload(auto_artifact_action),
-            created_record=created_record or auto_artifact_record,
+            or _auto_graph_action_payload(auto_artifact_action)
+            or _auto_graph_action_payload(protocol_action),
+            created_record=created_record or auto_artifact_record or protocol_record_payload,
         )
         self._trace_turn(
             turn,
@@ -481,6 +514,8 @@ class ChatService:
                 "Use the vetted memory items as bounded context when they are relevant. "
                 "Treat Memory Trace items as recent continuity history, not timeless knowledge. "
                 "Treat Vantage concepts as timeless reasoning knowledge. "
+                "Treat Vantage protocols as modifiable instructions for recurring work types; "
+                "when relevant_memory includes an item with type protocol, follow its variables and procedure unless the current user message overrides it. "
                 "Treat saved memories and artifacts as continuity and work-history context. "
                 "Treat Nexus vault notes as read-only reference material rather than guaranteed truth. "
                 "You may reference and improve the workspace, but do not claim to have saved memory or modified files unless explicitly told so by the system. "
@@ -625,6 +660,10 @@ class ChatService:
             "card": record.card,
             "body": record.body,
             "status": record.status,
+            "kind": _record_kind(record.source, record.type),
+            "memory_role": _memory_role(record.source, record.type),
+            "recall_status": "learned",
+            "source_tier": _source_tier(record.source, record.type),
             "links_to": record.links_to,
             "comes_from": record.comes_from,
             "derived_from_id": record.comes_from[0] if record.comes_from else None,
@@ -639,8 +678,7 @@ class ChatService:
                 "label": "Open in whiteboard",
             },
         }
-        if record.source == "artifact":
-            payload.update(parse_artifact_lifecycle_metadata(record))
+        payload.update(artifact_lifecycle_card_fields(record))
         return payload
 
     def _memory_trace_payload(self, record: Any | None) -> dict[str, Any] | None:
@@ -654,6 +692,10 @@ class ChatService:
             "card": record.card,
             "body": record.body,
             "status": record.status,
+            "kind": "memory_trace",
+            "memory_role": "turn_continuity",
+            "recall_status": "logged",
+            "source_tier": "recent",
             "links_to": record.links_to,
             "comes_from": record.comes_from,
             "source": record.source,
@@ -670,13 +712,15 @@ def _learned_reason(
     revision_parent_id: str | None,
 ) -> str:
     if getattr(record, "source", None) == "concept":
+        if getattr(record, "type", None) == "protocol":
+            return "Updated a reusable protocol so future matching requests can follow the user's preferred workflow."
         if revision_parent_id:
             return "Saved as a revision of an existing concept so the updated version stays inspectable."
         return "Captured as reusable concept knowledge."
     if getattr(record, "source", None) == "memory":
         return "Saved as memory because the user asked Vantage to remember it."
     if getattr(record, "source", None) == "artifact":
-        lifecycle = str(parse_artifact_lifecycle_metadata(record).get("artifact_lifecycle") or "").strip().lower()
+        lifecycle = artifact_lifecycle_kind(record)
         if lifecycle == "comparison_hub":
             return "Saved as a Scenario Lab comparison hub so the branch comparison can be revisited."
         if lifecycle == "whiteboard_snapshot":
@@ -771,17 +815,6 @@ def _auto_graph_action_payload(executed_action: ExecutedAction | None) -> dict[s
         "record_title": executed_action.record_title,
         "concept_title": executed_action.record_title,
         "rationale": executed_action.summary,
-    }
-
-
-def _group_memory_payload(
-    saved_notes: list[dict[str, Any]],
-    reference_notes: list[dict[str, Any]],
-) -> dict[str, Any]:
-    return {
-        "saved_notes": saved_notes,
-        "reference_notes": reference_notes,
-        "total": len(saved_notes) + len(reference_notes),
     }
 
 
@@ -889,3 +922,45 @@ def _candidate_source_priority(source: str) -> int:
         "artifact": 2,
         "vault_note": 1,
     }.get(source, 0)
+
+
+def _record_kind(source: str, record_type: str) -> str:
+    if record_type == "protocol":
+        return "protocol"
+    if source == "concept":
+        return "concept"
+    if source == "memory_trace":
+        return "memory_trace"
+    if source in {"memory", "artifact"}:
+        return "saved_note"
+    if source == "vault_note":
+        return "reference_note"
+    return "record"
+
+
+def _memory_role(source: str, record_type: str) -> str:
+    if record_type == "protocol":
+        return "protocol"
+    if source == "concept":
+        return "semantic_knowledge"
+    if source == "memory_trace":
+        return "turn_continuity"
+    if source in {"memory", "artifact"}:
+        return "saved_context"
+    if source == "vault_note":
+        return "reference_context"
+    return "context"
+
+
+def _source_tier(source: str, record_type: str) -> str:
+    if record_type == "protocol":
+        return "instruction"
+    if source == "concept":
+        return "curated"
+    if source == "memory_trace":
+        return "recent"
+    if source in {"memory", "artifact"}:
+        return "saved"
+    if source == "vault_note":
+        return "reference"
+    return "unknown"

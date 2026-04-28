@@ -69,6 +69,7 @@ Typical contributors are:
 - whiteboard content when in scope
 - recalled memory-trace items
 - recalled library items
+- applied or recalled protocols when the current task needs reusable guidance
 - selected or pinned context when intentionally preserved
 - pending whiteboard context when intentionally carried into the turn
 
@@ -102,8 +103,20 @@ The system recalls relevant items from:
 - Memory Trace
 - Library
 - other explicitly preserved context sources
+- applied protocols selected by the protocol interpreter or Navigator control panel
 
 Those recalled items may then enter Working Memory.
+
+Protocols are a special case: they are guidance for how to perform the task, not factual evidence. A protocol can be relevant even when it is not semantically close to the user's wording, because the Navigator may intentionally apply it before response generation.
+
+Recalled items now carry lightweight taxonomy fields when available:
+
+- `kind`: product object kind such as protocol, concept, memory trace, memory, artifact, or reference.
+- `memory_role`: how the item functioned, such as instruction, durable knowledge, episodic trace, saved work, or reference.
+- `recall_status`: whether the item was available, selected/recalled, learned, or logged.
+- `source_tier`: whether it came from built-in guidance, experiment state, durable storage, recent trace, or reference material.
+
+The Inspect UI uses these fields plus response-mode context sources to separate `Protocol`, `Used`, `Recent`, and `Draft` buckets without treating protocol guidance as factual evidence.
 
 ## Core Model
 
@@ -242,3 +255,4 @@ The narrower retrieved subset remains exposed as `recall`, with `working_memory`
 4. Keep whiteboard context intentional rather than passive.
 5. Keep `Working Memory` as the top-level explanation of what the model saw for the turn.
 6. Keep the Library separate from recent trace so the system does not collapse curated memory and automatic continuity into one bucket.
+7. Keep protocols available as explicit task guidance for recurring work types and reasoning modes, while labeling them separately from factual sources.

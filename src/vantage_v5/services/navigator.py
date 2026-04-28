@@ -22,6 +22,7 @@ class NavigationDecision:
     pinned_context_reason: str | None = None
     preserve_selected_record: bool | None = None
     selected_record_reason: str | None = None
+    control_panel: dict[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         preserve_pinned_context = self.preserve_pinned_context
@@ -42,6 +43,7 @@ class NavigationDecision:
             "pinned_context_reason": pinned_context_reason,
             "preserve_selected_record": preserve_pinned_context,
             "selected_record_reason": pinned_context_reason,
+            "control_panel": _normalize_control_panel(self.control_panel),
         }
 
 
@@ -113,6 +115,20 @@ class NavigatorService:
             "continuity_context": continuity_context,
             "allowed_modes": ["chat", "scenario_lab"],
             "allowed_whiteboard_modes": ["chat", "offer", "draft", "auto"],
+            "available_control_panel_actions": [
+                "respond",
+                "recall",
+                "open_whiteboard",
+                "draft_whiteboard",
+                "open_scenario_lab",
+                "apply_protocol",
+                "inspect_context",
+                "save_whiteboard",
+                "publish_artifact",
+                "manage_experiment",
+                "ask_clarification",
+            ],
+            "available_protocol_kinds": ["email", "research_paper", "scenario_lab"],
         }
         response = self.client.responses.create(
             model=self.model,
@@ -120,6 +136,15 @@ class NavigatorService:
             instructions=(
                 "You are the Vantage V5 turn interpreter. "
                 "Decide whether the turn should stay in normal chat or enter Scenario Lab, whether the pinned context should be preserved as continuity context for this turn, and whether normal chat should stay in chat, invite whiteboard collaboration, or draft directly into the whiteboard. "
+                "Also return a control_panel object that describes the product controls you would press. "
+                "Think of the control panel as the canonical plan: actions are button presses, working_memory_queries are context you want the system to retrieve or keep active, and response_call describes whether another LLM response should be generated after context is assembled. "
+                "Only choose actions from available_control_panel_actions. "
+                "For every control_panel action, include protocol_kind as null unless the action type is apply_protocol. "
+                "When action type is apply_protocol, protocol_kind is required and must be one of email, research_paper, or scenario_lab. "
+                "For Scenario Lab comparisons, apply the scenario_lab protocol so first-principles, counterfactual, causal, tradeoff, and assumption-surfacing guidance can enter working memory. "
+                "For email drafting, apply the email protocol when a reusable email protocol should guide the draft. "
+                "For research-paper drafting or revision, apply the research_paper protocol when that reusable protocol should guide the work. "
+                "Do not ask deterministic code to infer user intent later; put the interpretation into the control_panel. "
                 "Scenario Lab is for structured comparison across alternative futures, plans, or options that should become durable scenario branches and a comparison artifact. "
                 "Use scenario_lab only when the user is clearly asking for comparative what-if reasoning, option analysis, or branchable alternatives. "
                 "The workspace payload may include scenario metadata when the currently open workspace is already a saved scenario branch. "
@@ -173,6 +198,36 @@ class NavigatorService:
                             "pinned_context": {"type": ["object", "null"]},
                             "preserve_pinned_context": {"type": ["boolean", "null"]},
                             "pinned_context_reason": {"type": ["string", "null"]},
+                            "control_panel": {
+                                "type": ["object", "null"],
+                                "additionalProperties": True,
+                                "properties": {
+                                    "actions": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "additionalProperties": True,
+                                            "properties": {
+                                                "type": {"type": "string"},
+                                                "protocol_kind": {
+                                                    "type": ["string", "null"],
+                                                    "enum": ["email", "research_paper", "scenario_lab", None],
+                                                },
+                                                "reason": {"type": ["string", "null"]},
+                                            },
+                                            "required": ["type", "protocol_kind"],
+                                        },
+                                    },
+                                    "working_memory_queries": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "response_call": {
+                                        "type": ["object", "null"],
+                                        "additionalProperties": True,
+                                    },
+                                },
+                            },
                         },
                         "required": [
                             "mode",
@@ -186,6 +241,7 @@ class NavigatorService:
                             "pinned_context",
                             "preserve_pinned_context",
                             "pinned_context_reason",
+                            "control_panel",
                         ],
                     },
                 }
@@ -212,6 +268,7 @@ class NavigatorService:
             pinned_context_reason=pinned_context_reason,
             preserve_selected_record=preserve_pinned_context,
             selected_record_reason=pinned_context_reason,
+            control_panel=_normalize_control_panel(result.get("control_panel")),
         )
 
     @staticmethod
@@ -228,6 +285,16 @@ class NavigatorService:
             pinned_context_reason=None,
             preserve_selected_record=None,
             selected_record_reason=None,
+            control_panel={
+                "actions": [
+                    {
+                        "type": "respond",
+                        "reason": "Fallback routing keeps the turn in chat without pressing other product controls.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
         )
 
 
@@ -259,3 +326,34 @@ def _normalize_reason(value: object, fallback: object | None = None) -> str | No
         return None
     normalized = str(candidate).strip()
     return normalized or None
+
+
+def _normalize_control_panel(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw_actions = value.get("actions")
+    actions: list[dict[str, object]] = []
+    if isinstance(raw_actions, list):
+        for action in raw_actions:
+            if not isinstance(action, dict):
+                continue
+            action_type = str(action.get("type") or "").strip()
+            if not action_type:
+                continue
+            normalized_action = dict(action)
+            normalized_action["type"] = action_type
+            actions.append(normalized_action)
+    raw_queries = value.get("working_memory_queries")
+    working_memory_queries: list[str] = []
+    if isinstance(raw_queries, list):
+        working_memory_queries = [
+            query
+            for query in (" ".join(str(item).strip().split()) for item in raw_queries)
+            if query
+        ]
+    response_call = value.get("response_call")
+    return {
+        "actions": actions,
+        "working_memory_queries": working_memory_queries,
+        "response_call": response_call if isinstance(response_call, dict) else None,
+    }

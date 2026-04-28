@@ -8,12 +8,16 @@ Single-file visual system for the Vantage frontend.
 - Control the shell layout for normal chat, whiteboard-focused drafting, and `Vantage` inspection, with a stronger separation between the chat surface and the whiteboard surface.
 - Style notices, badges, panels, library cards, compact chat result cards, and the whiteboard editor.
 - Style the secondary recall-reason treatment used by item-level `Why recalled` lines inside Recall-oriented cards.
+- Style Inspect taxonomy buckets, the quiet activity line, and the inline protocol editor.
 - Style the shared rich-text/math/code render surfaces used by chat, library inspection, concept cards, and the whiteboard preview, including the vendored Highlight.js theme assets.
+- Style the persistent confirmation overlay used for high-friction actions such as ending experiment mode, keeping it visually aligned with the calmer Apple-tech material system.
 - Give Scenario Lab a distinct comparison-first treatment so it reads as separate from the working-memory influence view.
 - Carry the current visual refinement pass aimed at calming the shell further, making the whiteboard feel premium and editorial, and preserving existing frontend semantics.
 - Carry the final shared visual-system tightening for Pass 02E, with softer medium-emphasis chrome, a more consistent spacing rhythm, and calmer secondary controls across all surfaces.
 - Carry a production-readiness hardening pass that removes the remaining frosted/prototype feel: surfaces are more opaque, controls are less pill-heavy, shadows are tighter, and the whiteboard sheet plus action row read as authored product UI rather than exploratory demo chrome.
 - Carry the follow-on Apple-tech pass that cools the palette away from warm paper, replaces serif-led UI hierarchy with SF-style sans typography, reduces notebook texture, and makes the whiteboard feel closer to a native Apple document editor.
+- Carry the visual hierarchy slice of the premium UI plan: chat reads more like an editorial conversation, compact status treatments feel more deliberate when visible, confirmation actions feel stable, Vantage/Inspect docks explain before diagnosing, and the whiteboard remains document-first.
+- Carry the chat-window refinement pass: the app shell now behaves like a fixed-height workspace, chat and Inspect keep independent scroll regions at tablet-sized widths, and the composer stays compact and available at the bottom of the chat panel.
 
 ## Notable Behavior
 
@@ -26,9 +30,11 @@ Single-file visual system for the Vantage frontend.
 - The newest production pass then hardens the material system around that structure: body and panel gradients are quieter, the global panel blur is removed, buttons and inputs shift from soft pills to firmer controls, whiteboard support notices become margin-style callouts, the top whiteboard action row stops reading like a glossy capsule, and the whiteboard canvas itself becomes slightly more matte so the document sheet has a clearer premium page-on-desk contrast.
 - The Apple-tech pass then moves the product away from cozy paper and into cooler native-product refinement: warm beige/brown tokens are replaced with graphite, mist, white, and Apple blue; serif headings and editor text are replaced with SF-style sans stacks; and the ruled-paper/gutter treatment is removed so the whiteboard reads as a clean editor canvas.
 - Uses `.chat-masthead` and `.chat-masthead-utility` to split the chat brand/status row from the utility actions, keeping the chat header readable without turning it into a control slab.
-- Keeps the masthead status treatment available as a tiny dot plus plain session label, but the current default chat header hides onboarding/session state because the first system message introduces the product and session mode instead.
+- Keeps the masthead status treatment available as a compact premium pill with a tiny live dot, but the current default chat header can still hide onboarding/session state because the first system message introduces the product and session mode instead.
 - Uses a dedicated chat session row so experiment mode reads as a lower-status session toggle beside the mode badge instead of living in the main action cluster.
 - Keeps the chat transcript inside `.transcript-shell` so the transcript reads as a dedicated scrollable body beneath the masthead rather than part of the header chrome.
+- Keeps the overall app shell from becoming the primary scroll surface on desktop/tablet layouts; the transcript, Inspect stack, and draft canvas own their own scrolling so users do not have to chase the composer or Inspect panel down the page.
+- Gives chat an editorial hierarchy through a slightly stronger title, cooler transcript field, quieter system framing, more spacious assistant prose, and restrained user bubbles so the surface feels less like a demo console.
 - Defines a shared `.rich-text` / `.math-render` styling layer so math-capable read surfaces can render prose, block math, inline math, and fenced code with one visual contract.
 - Defines shared `.rich-text-inline-code`, `.rich-text-code-block`, and `.rich-text-code` styling so inline code reads as a lightweight semantic chip while fenced code keeps a readable header/body split.
 - Keeps the whiteboard-mode chat shell intentionally narrower, lower-contrast, and less elevated so it reads as a secondary sidebar rather than a competing primary surface.
@@ -38,6 +44,7 @@ Single-file visual system for the Vantage frontend.
 - Styles the main `Vantage` answer dock as a single turn narrative: an at-a-glance summary first, a dedicated `Working Memory` block second, separate `Recall` and `Learned` sections next, and then a quieter deeper-detail group for `Memory Trace` and the collapsed `Reasoning Path`.
 - Keeps the first visible Vantage summary lighter by toning down the summary block chrome and relying more on compact summary facts than on another large notice-like card.
 - Gives the `Working Memory` block its own quieter document-like treatment so broader in-scope grounding can read as explanation rather than as another stack of retrieved-item cards.
+- Softens the answer dock, first summary, working-memory block, support disclosures, and Inspector shells so the first read is explanatory and editorial, with diagnostic depth still available in quieter downstream sections.
 - Styles the learned-correction panel inside `What I learned` as a distinct but still secondary turn-support card, so correction guidance is visible without turning Vantage into a mutation console.
 - Uses collapsible support-section cards inside the turn dock so recalled items, recent continuity, and learned items can show counts in the summary row without forcing every detail block open at once.
 - Treats the whiteboard utility header separately from the whiteboard title deck so back/save/promote controls stay above the document framing instead of competing with the title.
@@ -50,11 +57,13 @@ Single-file visual system for the Vantage frontend.
 - Carries Pass 02B of the visual redesign into the whiteboard surface specifically: one centered page measure, a larger and more editorial title deck, quieter utility chrome, and softer lifecycle panels so the draft body remains the focal point.
 - Wraps the editor in `.document-sheet` so the writing area reads like a page resting on a sheet, with its own border, shadow, and paper tone.
 - That framing is now flatter than before: whiteboard decision and artifact cues read more like inline support than stacked cards, the outer `document-sheet` chrome is effectively layout-only, and the textarea/editor page acts as the single dominant document surface.
+- Keeps the draft canvas document-first during hierarchy refinement by limiting whiteboard changes to subtler page depth, cooler paper tone, and unchanged shell structure.
 - Adds `.whiteboard-preview` and `.whiteboard-preview-surface` so the whiteboard can preserve raw source editing while still exposing a rendered, math-capable read surface under the editor.
 - Treats the whiteboard editor like a centered document surface rather than a utility textarea, with larger page margins and stronger editorial typography.
 - Keeps the whiteboard preview and latest-artifact cue on the same page measure as the title deck and editor, so they read as secondary reading/lifecycle layers rather than separate product surfaces.
 - Tunes the outer shell chrome, panel shadows, chat cards, and status pills down so the app frame feels calmer and less like an operator console.
 - Keeps the global notice rail to a single softer card at a time, so routine confirmations no longer stack into an alert queue above the product.
+- Makes the in-app confirmation overlay feel more stable and deliberate through a cooler dimmed backdrop, firmer dialog dimensions, steadier shadowing, and a separated action footer.
 - Carries Pass 02A of the visual redesign into chat specifically: the masthead is shorter and quieter, the transcript sits in a centered reading column, assistant responses carry more typographic authority than user bubbles, and the composer reads more like a writing surface than a tool slab.
 - Keeps the whiteboard-sidebar chat state lighter without making it empty: the sidebar shrinks the masthead, keeps a reduced session cue visible, and preserves a usable transcript/composer stack while clearly yielding priority to the whiteboard.
 - Gives the whiteboard header a compact pill-like action row instead of a stacked control cluster, so back/save/promote actions stay available without competing with the page-like drafting surface.
@@ -72,6 +81,7 @@ Single-file visual system for the Vantage frontend.
 - Adds a similarly quiet secondary card-text treatment for `Why recalled` copy so recall provenance feels inspectable without making cards read like a scoring console.
 - Gives the learned-correction panel a lightly positive accent so direct revision / pin actions feel available while `not direct yet` guidance still reads as guidance, not as a fake destructive workflow.
 - Adds a matching secondary hint treatment plus a compact inspector guidance panel for learned-item correction paths, so continuation-in-whiteboard and current backend limits can be explained without turning Vantage into a console.
+- Adds protocol-editor form styling inside the inspector so reusable guidance can be reviewed and edited without creating a new top-level surface.
 - Uses lighter subsection labels and grouped separators inside the turn panel so supportive details stay legible without competing with the primary summary copy.
 - No longer styles the removed next-turn action buttons in the Vantage answer dock; the turn panel now leads directly from the header into the at-a-glance explanation.
 - Tones down repeated box framing inside the turn dock so the new `Working Memory`, `Recall`, `Learned`, and deeper-detail layers feel more editorial and less like a stack of equally weighted diagnostic cards.

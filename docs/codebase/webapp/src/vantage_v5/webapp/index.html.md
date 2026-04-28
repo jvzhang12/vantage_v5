@@ -4,16 +4,17 @@ Static shell for the Vantage web app.
 
 ## Purpose
 
-- Define the three visible product surfaces: chat, whiteboard, and `Vantage`.
+- Define the three visible product surfaces: chat, Draft, and Inspect.
 - Provide the DOM anchors consumed by `app.js`.
+- Provide the persistent confirmation overlay used for high-friction local actions such as ending experiment mode.
 - Load the CSS theme, the vendored local KaTeX and Highlight.js runtimes, and the module-based frontend entrypoint with cache-busting query strings.
 
 ## Major Regions
 
-- Chat panel with a minimal masthead, transcript shell, chat-side whiteboard-decision panel, and composer. The masthead keeps the brand and `Whiteboard` / `Vantage` controls available while onboarding and session-mode explanation live in the first system message instead of the header.
-- Whiteboard panel with a utility header, title deck, whiteboard-owned decision panel, a compact latest-work-product cue, document-sheet wrapper, source editor, a conditional live-preview section for math/code-rich drafts, and a single calm action row for `Back to chat`, `Save whiteboard`, and `Publish artifact`. When the whiteboard is focused it becomes the main drafting surface, with chat reduced to a sidebar.
-- `Vantage` panel with three docks:
-  - a primary answer dock presented as `Why This Answer`, with the inner turn panel titled `This turn`, containing an at-a-glance summary first, then a dedicated `Working Memory` narrative block, then separate `Recall` and `Learned` sections, followed by a deeper-detail group for `Memory Trace` and the collapsed-by-default `Reasoning Path`
+- Chat panel with a minimal masthead, transcript shell, chat-side draft-decision panel, and composer. The masthead keeps the brand, compact session status, and `Draft` / `Inspect` controls available while onboarding and session-mode explanation live in the first system message instead of the header.
+- Draft panel with a utility header, title deck, draft-owned decision panel, a compact latest-work-product cue, document-sheet wrapper, source editor, a conditional live-preview section for math/code-rich drafts, and a single calm action row for `Back to chat`, `Save draft`, and `Publish artifact`. When Draft is focused it becomes the main drafting surface, with chat reduced to a sidebar.
+- Inspect panel with two visible docks and one temporarily hidden Library dock:
+  - a primary answer dock presented as `What I Used`, with the inner turn panel titled `This turn`, containing an at-a-glance summary first, then a dedicated `Context in Scope` narrative block, then separate `Pulled In` and `Saved for Later` sections, followed by a `Details` group for `Memory Trace` and the collapsed-by-default `Reasoning Path`
   - the support sections inside that primary dock use calmer collapsible summary rows with counts, so recalled items, learned items, and recent continuity stay legible without reading like one long always-open stack
   - a separate Scenario Lab review dock whose summary copy now frames the mode as one coherent reasoning experience: question, recommendation, durable hub, then the related branch set
   - a Library dock with search, pinned-context controls, separate ideas/notes/work-products/references sections, and an inspector; the dock remains in the DOM for later reuse but is hidden from the current Vantage view while the product surface is being simplified
@@ -22,9 +23,9 @@ Static shell for the Vantage web app.
 
 - The frontend relies on the element ids here heavily, so structural changes should move with matching `app.js` updates.
 - The page now loads local vendored KaTeX and Highlight.js scripts before the module graph so read surfaces can render LaTeX-style math and readable fenced code without runtime CDN dependencies.
-- The `Vantage` subtitle is intentionally dynamic. It starts with guided-inspection copy and is replaced at runtime with a turn summary built from response mode, recall count, learned items, library count, and Scenario Lab state.
-- The top `Vantage` dock owns the provenance framing, while the inner panel now reads as `This turn` so the first screen does not repeat the same headline twice.
-- The answer dock now leads with `Working Memory` as a distinct explanation layer before `Recall`, so the shell can tell the user what was broadly in scope for generation without implying that every in-scope source was a recalled library item.
+- The Inspect subtitle is intentionally dynamic. It starts with guided-inspection copy and is replaced at runtime with a turn summary built from response mode, recall count, learned items, library count, and Scenario Lab state.
+- The top Inspect dock owns the provenance framing, while the inner panel now reads as `This turn` so the first screen does not repeat the same headline twice.
+- The answer dock now leads with `Context in Scope` as a distinct explanation layer before `Pulled In`, so the shell can tell the user what was broadly in scope for generation without implying that every in-scope source was a recalled library item.
 - The stylesheet query string should move when visual-system semantics change so browser cache does not hold onto stale shell styling during iterative refinement passes.
 - The stylesheet and module query strings now move together for production-facing whiteboard passes as well, because sidebar-copy and whiteboard-shell refinements can otherwise leave the browser showing fresh CSS with stale module text or vice versa.
 - The cache-busting query strings were bumped again for the material-hardening follow-up pass so the browser reliably picks up the less frosted, less pill-heavy production polish without requiring manual cache cleanup.
@@ -39,10 +40,21 @@ Static shell for the Vantage web app.
 - The cache-busting query strings were bumped again for the Library-hide follow-up, which forces Chrome to reload the updated module graph that also suppresses the Library count from the Vantage header.
 - The cache-busting query strings were bumped again for the turn-action removal pass, which removes the unclear `Next turn: remember`, `Next turn: don't save`, and `Open related now` controls from the Vantage answer dock.
 - The cache-busting query strings were bumped again for the simplified composer pass, which changes the default chat placeholder to `Ask anything.` so users do not have to mention the whiteboard explicitly.
+- The cache-busting query strings were bumped again for the Draft/Inspect copy-interaction pass, so the browser picks up the renamed surface controls, compact session status, and first-message sample-prompt hiding.
+- The cache-busting query strings were bumped again for the premium UI pass, which removes dev-version chrome from the browser title/masthead and keeps the first Inspect dock framed as answer context rather than implementation provenance.
+- The stylesheet cache-busting query string was bumped again for the chat-window pass, so the browser picks up the fixed-height shell, independent panel scrolling, and compact composer refinements.
+- The module cache-busting query string was bumped again for the multi-user pass, so the browser picks up the user-aware compact status label from `/api/health`.
+- The module cache-busting query string was bumped again for the semantic-frame pass, so the browser reliably picks up the new turn-payload normalization and compact Inspect understanding cue.
+- The module cache-busting query string was bumped again for the semantic-policy pass, so the browser reliably picks up semantic policy normalization, product copy, and Inspect next-step cues.
+- The module cache-busting query string was bumped again for the protocol-polish pass, so Inspect cards pick up protocol-specific labels and rationale copy instead of stale generic memory presentation.
+- The module and stylesheet cache-busting query strings were bumped again for the Inspect activity/protocol-editor pass, so browsers pick up the quiet activity line, Inspect buckets, protocol editor, and supporting styles together.
+- The module and stylesheet cache-busting query strings were bumped again for the protocol-editor follow-up, so browsers pick up the protocol-specific selection/opening behavior and final quiet-activity busy copy.
+- The app module cache-busting query string was bumped again for the protocol-editor lookup fix, so browsers pick up turn-scoped protocol inspection without requiring a manual hard refresh.
+- The app module cache-busting query string was bumped again for the visible protocol-editor fix, so browsers pick up the editor directly on applied protocol cards in Inspect.
 - The Scenario Lab dock is framed as a comparison-first review surface, separate from the Working Memory dock, with summary copy that keeps the comparison question, recommendation, durable hub, and related branch set legible on first read.
-- The `Reasoning Path` region is a staged clickable inspection rail rather than a raw console: Request, Route, Considered context, Recall, Working Memory, and Outcome. It sits in the later `Look deeper` group so the main turn explanation still leads.
+- The `Reasoning Path` region is a staged clickable inspection rail rather than a raw console: Request, Route, Considered context, Recall, Working Memory, and Outcome. It sits in the later `Details` group so the main turn explanation still leads.
 - Each stage card now opens turn-scoped detail inside the same dock so the user can inspect concrete candidates, recalled items, and route details without jumping into the general library inspector.
-- The answer dock now reads in a more explicit provenance order: at-a-glance summary, `Working Memory`, `Recall`, `Learned`, then deeper detail. `Memory Trace` remains separate from both `Recall` and the Library dock.
+- The answer dock now reads in a more explicit provenance order: at-a-glance summary, `Context in Scope`, `Pulled In`, `Saved for Later`, then deeper detail. `Memory Trace` remains separate from both `Pulled In` and the Library dock.
 - The `What I learned` block now includes a dedicated `Correction path` region so learned items can expose direct revise / pin actions plus honest `not direct yet` guidance without routing the user to a separate mutation surface.
 - Scenario Lab’s internal reading order now leads with the comparison question and recommendation, then the durable comparison hub, then the reopenable branches, with route/grounding support moved later as secondary inspection detail.
 - The dock shell intentionally keeps Scenario Lab out of the ordinary answer/provenance framing so it can read as a distinct reasoning mode rather than a second answer block.

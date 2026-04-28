@@ -28,6 +28,7 @@ That means:
 - Recall should stay the narrower retrieved subset that feeds Working Memory, with legacy `working_memory` retained only as a compatibility alias
 - durable writes should stay conservative
 - Workspace should be treated as a deprecated implementation term rather than the future product noun
+- broad user-intent interpretation should live in the Navigator control panel, with deterministic code validating and executing structured actions
 
 ## Rule 1: Open Is Inspect-Only By Default
 
@@ -229,6 +230,30 @@ Implementation checklist:
 - experiment inspection should not blur temporary and durable state
 - UI copy should stay clear about what is temporary and what is durable
 
+## Rule 15: Protocols Are Guidance, Not Evidence
+
+Protocols describe how Vantage should perform a recurring class of work.
+
+They can enter Working Memory through protocol interpretation or Navigator `apply_protocol` actions, including cases where semantic search would not naturally retrieve the right reasoning lens.
+
+Implementation checklist:
+
+- treat protocol items as task recipes, output-shape guidance, or user preferences
+- do not cite a protocol as a factual source claim
+- keep protocol activation LLM-directed through the protocol interpreter or Navigator control panel
+- let deterministic code validate supported protocol kinds and merge candidates safely
+
+## Rule 16: The Control Panel Is The Intent Seam
+
+The target architecture is LLM-directed interpretation followed by deterministic execution.
+
+Implementation checklist:
+
+- the Navigator should choose product actions such as `apply_protocol`, `draft_whiteboard`, `open_scenario_lab`, `save_whiteboard`, or `ask_clarification`
+- deterministic code should validate targets, enforce safety, and persist data
+- avoid adding new broad raw-text intent classifiers when the Navigator can return a structured action
+- existing deterministic helpers should be treated as transitional guardrails or safety policy, not as the long-term intent layer
+
 ## Quick Checklist For New Changes
 
 Before shipping a behavior change, check:
@@ -241,5 +266,7 @@ Before shipping a behavior change, check:
 - Does this blur concepts, memories, and artifacts?
 - Does this make Vantage feel like an operator console instead of guided inspection?
 - Does this break experiment isolation?
+- Does this add raw-text intent sorting where a Navigator control-panel action should exist?
+- Does this treat protocol guidance as factual evidence?
 
 If the answer to any of these is yes, the change likely needs another pass.

@@ -6,11 +6,14 @@ import {
   workspaceUpdateHasDraft,
 } from "./whiteboard_decisions.mjs?v=20260421-scenario-fix";
 import {
+  buildInspectBuckets,
   buildMemoryTraceSummary,
   buildChatTurnEvidence,
   buildGuidedInspectionSummary,
   buildLearnedCorrectionModel,
+  buildQuietActivityCopy,
   buildReasoningPathInspection,
+  buildSemanticPolicyCopy,
   buildTurnAtAGlanceSummary,
   describeScenarioBranchConfidence,
   describeScenarioRouteConfidence,
@@ -20,7 +23,7 @@ import {
   describeResponseModeLabel,
   deriveTurnGrounding,
   deriveWhiteboardLifecycle,
-} from "./product_identity.mjs?v=20260423-simple-composer-pass01";
+} from "./product_identity.mjs?v=20260426-protocol-editor";
 import {
   buildWorkspaceContextPayload,
   resolveWhiteboardReopenTarget,
@@ -49,13 +52,16 @@ import {
 import {
   normalizeLearnedItems,
   normalizeComparisonBranchIndex,
+  normalizeProtocolMetadata,
   normalizeRecordId,
   normalizeResponseMode,
   normalizeScenarioLabPayload,
+  normalizeSemanticFrame,
   normalizeTurnPayload,
   normalizeTurnInterpretation,
+  normalizeSemanticPolicy,
   normalizeWorkspaceUpdate,
-} from "./turn_payloads.mjs?v=20260421-scenario-fix";
+} from "./turn_payloads.mjs?v=20260426-protocol-editor";
 import {
   deriveWhiteboardPreviewState,
   renderRichText,
@@ -121,6 +127,8 @@ const workspaceUpdateLabelEl = document.getElementById("workspaceUpdateLabel");
 const workspaceUpdateSummaryEl = document.getElementById("workspaceUpdateSummary");
 const workspaceUpdateActionsEl = document.getElementById("workspaceUpdateActions");
 const scenarioLabSectionEl = document.getElementById("scenarioLabSection");
+const quietActivityLineEl = document.getElementById("quietActivityLine");
+const turnInspectBucketsEl = document.getElementById("turnInspectBuckets");
 const turnWorkingMemoryListEl = document.getElementById("turnWorkingMemoryList");
 const turnTraceListEl = document.getElementById("turnTraceList");
 const turnLearnedListEl = document.getElementById("turnLearnedList");
@@ -156,6 +164,12 @@ const artifactListEl = document.getElementById("artifactList");
 const vaultNoteListEl = document.getElementById("vaultNoteList");
 const conceptInspectorEl = document.getElementById("conceptInspector");
 const noticeRailEl = document.getElementById("noticeRail");
+const confirmOverlayEl = document.getElementById("confirmOverlay");
+const confirmEyebrowEl = document.getElementById("confirmEyebrow");
+const confirmTitleEl = document.getElementById("confirmTitle");
+const confirmMessageEl = document.getElementById("confirmMessage");
+const confirmCancelButtonEl = document.getElementById("confirmCancelButton");
+const confirmAcceptButtonEl = document.getElementById("confirmAcceptButton");
 const messageTemplate = document.getElementById("messageTemplate");
 
 const samplePrompt = "A small team is preparing to launch a new software product with limited time and budget. Create three scenario branches: conservative rollout, focused MVP launch, and aggressive feature launch. Compare tradeoffs, risks, and next steps, then recommend one.";
@@ -164,6 +178,13 @@ const TURN_SNAPSHOT_VERSION = 7;
 const COMPOSER_WHITEBOARD_MODES = new Set(["auto", "offer"]);
 
 let hasLoadedHealth = false;
+
+function hasRealUserMessage() {
+  if (state.history.some((turn) => String(turn?.user_message || "").trim())) {
+    return true;
+  }
+  return Boolean(transcriptEl?.querySelector(".message.user"));
+}
 
 function createEmptyLearnedCorrectionState() {
   return {
@@ -177,6 +198,9 @@ const state = {
   busy: false,
   mode: "fallback",
   nexusEnabled: false,
+  user: {
+    id: "",
+  },
   experiment: {
     active: false,
     sessionId: "",
@@ -222,16 +246,19 @@ const state = {
   notice: null,
   noticeCounter: 0,
   noticeTimeoutId: null,
+  confirmation: {
+    resolve: null,
+  },
   workspace: {
     workspaceId: "",
     scope: "durable",
-    title: "Whiteboard",
+    title: "Draft",
     content: "",
     savedContent: "",
     dirty: false,
     pinnedToChat: false,
     lifecycle: "ready",
-    note: "Whiteboard ready as a separate drafting surface.",
+    note: "Draft ready as a separate drafting surface.",
     latestArtifact: null,
   },
   bootRestore: {
@@ -259,6 +286,10 @@ const state = {
     metaAction: null,
     graphAction: null,
     scenarioLab: null,
+    semanticFrame: null,
+    semanticPolicy: null,
+    systemState: null,
+    activity: [],
     interpretation: null,
   },
 };
@@ -284,6 +315,10 @@ function createIdleTurnState() {
     graphAction: null,
     scenarioLab: null,
     scenarioBranchInspectionWorkspaceId: "",
+    semanticFrame: null,
+    semanticPolicy: null,
+    systemState: null,
+    activity: [],
     interpretation: null,
   };
 }
@@ -474,6 +509,10 @@ function restoreTurnSnapshot() {
       metaAction: snapshot.turn?.metaAction || null,
       graphAction: snapshot.turn?.graphAction || null,
       scenarioLab: snapshot.turn?.scenarioLab || null,
+      semanticFrame: normalizeSemanticFrame(snapshot.turn?.semanticFrame || null),
+      semanticPolicy: normalizeSemanticPolicy(snapshot.turn?.semanticPolicy || null, normalizeSemanticFrame(snapshot.turn?.semanticFrame || null)),
+      systemState: snapshot.turn?.systemState || null,
+      activity: Array.isArray(snapshot.turn?.activity) ? snapshot.turn.activity : [],
       scenarioBranchInspectionWorkspaceId: restoredFromScopeScopedKey
         ? ""
         : snapshot.turn?.scenarioBranchInspectionWorkspaceId || "",
@@ -581,6 +620,20 @@ experimentToggleButtonEl.addEventListener("click", async () => {
   await startExperiment();
 });
 
+confirmCancelButtonEl?.addEventListener("click", () => {
+  resolveConfirmation(false);
+});
+
+confirmAcceptButtonEl?.addEventListener("click", () => {
+  resolveConfirmation(true);
+});
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && confirmOverlayEl && !confirmOverlayEl.hidden) {
+    resolveConfirmation(false);
+  }
+});
+
 composerEl.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = messageInputEl.value.trim();
@@ -670,7 +723,7 @@ function buildDefaultSystemMessage() {
     : "You're currently in durable mode, so saved memories and work products can stay in your library.";
   return [
     "Hi, I'm Vantage.",
-    "I help manage context so our work stays inspectable and reusable. Chat with me naturally, open Vantage when you want to see what shaped an answer, move drafts into the whiteboard, save or publish useful work products, and ask me to use Scenario Lab when you want to compare branches or explore tradeoffs.",
+    "I help manage context so our work stays inspectable and reusable. Chat with me naturally, open Inspect when you want to see what shaped an answer, move work into Draft, save or publish useful work products, and ask me to use Scenario Lab when you want to compare branches or explore tradeoffs.",
     experimentLine,
     "Let me know if you have any questions about how the system works. Otherwise, let's get going.",
   ].join("\n\n");
@@ -698,6 +751,7 @@ async function loadHealth() {
     const { payload } = await fetchJson("/api/health");
     state.mode = payload?.mode === "openai" ? "openai" : "fallback";
     state.nexusEnabled = payload?.nexus_enabled === true;
+    state.user.id = payload?.user?.id || "";
     state.experiment.active = payload?.experiment?.active === true;
     state.experiment.sessionId = payload?.experiment?.session_id || "";
     state.experiment.savedNoteCount = payload?.experiment?.saved_note_count || 0;
@@ -781,13 +835,13 @@ async function loadWorkspace({ preserveDirty = false } = {}) {
     state.workspace.note = applied
       ? payload?.scope === "experiment"
         ? "Temporary experiment whiteboard loaded."
-        : "Whiteboard loaded from disk."
+        : "Draft loaded from disk."
       : "Kept the unsaved whiteboard draft in place instead of replacing it with the last saved whiteboard.";
     persistTurnSnapshot();
   } catch (error) {
-    state.workspace.note = error instanceof Error ? error.message : "Whiteboard unavailable.";
+    state.workspace.note = error instanceof Error ? error.message : "Draft unavailable.";
     workspaceMetaEl.textContent = state.workspace.note;
-    pushNotice("Whiteboard unavailable", state.workspace.note, "warning");
+    pushNotice("Draft unavailable", state.workspace.note, "warning");
   } finally {
     if (bootRestore) {
       state.bootRestore = {
@@ -850,18 +904,22 @@ async function endExperiment() {
   if (!state.experiment.active) {
     await loadWorkspace();
     pushNotice("No experiment active", "You are already in durable mode.", "info");
-    return;
+    return { ended: false, alreadyDurable: true };
   }
-  const confirmed = window.confirm(
-    "End experiment mode and return to durable mode? Temporary notes from this experiment will be discarded. Saved or published durable work products will remain available.",
-  );
+  const confirmed = await showConfirmationDialog({
+    eyebrow: "Experiment mode",
+    title: "End experiment mode?",
+    message: "Temporary notes from this experiment will be discarded. Saved or published durable work products will remain available.",
+    confirmLabel: "End experiment",
+    cancelLabel: "Keep experiment",
+  });
   if (!confirmed) {
     pushNotice("Experiment kept", "Experiment mode is still active.", "info");
-    return;
+    return { ended: false, cancelled: true };
   }
   const canProceed = await confirmExperimentTransition("end the experiment");
   if (!canProceed) {
-    return;
+    return { ended: false, blocked: true };
   }
   setBusy(true);
   try {
@@ -872,21 +930,25 @@ async function endExperiment() {
     await refreshRuntimeStatus({ refreshCatalog: true });
     renderExperimentStatus({ nexusEnabled: state.nexusEnabled });
     pushNotice("Experiment ended", "Temporary notes were discarded and the app returned to durable mode.", "success");
+    return { ended: true };
   } catch (error) {
-    pushNotice("Could not end experiment", error instanceof Error ? error.message : String(error), "warning");
+    const message = error instanceof Error ? error.message : String(error);
+    pushNotice("Could not end experiment", message, "warning");
+    return { ended: false, error: message };
   } finally {
     setBusy(false);
   }
 }
 
 function renderExperimentStatus({ nexusEnabled } = { nexusEnabled: false }) {
+  const userPrefix = state.user.id ? `${state.user.id} · ` : "";
   if (state.mode === "offline") {
     statusPillEl.textContent = "Offline";
   } else if (state.experiment.active) {
-    statusPillEl.textContent = "Experiment mode";
+    statusPillEl.textContent = `${userPrefix}Experiment mode`;
     experimentBadgeEl.textContent = `Experiment mode. Temporary notes stay in this session${state.experiment.savedNoteCount ? ` • ${state.experiment.savedNoteCount} temporary notes` : ""}.`;
   } else {
-    statusPillEl.textContent = state.mode === "offline" ? "Offline" : "Connected";
+    statusPillEl.textContent = state.mode === "offline" ? "Offline" : `${userPrefix}Durable session`;
     experimentBadgeEl.textContent = "Durable by default. Use an experiment for temporary notes.";
   }
   experimentToggleButtonEl.disabled = state.busy;
@@ -947,7 +1009,7 @@ function renderViewState() {
   whiteboardToggleButtonEl.setAttribute("aria-pressed", whiteboardActive.toString());
   whiteboardToggleButtonEl.textContent = whiteboardButtonLabel(surface);
 
-  closeVantageButtonEl.textContent = surface.returnSurface === "whiteboard" ? "Back to whiteboard" : "Back to chat";
+  closeVantageButtonEl.textContent = surface.returnSurface === "whiteboard" ? "Back to draft" : "Back to chat";
   closeVantageButtonEl.disabled = state.busy;
   whiteboardToggleButtonEl.disabled = state.busy;
   hideWhiteboardButtonEl.disabled = state.busy;
@@ -1037,11 +1099,11 @@ function renderChatSurfaceCopy() {
       ? "Ask about this draft..."
       : "Ask anything.";
   }
-  seedPromptEl.hidden = whiteboardFocused;
+  seedPromptEl.hidden = whiteboardFocused || hasRealUserMessage();
   experimentToggleButtonEl.hidden = true;
   whiteboardToggleButtonEl.hidden = whiteboardFocused;
-  statusPillEl.hidden = true;
-  vantageToggleButtonEl.textContent = whiteboardFocused ? "Vantage" : vantageButtonLabel(surface);
+  statusPillEl.hidden = false;
+  vantageToggleButtonEl.textContent = whiteboardFocused ? "Inspect" : vantageButtonLabel(surface);
 }
 
 function whiteboardButtonLabel(surface) {
@@ -1053,24 +1115,24 @@ function whiteboardButtonLabel(surface) {
     normalized.current === "vantage"
     && normalized.returnSurface === "whiteboard"
   ) {
-    return "Back to whiteboard";
+    return "Back to draft";
   }
   const workspaceUpdate = state.turn.workspaceUpdate;
   if (workspaceUpdate?.status === "draft_ready") {
     return "Review draft";
   }
   if (workspaceUpdate?.status === "offered") {
-    return workspaceUpdateHasDraft(workspaceUpdate) ? "Review draft" : "Open whiteboard";
+    return workspaceUpdateHasDraft(workspaceUpdate) ? "Review draft" : "Open draft";
   }
-  return "Whiteboard";
+  return "Draft";
 }
 
 function vantageButtonLabel(surface) {
   const normalized = normalizeSurfaceState(surface);
   if (normalized.current !== "vantage") {
-    return "Vantage";
+    return "Inspect";
   }
-  return normalized.returnSurface === "whiteboard" ? "Back to whiteboard" : "Close Vantage";
+  return normalized.returnSurface === "whiteboard" ? "Back to draft" : "Close Inspect";
 }
 
 async function confirmExperimentTransition(actionLabel) {
@@ -1080,10 +1142,57 @@ async function confirmExperimentTransition(actionLabel) {
   pushNotice("Saving whiteboard", `Saving the current whiteboard before you ${actionLabel}.`, "info");
   await saveWorkspace();
   if (state.workspace.dirty) {
-    pushNotice("Whiteboard still unsaved", `The whiteboard could not be saved, so ${actionLabel} was cancelled.`, "warning");
+    pushNotice("Draft still unsaved", `The draft could not be saved, so ${actionLabel} was cancelled.`, "warning");
     return false;
   }
   return true;
+}
+
+function showConfirmationDialog({
+  eyebrow = "Confirm",
+  title = "Confirm action",
+  message = "This action needs confirmation.",
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+} = {}) {
+  if (
+    !confirmOverlayEl
+    || !confirmEyebrowEl
+    || !confirmTitleEl
+    || !confirmMessageEl
+    || !confirmCancelButtonEl
+    || !confirmAcceptButtonEl
+  ) {
+    return Promise.resolve(false);
+  }
+
+  if (state.confirmation.resolve) {
+    resolveConfirmation(false);
+  }
+
+  confirmEyebrowEl.textContent = eyebrow;
+  confirmTitleEl.textContent = title;
+  confirmMessageEl.textContent = message;
+  confirmCancelButtonEl.textContent = cancelLabel;
+  confirmAcceptButtonEl.textContent = confirmLabel;
+  confirmOverlayEl.hidden = false;
+
+  return new Promise((resolve) => {
+    state.confirmation.resolve = resolve;
+    window.requestAnimationFrame(() => confirmCancelButtonEl.focus());
+  });
+}
+
+function resolveConfirmation(value) {
+  const resolve = state.confirmation.resolve;
+  if (!resolve) {
+    return;
+  }
+  state.confirmation.resolve = null;
+  if (confirmOverlayEl) {
+    confirmOverlayEl.hidden = true;
+  }
+  resolve(value);
 }
 
 function normalizeWorkspaceContinuityContent(value) {
@@ -1115,7 +1224,7 @@ function applyWorkspacePayload(payload, { preserveDirty = false } = {}) {
     && nextWorkspaceContent === currentWorkspaceContent;
   state.workspace.workspaceId = payload?.workspace_id || "";
   state.workspace.scope = payload?.scope || state.workspace.scope || "durable";
-  state.workspace.title = payload?.title || "Whiteboard";
+  state.workspace.title = payload?.title || "Draft";
   state.workspace.content = payload?.content || "";
   state.workspace.savedContent = state.workspace.content;
   state.workspace.dirty = false;
@@ -1252,7 +1361,7 @@ async function handleLocalExperimentModeMessage(message) {
       user_message: message,
       assistant_message: response,
     });
-    state.turn = createIdleTurnState();
+    state.turn = createLocalExperimentTurnState({ message, response });
     renderTurnPanel();
     return true;
   }
@@ -1264,23 +1373,75 @@ async function handleLocalExperimentModeMessage(message) {
       user_message: message,
       assistant_message: response,
     });
-    state.turn = createIdleTurnState();
+    state.turn = createLocalExperimentTurnState({ message, response });
     renderTurnPanel();
     return true;
   }
 
-  await endExperiment();
-  const response = state.experiment.active
-    ? "Experiment mode is still active."
-    : "You're now back in durable mode. Temporary notes from the experiment were discarded.";
+  const outcome = await endExperiment();
+  const response = experimentEndChatResponse(outcome);
   addMessage("assistant", response);
   state.history.push({
     user_message: message,
     assistant_message: response,
   });
-  state.turn = createIdleTurnState();
+  state.turn = createLocalExperimentTurnState({ message, response });
   renderTurnPanel();
   return true;
+}
+
+function createLocalExperimentTurnState({ message = "", response = "" } = {}) {
+  return {
+    ...createIdleTurnState(),
+    userMessage: message,
+    assistantMessage: response,
+    mode: "local_action",
+    semanticFrame: {
+      userGoal: "Manage the current experiment session.",
+      taskType: "experiment_management",
+      followUpType: "new_request",
+      targetSurface: "experiment",
+      referencedObject: null,
+      confidence: 0.92,
+      needsClarification: false,
+      clarificationPrompt: null,
+      signals: { local_handler: true },
+      commitments: ["Keep experiment-mode behavior explicit."],
+    },
+    semanticPolicy: {
+      semanticAction: "experiment_manage",
+      actionLabel: "Manage experiment",
+      needsClarification: false,
+      clarificationPrompt: null,
+      clarificationOptions: [],
+      status: "ready",
+      reason: "Handled locally so experiment mode stays understandable.",
+      confidence: 0.92,
+      blocking: false,
+      signals: { local_handler: true },
+    },
+  };
+}
+
+function experimentEndChatResponse(outcome = {}) {
+  if (outcome.ended) {
+    return "You're now back in durable mode. Temporary notes from the experiment were discarded.";
+  }
+  if (outcome.alreadyDurable) {
+    return "You're already in durable mode. There isn't an active experiment to end.";
+  }
+  if (outcome.cancelled) {
+    return "I didn't end experiment mode because the confirmation was cancelled. Experiment mode is still active.";
+  }
+  if (outcome.blocked) {
+    return "I didn't end experiment mode because the current whiteboard could not be saved first. Experiment mode is still active.";
+  }
+  if (outcome.error) {
+    return `I couldn't end experiment mode: ${outcome.error}`;
+  }
+  return state.experiment.active
+    ? "I didn't end experiment mode. Experiment mode is still active."
+    : "You're now back in durable mode. Temporary notes from the experiment were discarded.";
 }
 
 function normalizeUserText(value) {
@@ -1433,6 +1594,10 @@ function applyChatPayload(payload) {
     metaAction: payload.meta_action || null,
     graphAction: payload.graph_action || null,
     scenarioLab: normalizedTurnPayload.scenarioLab,
+    semanticFrame: normalizedTurnPayload.semanticFrame,
+    semanticPolicy: normalizedTurnPayload.semanticPolicy,
+    systemState: normalizedTurnPayload.systemState,
+    activity: normalizedTurnPayload.activity,
     scenarioBranchInspectionWorkspaceId: "",
     interpretation: normalizeTurnInterpretation(payload.turn_interpretation),
   };
@@ -1514,7 +1679,7 @@ function absorbGraphNotices(payload) {
     const errorMessage = payload.scenario_lab?.error?.message || "Scenario Lab could not complete this turn.";
     notices.push({
       title: "Scenario Lab fallback",
-      message: `${errorMessage} Vantage answered in chat instead.`,
+      message: `${errorMessage} The answer stayed in chat instead.`,
       tone: "warning",
     });
   }
@@ -1586,7 +1751,7 @@ async function saveWorkspace() {
     workspaceTitleEl.textContent = state.workspace.title;
     persistTurnSnapshot();
     renderWorkspaceMeta();
-    pushNotice("Whiteboard saved", `${state.workspace.title} was written to disk.`, "success");
+    pushNotice("Draft saved", `${state.workspace.title} was written to disk.`, "success");
     if (payload?.artifact_snapshot) {
       const snapshot = state.workspace.latestArtifact;
       if (snapshot.id) {
@@ -1692,7 +1857,7 @@ async function handleWhiteboardDecisionAction(actionId) {
     if (actionId === "cancel_decision") {
       clearWhiteboardDecision({
         notice: {
-          title: "Whiteboard unchanged",
+          title: "Draft unchanged",
           message: "The current whiteboard was kept as-is.",
           tone: "info",
         },
@@ -1739,7 +1904,7 @@ async function handleWhiteboardDecisionAction(actionId) {
   }
   if (actionId === "keep_current") {
     dismissWorkspaceUpdate("kept_current", {
-      title: "Whiteboard unchanged",
+      title: "Draft unchanged",
       message: "The pending draft was left in review and the current whiteboard was kept as-is.",
       tone: "info",
     });
@@ -1788,7 +1953,7 @@ async function performOpenConceptIntoWorkspace(conceptId) {
         markDirty: false,
       });
       persistTurnSnapshot();
-      pushNotice("Whiteboard opened", `${concept.title} was loaded into the whiteboard.`, "success");
+      pushNotice("Draft opened", `${concept.title} was loaded into the draft surface.`, "success");
       clearWhiteboardDecision();
       revealWhiteboard();
       return "opened";
@@ -1800,7 +1965,7 @@ async function performOpenConceptIntoWorkspace(conceptId) {
       markDirty: true,
     });
     persistTurnSnapshot();
-    pushNotice("Whiteboard opened", `${concept.title} is now in the whiteboard as a draft.`, "success");
+    pushNotice("Draft opened", `${concept.title} is now in the draft surface.`, "success");
     clearWhiteboardDecision();
     revealWhiteboard();
     return "opened";
@@ -1814,7 +1979,7 @@ async function performOpenConceptIntoWorkspace(conceptId) {
 
 async function openWorkspace(workspaceId) {
   if (!workspaceId) {
-    pushNotice("Whiteboard unavailable", "That scenario branch does not have a whiteboard id.", "warning");
+    pushNotice("Draft unavailable", "That scenario branch does not have a draft id.", "warning");
     return;
   }
   if (state.workspace.dirty) {
@@ -1843,7 +2008,7 @@ async function performOpenWorkspace(workspaceId) {
     state.workspace.note = `Opened from saved branch ${payload?.title || workspaceId}.`;
     persistTurnSnapshot();
     renderWorkspaceMeta();
-    pushNotice("Whiteboard opened", `${payload?.title || workspaceId} is now the active whiteboard.`, "success");
+    pushNotice("Draft opened", `${payload?.title || workspaceId} is now the active draft.`, "success");
     clearWhiteboardDecision();
     revealWhiteboard();
   } catch (error) {
@@ -1867,7 +2032,7 @@ function applyWorkspaceDraft(content, title, { note, markDirty }) {
 }
 
 function startFreshWorkspaceDraft(content, title, { note, markDirty = true } = {}) {
-  const nextTitle = title || inferWorkspaceTitle(content) || "Whiteboard Draft";
+  const nextTitle = title || inferWorkspaceTitle(content) || "Draft";
   const nextWorkspaceId = slugify(nextTitle || "whiteboard-draft");
   state.workspace.workspaceId = nextWorkspaceId;
   state.workspace.title = nextTitle;
@@ -1896,7 +2061,7 @@ function prepareWorkspaceForWhiteboardOffer() {
     return;
   }
   state.workspace.workspaceId = "";
-  state.workspace.title = "Whiteboard";
+  state.workspace.title = "Draft";
   state.workspace.content = "";
   state.workspace.savedContent = "";
   state.workspace.dirty = false;
@@ -2042,7 +2207,7 @@ async function acceptPendingWorkspaceOffer() {
     absorbGraphNotices(payload || {});
   } catch (error) {
     addMessage("system", error instanceof Error ? error.message : String(error));
-    pushNotice("Whiteboard accept failed", error instanceof Error ? error.message : String(error), "warning");
+    pushNotice("Draft accept failed", error instanceof Error ? error.message : String(error), "warning");
   } finally {
     setBusy(false);
   }
@@ -2092,7 +2257,7 @@ function autoApplyWorkspaceDraft(workspaceUpdate) {
     ...workspaceUpdate,
     decision: "applied",
   };
-  pushNotice("Whiteboard drafted", "The draft is ready in the whiteboard for editing.", "success");
+  pushNotice("Draft ready", "The draft is ready for editing.", "success");
   return true;
 }
 
@@ -2167,7 +2332,7 @@ function renderWorkspaceArtifactCue() {
     latestArtifact.card || "",
     state.workspace.dirty
       ? "You have unsaved changes since this saved version."
-      : "Inspect it in Vantage or reopen it here when you want to continue from the saved version.",
+      : "Inspect it or reopen it here when you want to continue from the saved version.",
   ].filter(Boolean).join(" • ");
 
   const inspectButton = createActionButton("Inspect work product", "secondary");
@@ -2225,6 +2390,9 @@ function renderTurnPanel() {
   });
   const workspaceUpdate = state.turn.workspaceUpdate;
   const interpretation = state.turn.interpretation;
+  const semanticFrame = state.turn.semanticFrame;
+  const semanticPolicy = state.turn.semanticPolicy;
+  const semanticPolicyCopy = buildSemanticPolicyCopy({ semanticPolicy, semanticFrame });
   const reasoningPath = buildReasoningPathInspection({
     userMessage: state.turn.userMessage,
     interpretation,
@@ -2254,7 +2422,9 @@ function renderTurnPanel() {
   answerDockLabelEl.textContent = groundingCopy.answerDockLabel;
   turnIntentEl.textContent = groundingCopy.turnIntentLabel;
 
-  turnNoticeEl.textContent = buildTurnAtAGlanceSummary({
+  turnNoticeEl.textContent = semanticPolicy?.needsClarification
+    ? semanticPolicyCopy.clarificationLabel
+    : buildTurnAtAGlanceSummary({
     recallCount,
     groundingLabel: groundingCopy.groundingLabel,
     hasGroundedContext,
@@ -2266,7 +2436,9 @@ function renderTurnPanel() {
     graphActionSummary: learnedCount ? "" : describeGraphAction(state.turn.graphAction),
   });
 
-  renderTurnSummaryFacts({ grounding, scenarioLab, scenarioLabFailed });
+  renderTurnSummaryFacts({ grounding, scenarioLab, scenarioLabFailed, semanticFrame, semanticPolicy, semanticPolicyCopy });
+  renderInspectBuckets({ grounding, interpretation, workspaceUpdate });
+  renderQuietActivityLine({ grounding, scenarioLab, workspaceUpdate, semanticFrame, semanticPolicy });
   renderWorkingMemoryPanel({
     grounding,
     interpretation,
@@ -2279,7 +2451,7 @@ function renderTurnPanel() {
     // Legacy name: `turnWorkingMemory` still holds the recalled subset only.
     state.turnWorkingMemory,
     "turn",
-    "Nothing entered Recall for this turn.",
+    "Nothing was pulled in for this turn.",
   );
   renderMemoryGroup(
     turnLearnedListEl,
@@ -2299,6 +2471,27 @@ function renderTurnPanel() {
   renderWhiteboardDecisionPanel();
   renderScenarioLabPanel(scenarioLab);
   renderSurfaceStatus();
+}
+
+function renderQuietActivityLine({
+  grounding = null,
+  scenarioLab = null,
+  workspaceUpdate = null,
+  semanticFrame = null,
+  semanticPolicy = null,
+} = {}) {
+  if (!quietActivityLineEl) {
+    return;
+  }
+  quietActivityLineEl.textContent = buildQuietActivityCopy({
+    activity: state.turn.activity,
+    semanticFrame,
+    semanticPolicy,
+    scenarioLab,
+    workspaceUpdate,
+    grounding,
+    busy: state.busy,
+  });
 }
 
 function updateTurnSupportHierarchy({
@@ -2340,6 +2533,9 @@ function renderTurnSummaryFacts({
   grounding,
   scenarioLab,
   scenarioLabFailed,
+  semanticFrame = null,
+  semanticPolicy = null,
+  semanticPolicyCopy = null,
 } = {}) {
   if (!turnSummaryFactsEl) {
     return;
@@ -2353,20 +2549,34 @@ function renderTurnSummaryFacts({
     ? Number(grounding.learnedCount)
     : 0;
   const groundingLabel = String(grounding?.groundingLabel || "").trim() || "Idle";
+  if (semanticFrame?.userGoal) {
+    turnSummaryFactsEl.append(
+      createMiniMeta("Understood As", semanticFrame.userGoal),
+    );
+  }
+  if (semanticPolicy?.needsClarification) {
+    turnSummaryFactsEl.append(
+      createMiniMeta("Needs", "Clarification"),
+    );
+  } else if (semanticPolicyCopy?.actionLabel && semanticPolicyCopy.actionLabel !== "Answer directly") {
+    turnSummaryFactsEl.append(
+      createMiniMeta("Next Step", semanticPolicyCopy.actionLabel),
+    );
+  }
 
   if (recallCount > 0) {
     turnSummaryFactsEl.append(
-      createMiniMeta("Recall", `${recallCount} item${recallCount === 1 ? "" : "s"}`),
+      createMiniMeta("Pulled In", `${recallCount} item${recallCount === 1 ? "" : "s"}`),
     );
   }
   if (grounding?.hasBroaderGrounding || grounding?.hasGroundedContext || grounding?.isBestGuess) {
     turnSummaryFactsEl.append(
-      createMiniMeta("Working Memory", groundingLabel),
+      createMiniMeta("Context in Scope", groundingLabel),
     );
   }
   if (learnedCount > 0) {
     turnSummaryFactsEl.append(
-      createMiniMeta("Learned", `${learnedCount} item${learnedCount === 1 ? "" : "s"}`),
+      createMiniMeta("Saved for Later", `${learnedCount} item${learnedCount === 1 ? "" : "s"}`),
     );
   }
   if (scenarioLab) {
@@ -2387,6 +2597,95 @@ function renderTurnSummaryFacts({
       createMiniMeta("Status", "Idle"),
     );
   }
+}
+
+function renderInspectBuckets({
+  grounding = null,
+  interpretation = null,
+  workspaceUpdate = null,
+} = {}) {
+  if (!turnInspectBucketsEl) {
+    return;
+  }
+  turnInspectBucketsEl.innerHTML = "";
+  const traceItems = [
+    ...(state.turnMemoryTraceRecord?.id ? [state.turnMemoryTraceRecord] : []),
+    ...state.turnTraceNotes,
+  ];
+  const draftItems = buildDraftInspectItems({
+    grounding,
+    interpretation,
+    workspaceUpdate,
+  });
+  const buckets = buildInspectBuckets({
+    usedItems: state.turnWorkingMemory,
+    recentItems: traceItems,
+    draftItems,
+  });
+  for (const bucket of buckets) {
+    turnInspectBucketsEl.append(createInspectBucket(bucket));
+  }
+}
+
+function createInspectBucket(bucket) {
+  const article = document.createElement("article");
+  article.className = `inspect-bucket inspect-bucket--${bucket.key}`;
+
+  const top = document.createElement("div");
+  top.className = "inspect-bucket__top";
+  const label = document.createElement("div");
+  label.className = "section-label section-label--subtle";
+  label.textContent = bucket.label;
+  const count = document.createElement("span");
+  count.className = "inspect-bucket__count";
+  count.textContent = String(bucket.count || 0);
+  top.append(label, count);
+
+  const summary = document.createElement("p");
+  summary.className = "inspect-bucket__summary";
+  summary.textContent = bucket.summary || bucket.emptyMessage || "";
+
+  article.append(top, summary);
+  const firstItem = Array.isArray(bucket.items) ? bucket.items[0] : null;
+  if (firstItem?.title || firstItem?.label) {
+    const sample = document.createElement("p");
+    sample.className = "inspect-bucket__sample";
+    sample.textContent = firstItem.title || firstItem.label;
+    article.append(sample);
+  }
+  return article;
+}
+
+function buildDraftInspectItems({
+  grounding = null,
+  interpretation = null,
+  workspaceUpdate = null,
+} = {}) {
+  const items = [];
+  const sourceLabels = workingMemorySourceLabels(grounding);
+  const workspaceScope = humanizeWorkingMemoryScope(state.turn.workspaceContextScope);
+  if (sourceLabels.includes("Draft")) {
+    items.push({
+      id: "draft-scope",
+      title: workspaceScope ? `Draft scope: ${workspaceScope}` : "Draft in scope",
+      label: "Draft in scope",
+    });
+  }
+  if (workspaceUpdate?.status) {
+    items.push({
+      id: `workspace-update-${workspaceUpdate.status}`,
+      title: workspaceUpdate.title || workspaceUpdate.summary || "Draft update",
+      label: workspaceUpdate.status.replace(/_/g, " "),
+    });
+  }
+  if (interpretation?.resolvedWhiteboardMode && interpretation.resolvedWhiteboardMode !== "chat") {
+    items.push({
+      id: `draft-route-${interpretation.resolvedWhiteboardMode}`,
+      title: humanizeInterpretationWhiteboardMode(interpretation.resolvedWhiteboardMode),
+      label: "Draft route",
+    });
+  }
+  return items;
 }
 
 function renderWorkingMemoryPanel({
@@ -2424,16 +2723,16 @@ function renderWorkingMemoryPanel({
 
   turnWorkingMemoryFactsEl.append(
     createMiniMeta("In scope", inScopeLabel),
-    createMiniMeta("Recall", recallCount > 0 ? `${recallCount} item${recallCount === 1 ? "" : "s"} surfaced` : "None surfaced"),
+    createMiniMeta("Pulled In", recallCount > 0 ? `${recallCount} item${recallCount === 1 ? "" : "s"} surfaced` : "None surfaced"),
   );
   if (sourceLabels.length) {
     turnWorkingMemoryFactsEl.append(
       createMiniMeta("Broader context", sourceLabels.join(", ")),
     );
   }
-  if (whiteboardScopeLabel && sourceLabels.includes("Whiteboard")) {
+  if (whiteboardScopeLabel && sourceLabels.includes("Draft")) {
     turnWorkingMemoryFactsEl.append(
-      createMiniMeta("Whiteboard scope", whiteboardScopeLabel),
+      createMiniMeta("Draft scope", whiteboardScopeLabel),
     );
   }
   if (keptInScope === true) {
@@ -2462,34 +2761,34 @@ function buildWorkingMemoryNotice({
   const pieces = [];
 
   if (grounding?.isBestGuess) {
-    pieces.push("Working Memory stayed minimal for this turn.");
-    pieces.push("The answer was generated from the current request only, without surfaced Recall or broader grounded context.");
+    pieces.push("Context in scope stayed minimal for this turn.");
+    pieces.push("The answer was generated from the current request only, without pulled-in items or broader grounded context.");
   } else {
     const included = [];
     if (recallCount > 0) {
-      included.push("Recall");
+      included.push("Pulled In");
     }
     included.push(...sourceLabels);
     if (recallCount > 0 && sourceLabels.length) {
-      pieces.push(`Working Memory combined ${joinReadableList(included)} for generation.`);
-      pieces.push("The recalled items below are only the retrieved subset that surfaced into this turn.");
+      pieces.push(`Context in scope combined ${joinReadableList(included)} for generation.`);
+      pieces.push("The pulled-in items below are only the retrieved subset that surfaced into this turn.");
     } else if (recallCount > 0) {
-      pieces.push("Working Memory for this answer came from Recall.");
-      pieces.push("The recalled items below are the retrieved subset that surfaced into this turn.");
+      pieces.push("Context in scope for this answer came from pulled-in items.");
+      pieces.push("The pulled-in items below are the retrieved subset that surfaced into this turn.");
     } else if (sourceLabels.length) {
-      pieces.push(`Working Memory came from ${joinReadableList(sourceLabels)}.`);
-      pieces.push("No separate Recall items surfaced for this turn.");
+      pieces.push(`Context in scope came from ${joinReadableList(sourceLabels)}.`);
+      pieces.push("No separate pulled-in items surfaced for this turn.");
     } else if (grounding?.hasGroundedContext && grounding?.groundingLabel && grounding.groundingLabel !== "Idle") {
-      pieces.push(`Working Memory stayed grounded in ${grounding.groundingLabel}.`);
-      pieces.push("The turn payload did not expose a more detailed Working Memory source mix.");
+      pieces.push(`Context in scope stayed grounded in ${grounding.groundingLabel}.`);
+      pieces.push("The turn payload did not expose a more detailed context source mix.");
     } else {
-      pieces.push("Working Memory held the current request only.");
+      pieces.push("Context in scope held the current request only.");
       pieces.push("No additional context was in scope for generation.");
     }
   }
 
-  if (whiteboardScopeLabel && sourceLabels.includes("Whiteboard")) {
-    pieces.push(`Whiteboard scope was ${whiteboardScopeLabel.toLowerCase()}.`);
+  if (whiteboardScopeLabel && sourceLabels.includes("Draft")) {
+    pieces.push(`Draft scope was ${whiteboardScopeLabel.toLowerCase()}.`);
   }
   if (keptInScope === true) {
     pieces.push("Pinned context stayed in scope for this turn.");
@@ -2506,7 +2805,7 @@ function buildWorkingMemorySummaryMeta({
   const sourceLabels = workingMemorySourceLabels(grounding);
   const parts = [];
   if (recallCount > 0) {
-    parts.push("Recall");
+    parts.push("Pulled In");
   }
   parts.push(...sourceLabels);
   if (parts.length) {
@@ -2547,11 +2846,11 @@ function normalizeWorkingMemorySource(source) {
 function describeWorkingMemorySource(source) {
   switch (normalizeWorkingMemorySource(source)) {
     case "whiteboard":
-      return "Whiteboard";
+      return "Draft";
     case "recent_chat":
       return "Recent Chat";
     case "pending_whiteboard":
-      return "Prior Whiteboard";
+      return "Prior Draft";
     default:
       return "";
   }
@@ -2599,7 +2898,7 @@ function renderReasoningPathPanel(reasoningPath, interpretation, { hidden = fals
   }
 
   turnReasoningPathSummaryEl.textContent = reasoningPath.summary
-    || "Vantage assembled a compact path for this turn.";
+    || "Inspect assembled a compact path for this turn.";
   if (turnReasoningPathStateEl) {
     turnReasoningPathStateEl.textContent = state.turnReasoningPathExpanded ? "Expanded" : "Collapsed";
   }
@@ -2610,7 +2909,7 @@ function renderReasoningPathPanel(reasoningPath, interpretation, { hidden = fals
   );
   if (interpretation?.resolvedWhiteboardMode) {
     turnReasoningPathMetaEl.append(
-      createMiniMeta("Whiteboard", humanizeInterpretationWhiteboardMode(interpretation.resolvedWhiteboardMode)),
+      createMiniMeta("Draft", humanizeInterpretationWhiteboardMode(interpretation.resolvedWhiteboardMode)),
     );
   }
   if (typeof interpretation?.confidence === "number" && Number.isFinite(interpretation.confidence) && interpretation.confidence > 0) {
@@ -2635,6 +2934,26 @@ function renderReasoningPathPanel(reasoningPath, interpretation, { hidden = fals
   } else if (interpretation?.whiteboardModeSource === "interpreter") {
     turnReasoningPathMetaEl.append(
       createMiniMeta("Chose this from", "Interpreter"),
+    );
+  }
+  const semanticFrame = state.turn.semanticFrame;
+  const semanticPolicyCopy = buildSemanticPolicyCopy({
+    semanticPolicy: state.turn.semanticPolicy,
+    semanticFrame,
+  });
+  if (semanticFrame?.targetSurface) {
+    turnReasoningPathMetaEl.append(
+      createMiniMeta("Target", humanizeSemanticSurface(semanticFrame.targetSurface)),
+    );
+  }
+  if (semanticFrame?.followUpType && semanticFrame.followUpType !== "new_request") {
+    turnReasoningPathMetaEl.append(
+      createMiniMeta("Follow-up", humanizeSemanticToken(semanticFrame.followUpType)),
+    );
+  }
+  if (semanticPolicyCopy.visible && semanticPolicyCopy.actionLabel !== "Answer directly") {
+    turnReasoningPathMetaEl.append(
+      createMiniMeta("Semantic Action", semanticPolicyCopy.actionLabel),
     );
   }
 
@@ -2883,7 +3202,7 @@ function renderWorkspaceUpdatePanel(workspaceUpdate, { hidden = false } = {}) {
     : "Review whiteboard draft";
   workspaceUpdateSummaryEl.textContent = workspaceUpdate.summary || (
     workspaceUpdate.status === "offered"
-      ? "Vantage suggested moving this work into the whiteboard so a shared draft can start there."
+      ? "Inspect suggested moving this work into Draft so a shared draft can start there."
       : "A draft is ready to review before it enters the whiteboard."
   );
 
@@ -2938,7 +3257,7 @@ function renderWhiteboardDecisionPanel() {
     return;
   }
 
-  whiteboardDecisionLabelEl.textContent = presentation.label || "Whiteboard Decision";
+  whiteboardDecisionLabelEl.textContent = presentation.label || "Draft Decision";
   whiteboardDecisionSummaryEl.textContent = presentation.summary || "Choose how to handle this whiteboard change.";
 
   for (const action of presentation.actions || []) {
@@ -2992,8 +3311,8 @@ function renderScenarioLabPanel(scenarioLab) {
     const errorNotice = document.createElement("div");
     errorNotice.className = "turn-notice turn-notice--decision scenario-lab__why";
     errorNotice.textContent = scenarioLab.error?.message
-      ? `${scenarioLab.error.message} Vantage answered in chat instead.`
-      : "Scenario Lab could not complete, so Vantage answered in chat instead.";
+      ? `${scenarioLab.error.message} The answer stayed in chat instead.`
+      : "Scenario Lab could not complete, so the answer stayed in chat instead.";
 
     const fallbackLabel = document.createElement("div");
     fallbackLabel.className = "section-label";
@@ -3001,7 +3320,7 @@ function renderScenarioLabPanel(scenarioLab) {
 
     const fallbackNotice = document.createElement("div");
     fallbackNotice.className = "turn-notice turn-notice--decision scenario-lab__grounding";
-    fallbackNotice.textContent = "Vantage returned a normal chat answer instead of scenario branches.";
+    fallbackNotice.textContent = "The turn returned a normal chat answer instead of scenario branches.";
 
     hero.append(heroEyebrow, heroTitle, heroSummary, heroMeta);
     scenarioLabSectionEl.append(hero, errorLabel, errorNotice, fallbackLabel, fallbackNotice);
@@ -3385,6 +3704,13 @@ function renderMemoryInspector() {
     meta.append(createMiniMeta("origin", artifactOriginLabel(item)));
     meta.append(createMiniMeta("lifecycle", artifactLifecycleLabel(item)));
   }
+  if (item.type === "protocol") {
+    const protocol = normalizeProtocolMetadata(item);
+    meta.append(createMiniMeta("protocol", protocol.protocolKind || "custom"));
+    meta.append(createMiniMeta("applies to", protocol.appliesTo.length ? protocol.appliesTo.join(", ") : "not specified"));
+    meta.append(createMiniMeta("editable", protocol.modifiable ? "yes" : "no"));
+    meta.append(createMiniMeta("source", protocol.isBuiltin ? "built-in" : protocol.overridesBuiltin ? "custom override" : "custom"));
+  }
   if (isTurnLearnedItem(item)) {
     const learnedCorrection = buildLearnedCorrectionModel(item);
     meta.append(createMiniMeta("saved as", learnedCorrection.scopeLabel || describeLearnedScopeLabel(item)));
@@ -3463,7 +3789,9 @@ function renderMemoryInspector() {
     openVantage({ focus: "library" });
     memoryDockEl.open = true;
   });
-  if (!item.isVaultNote) {
+  if (item.type === "protocol") {
+    footer.append(pinButton, relatedButton);
+  } else if (!item.isVaultNote) {
     const openButton = createActionButton(
       learnedCorrection?.primaryActionLabel
         || (savedNoteBucket(item) === "artifact"
@@ -3504,6 +3832,10 @@ function renderMemoryInspector() {
     correctionGuidance.append(guidanceLabel, guidanceSummary, guidanceList);
   }
 
+  const protocolEditor = item.type === "protocol"
+    ? createProtocolEditorSection(item)
+    : null;
+
   wrap.append(header, meta, summary);
   if (learnedReasonText || (!item.isVaultNote && savedNoteBucket(item) === "artifact")) {
     wrap.append(lifecycle);
@@ -3514,8 +3846,137 @@ function renderMemoryInspector() {
   if (correctionGuidance) {
     wrap.append(correctionGuidance);
   }
+  if (protocolEditor) {
+    wrap.append(protocolEditor);
+  }
   wrap.append(body, footer);
   conceptInspectorEl.appendChild(wrap);
+}
+
+function createProtocolEditorSection(item) {
+  const protocol = normalizeProtocolMetadata(item);
+  const section = document.createElement("section");
+  section.className = "protocol-editor";
+
+  const label = document.createElement("div");
+  label.className = "inspector-body-label";
+  label.textContent = "Editable protocol";
+
+  const summary = document.createElement("p");
+  summary.className = "protocol-editor__summary";
+  summary.textContent = protocol.isBuiltin
+    ? "This is a built-in protocol. Saving creates a custom override without mutating the built-in default."
+    : protocol.overridesBuiltin
+      ? "This protocol customizes a built-in default."
+      : "This protocol guides recurring work and can be updated here.";
+
+  const titleInput = createProtocolInput("Title", item.title || "");
+  const cardInput = createProtocolTextarea("Summary card", item.card || "", { rows: 3 });
+  const appliesInput = createProtocolInput("Applies to", protocol.appliesTo.join(", "));
+  const variablesInput = createProtocolTextarea(
+    "Variables JSON",
+    JSON.stringify(protocol.variables || {}, null, 2),
+    { rows: 7, monospace: true },
+  );
+  const bodyInput = createProtocolTextarea("Procedure", item.body || "", { rows: 10, monospace: true });
+
+  const status = document.createElement("p");
+  status.className = "protocol-editor__status";
+  status.textContent = protocol.modifiable
+    ? "Edit the fields, then save to update future matching requests."
+    : "This protocol is not marked modifiable.";
+
+  const actions = document.createElement("div");
+  actions.className = "protocol-editor__actions";
+  const saveButton = createActionButton(protocol.isBuiltin ? "Save custom override" : "Save protocol", "primary");
+  saveButton.disabled = state.busy || !protocol.modifiable || !protocol.protocolKind;
+  saveButton.addEventListener("click", async () => {
+    status.textContent = "Saving protocol...";
+    saveButton.disabled = true;
+    try {
+      let variables = {};
+      const variablesText = variablesInput.control.value.trim();
+      if (variablesText) {
+        variables = JSON.parse(variablesText);
+        if (!variables || typeof variables !== "object" || Array.isArray(variables)) {
+          throw new Error("Variables JSON must be an object.");
+        }
+      }
+      const appliesTo = appliesInput.control.value
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      const { payload, response } = await fetchJson(`/api/protocols/${encodeURIComponent(protocol.protocolKind)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: titleInput.control.value.trim(),
+          card: cardInput.control.value.trim(),
+          body: bodyInput.control.value,
+          variables,
+          applies_to: appliesTo,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(payload?.detail || `Protocol save failed with status ${response.status}`);
+      }
+      upsertProtocolConcept(payload);
+      state.selectedConceptId = payload.id || item.id;
+      status.textContent = "Protocol saved. Future matching requests can use this guidance.";
+      pushNotice("Protocol saved", `${payload.title || item.title} is updated.`, "success");
+      renderMemoryPanel();
+      renderTurnPanel();
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : "Protocol save failed.";
+      pushNotice("Protocol not saved", status.textContent, "warning");
+      saveButton.disabled = state.busy || !protocol.modifiable || !protocol.protocolKind;
+    }
+  });
+  actions.append(saveButton);
+
+  section.append(label, summary, titleInput.field, cardInput.field, appliesInput.field, variablesInput.field, bodyInput.field, status, actions);
+  return section;
+}
+
+function createProtocolInput(labelText, value) {
+  const field = document.createElement("label");
+  field.className = "protocol-editor__field";
+  const label = document.createElement("span");
+  label.textContent = labelText;
+  const control = document.createElement("input");
+  control.type = "text";
+  control.value = value;
+  field.append(label, control);
+  return { field, control };
+}
+
+function createProtocolTextarea(labelText, value, { rows = 4, monospace = false } = {}) {
+  const field = document.createElement("label");
+  field.className = "protocol-editor__field";
+  const label = document.createElement("span");
+  label.textContent = labelText;
+  const control = document.createElement("textarea");
+  control.rows = rows;
+  control.value = value;
+  if (monospace) {
+    control.classList.add("protocol-editor__mono");
+  }
+  field.append(label, control);
+  return { field, control };
+}
+
+function upsertProtocolConcept(protocolPayload) {
+  const normalized = normalizeConcept(protocolPayload, "concept");
+  const target = normalized.scope === "experiment" ? state.sessionConcepts : state.catalogConcepts;
+  const index = target.findIndex((concept) => concept.id === normalized.id);
+  if (index >= 0) {
+    target[index] = { ...target[index], ...normalized };
+  } else {
+    target.unshift(normalized);
+  }
+  state.turnWorkingMemory = state.turnWorkingMemory.map((item) => item.id === normalized.id ? { ...item, ...normalized } : item);
+  state.turnConcepts = state.turnConcepts.map((item) => item.id === normalized.id ? { ...item, ...normalized } : item);
+  rebuildConceptCatalog();
 }
 
 function normalizeWorkingMemoryItems(items, source) {
@@ -3548,6 +4009,33 @@ function humanizeInterpretationWhiteboardMode(mode) {
     default:
       return "Auto";
   }
+}
+
+function humanizeSemanticSurface(surface) {
+  switch (String(surface || "").toLowerCase()) {
+    case "scenario_lab":
+      return "Scenario Lab";
+    case "whiteboard":
+      return "Draft";
+    case "vantage_inspect":
+      return "Inspect";
+    case "artifact":
+      return "Artifact";
+    case "experiment":
+      return "Experiment";
+    case "chat":
+      return "Chat";
+    default:
+      return humanizeSemanticToken(surface || "chat");
+  }
+}
+
+function humanizeSemanticToken(value) {
+  return String(value || "")
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
 }
 
 function humanizeRouteConfidence(confidence) {
@@ -3633,13 +4121,13 @@ function describeLearnedReason(item) {
     return "This whiteboard work was promoted into a reusable work product.";
   }
   if (item?.type === "concept" || item?.source === "concept") {
-    return "Vantage saved this as a reusable idea from the turn.";
+    return "Saved as a reusable idea from the turn.";
   }
   if (savedNoteBucket(item) === "artifact") {
-    return "Vantage saved this as work you made during the turn.";
+    return "Saved as work you made during the turn.";
   }
   if (item?.source === "memory") {
-    return "Vantage saved this as something to remember later.";
+    return "Saved as something to remember later.";
   }
   return "";
 }
@@ -3837,6 +4325,9 @@ function itemTypeLabel(item) {
   if (item?.source === "memory_trace" || item?.type === "memory_trace") {
     return "memory trace";
   }
+  if (item?.type === "protocol") {
+    return "protocol";
+  }
   if (item?.isVaultNote) {
     return "reference";
   }
@@ -3849,6 +4340,9 @@ function itemTypeLabel(item) {
 function itemInspectorLabel(item) {
   if (item?.source === "memory_trace" || item?.type === "memory_trace") {
     return "Memory Trace";
+  }
+  if (item?.type === "protocol") {
+    return "Protocol";
   }
   if (item?.isVaultNote) {
     return "Reference note";
@@ -3865,6 +4359,9 @@ function itemInspectorLabel(item) {
 function itemSourceSectionLabel(item) {
   if (item?.source === "memory_trace" || item?.type === "memory_trace") {
     return "Memory Trace";
+  }
+  if (item?.type === "protocol") {
+    return "Protocols";
   }
   if (item?.isVaultNote) {
     return item.sourceLabel || "Reference notes";
@@ -3912,7 +4409,7 @@ function artifactOriginLabel(item) {
     case "scenario_lab":
       return "Scenario Lab";
     case "whiteboard":
-      return "Whiteboard";
+      return "Draft";
     case "library":
       return "Library";
     default:
@@ -4050,7 +4547,7 @@ function createMemoryCard(item, context) {
   const meta = document.createElement("div");
   meta.className = "concept-meta-row";
   if (context === "turn") {
-    meta.append(createBadge("entered Recall", "accent"));
+    meta.append(createBadge("pulled in", "accent"));
   } else if (context === "reasoning-candidate") {
     meta.append(
       createBadge(
@@ -4079,6 +4576,8 @@ function createMemoryCard(item, context) {
   }
   if (item.isVaultNote) {
     meta.append(createBadge("read-only", "warm"));
+  } else if (item.type === "protocol") {
+    meta.append(createBadge("protocol", "accent"));
   } else if (item.type === "concept" && item.source !== "session") {
     meta.append(createBadge("idea library", "accent"));
   } else if (item.source === "session") {
@@ -4133,6 +4632,7 @@ function createMemoryCard(item, context) {
     selectConcept(item.id);
   });
   const canOpenItem = !item.isVaultNote
+    && item.type !== "protocol"
     && item.source !== "memory_trace"
     && context !== "reasoning-candidate"
     && context !== "reasoning-recall";
@@ -4204,7 +4704,11 @@ function createMemoryCard(item, context) {
   if (lineage) {
     article.append(lineage);
   }
-  article.append(meta, actions);
+  article.append(meta);
+  if (item.type === "protocol" && context === "turn") {
+    article.append(createProtocolEditorSection(item));
+  }
+  article.append(actions);
   return article;
 }
 
@@ -4482,9 +4986,11 @@ function selectConcept(conceptId, { silent = false, source = "user" } = {}) {
   if (!silent) {
     const label = concept.type === "concept"
       ? "Idea selected"
-      : savedNoteBucket(concept) === "artifact"
-        ? "Work product selected"
-        : "Note selected";
+      : concept.type === "protocol"
+        ? "Protocol selected"
+        : savedNoteBucket(concept) === "artifact"
+          ? "Work product selected"
+          : "Note selected";
     pushNotice(label, `${concept.title} is now open in review.`, "info");
   }
   renderMemoryPanel();
@@ -4595,7 +5101,10 @@ function getSelectedMemoryIdForChat() {
 
 function getConceptById(conceptId) {
   return (
-    state.allConcepts.find((concept) => concept.id === conceptId)
+    state.turnWorkingMemory.find((concept) => concept.id === conceptId)
+    || state.turnConcepts.find((concept) => concept.id === conceptId)
+    || state.turnSavedNotes.find((concept) => concept.id === conceptId)
+    || state.allConcepts.find((concept) => concept.id === conceptId)
     || state.allSavedNotes.find((concept) => concept.id === conceptId)
     || null
   );
@@ -4830,6 +5339,7 @@ function normalizeConcept(concept, source) {
     title: concept.title || concept.id || concept.filename || "Untitled concept",
     kind: concept.kind || "concept",
     type: concept.type || "concept",
+    protocol: normalizeProtocolMetadata(concept),
     card: concept.card || concept.summary || concept.description || "",
     body: concept.body || concept.content || concept.markdown || "",
     status: concept.status || "active",
@@ -4868,6 +5378,7 @@ function normalizeMemoryItem(item, source) {
   const card = item.card || item.summary || item.description || item.note_card || item.snippet || item.excerpt || normalized.card;
   const status = item.status || (isVaultNote ? "read-only" : normalized.status);
   const explicitType = String(item.type || item.kind || item.record_kind || "").trim();
+  const protocol = normalizeProtocolMetadata(item);
   const scenarioPayload = item.scenario && typeof item.scenario === "object" ? item.scenario : null;
   const scenarioKind = String(item.scenario_kind || scenarioPayload?.scenario_kind || "").trim().toLowerCase();
   const branchIndex = Array.isArray(item.branchIndex)
@@ -4895,6 +5406,9 @@ function normalizeMemoryItem(item, source) {
     recordKind: String(item.record_kind || item.kind || item.type || ""),
     title: item.title || item.name || item.label || item.filename || normalized.title || (isVaultNote ? "Untitled reference note" : "Untitled saved note"),
     type: isVaultNote ? "reference note" : explicitType || "saved note",
+    protocol,
+    protocol_kind: protocol.protocolKind,
+    protocolKind: protocol.protocolKind,
     card: card || (isVaultNote ? body.slice(0, 160) : ""),
     body,
     status,
@@ -4960,7 +5474,7 @@ function productVettingNotice(vetting, { recallCount = 0 } = {}) {
     return "";
   }
   if (vetting.none_relevant === true) {
-    return "Nothing from Recall was selected for this turn.";
+    return "Nothing was pulled in for this turn.";
   }
   return "";
 }
@@ -5487,7 +6001,7 @@ function createScenarioTranscriptCard(scenarioLab) {
   const summary = document.createElement("p");
   summary.className = "message-scenario-card__summary";
   summary.textContent = scenarioLab?.status === "failed"
-    ? (scenarioLab?.error?.message || "Scenario Lab could not complete this turn, so Vantage answered in chat instead.")
+    ? (scenarioLab?.error?.message || "Scenario Lab could not complete this turn, so the answer stayed in chat instead.")
     : (scenarioLab?.recommendation || scenarioLab?.summary || (artifactId
       ? "Comparison question, recommendation, and the durable hub are ready to inspect."
       : "Scenario branches are ready to inspect."));
@@ -5640,7 +6154,7 @@ function buildWorkspaceNote(payload) {
     return buildScenarioLabOutcomeCopy(branchCount, hasScenarioComparisonArtifact(payload?.scenario_lab));
   }
   if (payload?.workspace_update?.status === "offered") {
-    return payload.workspace_update.summary || "Vantage suggested moving this work into the whiteboard.";
+    return payload.workspace_update.summary || "Inspect suggested moving this work into Draft.";
   }
   if (payload?.workspace_update?.status === "draft_ready") {
     return payload.workspace_update.summary || "A whiteboard draft is ready to review before it enters the whiteboard.";
@@ -5649,15 +6163,15 @@ function buildWorkspaceNote(payload) {
     return payload.workspace_update.summary;
   }
   if (payload?.graph_action?.type === "open_saved_item_into_workspace" || payload?.graph_action?.type === "open_concept_into_workspace") {
-    return "Whiteboard updated from the selected item.";
+    return "Draft updated from the selected item.";
   }
   if (payload?.graph_action) {
-    return `Whiteboard stayed available while Vantage recorded: ${describeGraphAction(payload.graph_action)}.`;
+    return `Draft stayed available while Inspect recorded: ${describeGraphAction(payload.graph_action)}.`;
   }
   if ((state.workspace.content || "").trim()) {
     return "The whiteboard stayed separate as the drafting surface for this turn.";
   }
-  return "Whiteboard ready as a separate drafting surface.";
+  return "Draft ready as a separate drafting surface.";
 }
 
 function pushNotice(title, message, tone = "info") {

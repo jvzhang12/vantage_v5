@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from datetime import UTC, datetime
 from pathlib import Path
 import json
@@ -12,10 +13,13 @@ from vantage_v5.services.meta import MetaDecision
 from vantage_v5.services.meta import MetaService
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.navigator import NavigatorService
+from vantage_v5.services.protocols import ProtocolInterpretation
+from vantage_v5.services.protocols import build_protocol_write_from_interpretation
 from vantage_v5.services.scenario_lab import ScenarioBranchPlan
 from vantage_v5.services.scenario_lab import ScenarioComparisonPlan
 from vantage_v5.services.scenario_lab import ScenarioPlan
 from vantage_v5.services.search import CandidateMemory
+from vantage_v5.services.turn_payloads import ChatTurnBodyParts
 from vantage_v5.server import create_app
 from vantage_v5.storage.artifacts import ArtifactStore
 from vantage_v5.storage.concepts import ConceptStore
@@ -32,7 +36,8 @@ def _test_repo(tmp_path: Path) -> Path:
     repo_root = tmp_path / "vantage-v5"
     repo_root.mkdir()
     for folder in ["concepts", "memories", "memory_trace", "artifacts", "workspaces", "fixtures"]:
-        shutil.copytree(source / folder, repo_root / folder)
+        ignore = shutil.ignore_patterns("launch-strategy*.md") if folder == "workspaces" else None
+        shutil.copytree(source / folder, repo_root / folder, ignore=ignore)
     # Build a fresh state directory so tests never inherit a live experiment
     # session, active workspace, or trace files from manual local runs.
     (repo_root / "state").mkdir()
@@ -62,7 +67,14 @@ def _test_repo(tmp_path: Path) -> Path:
     return repo_root
 
 
-def _client(tmp_path: Path, *, openai_api_key: str | None = None) -> tuple[TestClient, Path]:
+def _client(
+    tmp_path: Path,
+    *,
+    openai_api_key: str | None = None,
+    auth_username: str = "vantage",
+    auth_password: str | None = None,
+    auth_users: dict[str, str] | None = None,
+) -> tuple[TestClient, Path]:
     repo_root = _test_repo(tmp_path)
     app = create_app(
         AppConfig(
@@ -74,9 +86,17 @@ def _client(tmp_path: Path, *, openai_api_key: str | None = None) -> tuple[TestC
             nexus_root=repo_root / "fixtures" / "nexus",
             nexus_include_paths=["allowed"],
             nexus_exclude_paths=["private"],
+            auth_username=auth_username,
+            auth_password=auth_password,
+            auth_users=auth_users or {},
         )
     )
     return TestClient(app), repo_root
+
+
+def _basic_auth_header(username: str, password: str) -> dict[str, str]:
+    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    return {"Authorization": f"Basic {token}"}
 
 
 def _fallback_vet_for_tests(self, *, message, candidates, continuity_hint=None):
@@ -387,7 +407,17 @@ def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     assert payload["selected_record_id"] is None
     assert payload["turn_interpretation"]["mode"] == "chat"
     assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "auto"
+    assert payload["turn_interpretation"]["control_panel"]["actions"][0]["type"] == "respond"
+    assert payload["turn_interpretation"]["control_panel"]["response_call"]["type"] == "chat_response"
+    assert payload["semantic_frame"]["target_surface"] == "chat"
+    assert payload["semantic_frame"]["task_type"] == "question_answering"
+    assert payload["semantic_frame"]["user_goal"] == "Answer the user directly."
     assert payload["workspace"]["context_scope"] == "excluded"
+    assert payload["system_state"]["mode"] == payload["mode"]
+    assert payload["system_state"]["workspace"]["workspace_id"] == "v5-milestone-1"
+    assert "content" not in payload["system_state"]["workspace"]
+    assert payload["activity"]["kind"] == "chat"
+    assert payload["activity"]["recall_count"] == len(payload["working_memory"])
     assert "vetting" in payload
     assert payload["meta_action"]["action"] == "no_op"
     assert payload["graph_action"] is None
@@ -395,6 +425,593 @@ def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     assert {"shared-workspace", "persistent-memory"} & ids
     assert any(note["source"] == "vault_note" for note in payload["vault_notes"])
     assert any(item["source"] == "concept" for item in payload["working_memory"])
+    recalled_item = payload["working_memory"][0]
+    assert {"kind", "memory_role", "recall_status", "source_tier"} <= set(recalled_item)
+    assert recalled_item["recall_status"] == "recalled"
+
+
+def test_basic_auth_protects_ui_and_api_when_configured(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, auth_username="jordan", auth_password="secret-password")
+
+    health = client.get("/api/health")
+    assert health.status_code == 200
+
+    unauthenticated_workspace = client.get("/api/workspace")
+    assert unauthenticated_workspace.status_code == 401
+    assert unauthenticated_workspace.headers["www-authenticate"] == 'Basic realm="Vantage"'
+
+    bad_credentials = client.get(
+        "/api/workspace",
+        headers=_basic_auth_header("jordan", "wrong-password"),
+    )
+    assert bad_credentials.status_code == 401
+
+    workspace = client.get(
+        "/api/workspace",
+        headers=_basic_auth_header("jordan", "secret-password"),
+    )
+    assert workspace.status_code == 200
+    assert workspace.json()["workspace_id"] == "v5-milestone-1"
+
+    index = client.get("/", headers=_basic_auth_header("jordan", "secret-password"))
+    assert index.status_code == 200
+    assert "<title>Vantage</title>" in index.text
+
+
+def test_semantic_policy_saves_visible_whiteboard_without_chat_guessing(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path)
+
+    def _reply_should_not_run(self, **kwargs):  # pragma: no cover - assertion helper
+        raise AssertionError("Semantic save should be handled before ChatService.reply().")
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", _reply_should_not_run)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "save this whiteboard",
+            "history": [],
+            "workspace_id": "semantic-save-draft",
+            "workspace_scope": "visible",
+            "workspace_content": "# Semantic Save Draft\n\nThis should become a saved whiteboard snapshot.",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "local_action"
+    assert payload["turn_interpretation"]["mode"] == "chat"
+    assert payload["turn_interpretation"]["requested_whiteboard_mode"] == "auto"
+    assert payload["turn_interpretation"]["whiteboard_entry_mode"] == "started_fresh"
+    assert payload["semantic_frame"]["task_type"] == "artifact_save"
+    assert payload["semantic_policy"]["action_type"] == "artifact_save"
+    assert payload["semantic_policy"]["should_clarify"] is False
+    assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
+    assert payload["created_record"]["source"] == "artifact"
+    assert payload["created_record"]["artifact_lifecycle"] == "whiteboard_snapshot"
+    assert (repo_root / "workspaces" / "semantic-save-draft.md").exists()
+    assert (repo_root / "artifacts" / f"{payload['created_record']['id']}.md").exists()
+
+
+def test_semantic_policy_clarifies_save_without_visible_target(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path)
+
+    def _reply_should_not_run(self, **kwargs):  # pragma: no cover - assertion helper
+        raise AssertionError("Ambiguous save should clarify before ChatService.reply().")
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", _reply_should_not_run)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "save this",
+            "history": [],
+            "workspace_scope": "excluded",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "clarification"
+    assert payload["turn_interpretation"]["mode"] == "chat"
+    assert payload["turn_interpretation"]["requested_whiteboard_mode"] == "auto"
+    assert payload["semantic_policy"]["action_type"] == "artifact_save"
+    assert payload["semantic_policy"]["should_clarify"] is True
+    assert "What should I save" in payload["assistant_message"]
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+
+
+def test_semantic_policy_publishes_visible_whiteboard_as_artifact(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path)
+
+    def _reply_should_not_run(self, **kwargs):  # pragma: no cover - assertion helper
+        raise AssertionError("Semantic publish should be handled before ChatService.reply().")
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", _reply_should_not_run)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "publish this artifact",
+            "history": [],
+            "workspace_id": "semantic-publish-draft",
+            "workspace_scope": "visible",
+            "workspace_content": "# Semantic Publish Draft\n\nThis should become a promoted artifact.",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "local_action"
+    assert payload["turn_interpretation"]["mode"] == "chat"
+    assert payload["turn_interpretation"]["requested_whiteboard_mode"] == "auto"
+    assert payload["turn_interpretation"]["whiteboard_entry_mode"] == "started_fresh"
+    assert payload["semantic_frame"]["task_type"] == "artifact_publish"
+    assert payload["semantic_policy"]["action_type"] == "artifact_publish"
+    assert payload["semantic_policy"]["should_clarify"] is False
+    assert payload["graph_action"]["type"] == "promote_workspace_to_artifact"
+    assert payload["created_record"]["source"] == "artifact"
+    assert payload["created_record"]["artifact_lifecycle"] == "promoted_artifact"
+    assert (repo_root / "artifacts" / f"{payload['created_record']['id']}.md").exists()
+
+
+def test_semantic_policy_answers_experiment_status_locally(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path)
+
+    started = client.post("/api/experiment/start", json={"seed_from_workspace": False})
+    assert started.status_code == 200
+
+    def _reply_should_not_run(self, **kwargs):  # pragma: no cover - assertion helper
+        raise AssertionError("Experiment status should be handled before ChatService.reply().")
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", _reply_should_not_run)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "am I in experiment mode?",
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "local_action"
+    assert payload["turn_interpretation"]["mode"] == "chat"
+    assert payload["turn_interpretation"]["requested_whiteboard_mode"] == "auto"
+    assert payload["semantic_frame"]["task_type"] == "experiment_management"
+    assert payload["semantic_policy"]["action_type"] == "experiment_manage"
+    assert payload["semantic_policy"]["should_clarify"] is False
+    assert "Experiment mode is active" in payload["assistant_message"]
+    assert payload["experiment"]["active"] is True
+
+
+def test_navigator_control_panel_is_exposed_on_turn_interpretation(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+
+    monkeypatch.setattr(
+        "vantage_v5.server.NavigatorService.route_turn",
+        lambda self, **kwargs: NavigationDecision(
+            mode="chat",
+            confidence=0.94,
+            reason="The navigator chose the whiteboard control.",
+            whiteboard_mode="draft",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "draft_whiteboard",
+                        "reason": "The user asked for a collaborative draft.",
+                    },
+                    {
+                        "type": "respond",
+                        "reason": "Explain that the draft is ready.",
+                    },
+                ],
+                "working_memory_queries": ["active email drafting protocol"],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: (
+            "CHAT_RESPONSE: I drafted it in the whiteboard.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# Draft\n\n"
+            "A concise draft."
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Draft stays temporary."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Draft this in the whiteboard",
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    control_panel = response.json()["turn_interpretation"]["control_panel"]
+    assert [action["type"] for action in control_panel["actions"]] == ["draft_whiteboard", "respond"]
+    assert control_panel["working_memory_queries"] == ["active email drafting protocol"]
+    assert control_panel["response_call"]["after_working_memory"] is True
+
+
+def test_apply_protocol_control_loads_built_in_scenario_protocol_for_chat(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path)
+
+    monkeypatch.setattr(
+        "vantage_v5.server.NavigatorService.route_turn",
+        lambda self, **kwargs: NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Use the Scenario Lab protocol as reasoning guidance.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "apply_protocol",
+                        "protocol_kind": "scenario_lab",
+                        "reason": "The request needs scenario-style reasoning.",
+                    },
+                    {"type": "respond", "reason": "Answer after applying the protocol."},
+                ],
+                "working_memory_queries": ["scenario reasoning protocol"],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        ),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Help me think through possible launch paths.",
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    recalled = {item["id"]: item for item in payload["working_memory"]}
+    assert "scenario-lab-protocol" in recalled
+    assert recalled["scenario-lab-protocol"]["type"] == "protocol"
+    assert recalled["scenario-lab-protocol"]["kind"] == "protocol"
+    assert recalled["scenario-lab-protocol"]["memory_role"] == "protocol"
+    assert recalled["scenario-lab-protocol"]["source_tier"] == "instruction"
+    assert recalled["scenario-lab-protocol"]["protocol"]["protocol_kind"] == "scenario_lab"
+    assert recalled["scenario-lab-protocol"]["protocol"]["is_builtin"] is True
+    assert recalled["scenario-lab-protocol"]["protocol"]["modifiable"] is True
+    assert "counterfactual reasoning" in recalled["scenario-lab-protocol"]["body"]
+
+
+def test_protocol_apis_include_builtins_and_persist_builtin_override(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path)
+
+    protocols = client.get("/api/protocols", params={"include_builtins": "true"})
+    assert protocols.status_code == 200
+    by_id = {item["id"]: item for item in protocols.json()["protocols"]}
+    assert "scenario-lab-protocol" in by_id
+    assert by_id["scenario-lab-protocol"]["scope"] == "builtin"
+    assert by_id["scenario-lab-protocol"]["protocol"]["is_builtin"] is True
+
+    fetched_by_kind = client.get("/api/protocols/scenario_lab")
+    assert fetched_by_kind.status_code == 200
+    assert fetched_by_kind.json()["id"] == "scenario-lab-protocol"
+    assert fetched_by_kind.json()["scope"] == "builtin"
+
+    updated = client.put(
+        "/api/protocols/scenario_lab",
+        json={
+            "card": "Custom Scenario Lab guidance for premium comparisons.",
+            "variables": {"default_surface": "premium_scenario_lab"},
+            "applies_to": ["scenario lab", "premium comparison"],
+        },
+    )
+    assert updated.status_code == 200
+    updated_payload = updated.json()
+    assert updated_payload["id"] == "scenario-lab-protocol"
+    assert updated_payload["scope"] == "durable"
+    assert updated_payload["protocol"]["is_builtin"] is False
+    assert updated_payload["protocol"]["overrides_builtin"] is True
+    assert updated_payload["protocol"]["variables"]["default_surface"] == "premium_scenario_lab"
+    assert updated_payload["card"] == "Custom Scenario Lab guidance for premium comparisons."
+    assert (repo_root / "concepts" / "scenario-lab-protocol.md").exists()
+
+    protocols_after = client.get("/api/protocols", params={"include_builtins": "true"})
+    assert protocols_after.status_code == 200
+    matches = [item for item in protocols_after.json()["protocols"] if item["id"] == "scenario-lab-protocol"]
+    assert len(matches) == 1
+    assert matches[0]["scope"] == "durable"
+
+
+def test_protocol_edit_in_experiment_writes_to_experiment_concepts(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path)
+
+    started = client.post("/api/experiment/start", json={"seed_from_workspace": False})
+    assert started.status_code == 200
+    session_id = started.json()["experiment"]["session_id"]
+    session_root = repo_root / "state" / "experiments" / session_id
+
+    updated = client.put(
+        "/api/protocols/scenario_lab",
+        json={
+            "body": "## Protocol\n\nUse experiment-only Scenario Lab rules.",
+            "variables": {"default_surface": "experiment_scenario_lab"},
+        },
+    )
+
+    assert updated.status_code == 200
+    payload = updated.json()
+    assert payload["scope"] == "experiment"
+    assert payload["protocol"]["variables"]["default_surface"] == "experiment_scenario_lab"
+    assert (session_root / "concepts" / "scenario-lab-protocol.md").exists()
+    assert not (repo_root / "concepts" / "scenario-lab-protocol.md").exists()
+
+    fetched = client.get("/api/protocols/scenario-lab-protocol")
+    assert fetched.status_code == 200
+    assert fetched.json()["scope"] == "experiment"
+
+
+def test_apply_protocol_control_reaches_scenario_lab_working_memory(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+
+    monkeypatch.setattr(
+        "vantage_v5.server.NavigatorService.route_turn",
+        lambda self, **kwargs: NavigationDecision(
+            mode="scenario_lab",
+            confidence=0.94,
+            reason="The Navigator chose Scenario Lab with its protocol.",
+            comparison_question="Which launch path should we choose?",
+            branch_count=3,
+            branch_labels=["focused", "conservative", "aggressive"],
+            control_panel={
+                "actions": [
+                    {
+                        "type": "apply_protocol",
+                        "protocol_kind": "scenario_lab",
+                        "reason": "Scenario Lab should use its reasoning protocol.",
+                    },
+                    {
+                        "type": "open_scenario_lab",
+                        "protocol_kind": None,
+                        "reason": "The request asks for branches.",
+                    },
+                ],
+                "working_memory_queries": ["scenario lab protocol"],
+                "response_call": {"type": "scenario_lab", "after_working_memory": True},
+            },
+        ),
+    )
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.scenario_lab.ScenarioLabService._openai_build_scenario",
+        lambda self, **kwargs: _scenario_plan(),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Compare three launch paths.",
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "scenario_lab"
+    recalled = {item["id"]: item for item in payload["working_memory"]}
+    assert "scenario-lab-protocol" in recalled
+    assert "first-principles" in recalled["scenario-lab-protocol"]["body"]
+    assert "Navigator pressed apply_protocol" in recalled["scenario-lab-protocol"]["why_recalled"]
+    assert recalled["scenario-lab-protocol"]["recall_reason"] == recalled["scenario-lab-protocol"]["why_recalled"]
+
+
+def test_email_protocol_is_learned_and_recalled_for_matching_draft(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path)
+
+    def _interpret_protocol(self, **kwargs):
+        if kwargs["message"].startswith("For emails"):
+            return ProtocolInterpretation(
+                protocol_write=build_protocol_write_from_interpretation(
+                    protocol_kind="email",
+                    variables={"signature": "Jordan Zhang", "style": ["concise", "business"]},
+                    applies_to=["email", "business email"],
+                    source_instruction=kwargs["message"],
+                    existing_protocols=kwargs["existing_protocols"],
+                ),
+                recall_protocol_kinds=["email"],
+                rationale="The user set reusable email drafting preferences.",
+            )
+        if kwargs["message"].startswith("Draft an email"):
+            return ProtocolInterpretation(
+                recall_protocol_kinds=["email"],
+                rationale="The user is asking for an email draft, so the email protocol applies.",
+            )
+        return ProtocolInterpretation(rationale="No protocol action.")
+
+    monkeypatch.setattr("vantage_v5.services.protocols.ProtocolInterpreter.interpret", _interpret_protocol)
+
+    learned = client.post(
+        "/api/chat",
+        json={
+            "message": "For emails, always sign drafts with Jordan Zhang and use a concise business tone.",
+            "history": [],
+        },
+    )
+
+    assert learned.status_code == 200
+    learned_payload = learned.json()
+    assert learned_payload["created_record"]["id"] == "email-drafting-protocol"
+    assert learned_payload["created_record"]["type"] == "protocol"
+    assert learned_payload["graph_action"]["type"] == "upsert_protocol"
+
+    protocols = client.get("/api/protocols")
+    assert protocols.status_code == 200
+    protocol_payload = protocols.json()["protocols"][0]
+    assert protocol_payload["id"] == "email-drafting-protocol"
+    assert protocol_payload["kind"] == "protocol"
+    assert protocol_payload["protocol"]["variables"]["signature"] == "Jordan Zhang"
+
+    draft = client.post(
+        "/api/chat",
+        json={
+            "message": "Draft an email to Amy thanking her for the flowers.",
+            "history": [],
+        },
+    )
+
+    assert draft.status_code == 200
+    draft_payload = draft.json()
+    recalled = {item["id"]: item for item in draft_payload["working_memory"]}
+    assert "email-drafting-protocol" in recalled
+    assert recalled["email-drafting-protocol"]["type"] == "protocol"
+    assert "Jordan Zhang" in recalled["email-drafting-protocol"]["body"]
+    assert (repo_root / "concepts" / "email-drafting-protocol.md").exists()
+
+
+def test_email_protocol_updates_existing_record_in_place(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path)
+
+    def _interpret_protocol(self, **kwargs):
+        if kwargs["message"].startswith("For emails"):
+            return ProtocolInterpretation(
+                protocol_write=build_protocol_write_from_interpretation(
+                    protocol_kind="email",
+                    variables={"signature": "Jordan Zhang"},
+                    applies_to=["email"],
+                    source_instruction=kwargs["message"],
+                    existing_protocols=kwargs["existing_protocols"],
+                ),
+                recall_protocol_kinds=["email"],
+                rationale="The user set a reusable email signature.",
+            )
+        if kwargs["message"].startswith("Change my email signature"):
+            return ProtocolInterpretation(
+                protocol_write=build_protocol_write_from_interpretation(
+                    protocol_kind="email",
+                    variables={"signature": "Dr. Jordan Zhang"},
+                    applies_to=["email"],
+                    source_instruction=kwargs["message"],
+                    existing_protocols=kwargs["existing_protocols"],
+                ),
+                recall_protocol_kinds=["email"],
+                rationale="The user changed a reusable email signature.",
+            )
+        return ProtocolInterpretation(rationale="No protocol action.")
+
+    monkeypatch.setattr("vantage_v5.services.protocols.ProtocolInterpreter.interpret", _interpret_protocol)
+
+    first = client.post(
+        "/api/chat",
+        json={
+            "message": "For emails, always sign drafts with Jordan Zhang.",
+            "history": [],
+        },
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/chat",
+        json={
+            "message": "Change my email signature to Dr. Jordan Zhang.",
+            "history": [],
+        },
+    )
+
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["created_record"]["id"] == "email-drafting-protocol"
+    assert payload["graph_action"]["type"] == "upsert_protocol"
+
+    protocol_files = list((repo_root / "concepts").glob("email-drafting-protocol*.md"))
+    assert [path.name for path in protocol_files] == ["email-drafting-protocol.md"]
+    protocol = ConceptStore(repo_root / "concepts").get("email-drafting-protocol")
+    assert protocol.metadata["variables"]["signature"] == "Dr. Jordan Zhang"
+    assert "Dr. Jordan Zhang" in protocol.body
+
+
+def test_protocol_learning_requires_interpreter_decision(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "For emails, always sign drafts with Jordan Zhang.",
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert not (repo_root / "concepts" / "email-drafting-protocol.md").exists()
+
+
+def test_multi_user_auth_isolates_markdown_storage(tmp_path: Path) -> None:
+    client, repo_root = _client(
+        tmp_path,
+        auth_users={
+            "eden": "eden-password",
+            "jordan": "jordan-password",
+        },
+    )
+
+    health = client.get("/api/health")
+    assert health.status_code == 200
+    assert health.json()["multi_user"] is True
+    assert health.json()["user"] is None
+
+    unauthenticated_workspace = client.get("/api/workspace")
+    assert unauthenticated_workspace.status_code == 401
+
+    eden_auth = _basic_auth_header("eden", "eden-password")
+    jordan_auth = _basic_auth_header("jordan", "jordan-password")
+    bad_cross_auth = _basic_auth_header("eden", "jordan-password")
+
+    assert client.get("/api/workspace", headers=bad_cross_auth).status_code == 401
+
+    eden_health = client.get("/api/health", headers=eden_auth)
+    assert eden_health.status_code == 200
+    assert eden_health.json()["user"] == {"id": "eden"}
+
+    eden_update = client.post(
+        "/api/workspace",
+        headers=eden_auth,
+        json={
+            "workspace_id": "v5-milestone-1",
+            "content": "# Eden Private Draft\n\nOnly Eden should see this.",
+        },
+    )
+    assert eden_update.status_code == 200
+    assert "Only Eden" in eden_update.json()["content"]
+
+    eden_workspace = client.get("/api/workspace", headers=eden_auth)
+    assert eden_workspace.status_code == 200
+    assert "Only Eden" in eden_workspace.json()["content"]
+
+    jordan_workspace = client.get("/api/workspace", headers=jordan_auth)
+    assert jordan_workspace.status_code == 200
+    assert "Only Eden" not in jordan_workspace.json()["content"]
+    assert jordan_workspace.json()["workspace_id"] == "v5-milestone-1"
+
+    eden_memory = client.get("/api/memory", headers=eden_auth)
+    jordan_memory = client.get("/api/memory", headers=jordan_auth)
+    assert eden_memory.status_code == 200
+    assert jordan_memory.status_code == 200
+    assert eden_memory.json()["counts"]["saved_notes"] == 1
+    assert jordan_memory.json()["counts"]["saved_notes"] == 0
+
+    eden_workspace_path = repo_root / "users" / "eden" / "workspaces" / "v5-milestone-1.md"
+    jordan_workspace_path = repo_root / "users" / "jordan" / "workspaces" / "v5-milestone-1.md"
+    assert "Only Eden" in eden_workspace_path.read_text(encoding="utf-8")
+    assert "Only Eden" not in jordan_workspace_path.read_text(encoding="utf-8")
+
 
 def test_chat_can_route_into_scenario_lab_and_open_branch(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path, openai_api_key="test-key")
@@ -426,6 +1043,9 @@ def test_chat_can_route_into_scenario_lab_and_open_branch(tmp_path: Path, monkey
     assert payload["turn_interpretation"]["mode"] == "scenario_lab"
     assert payload["turn_interpretation"]["reason"] == "The turn asks for structured comparison across alternatives."
     assert payload["turn_interpretation"]["resolved_whiteboard_mode"] is None
+    assert payload["semantic_frame"]["target_surface"] == "scenario_lab"
+    assert payload["semantic_frame"]["task_type"] == "scenario_comparison"
+    assert payload["semantic_frame"]["user_goal"] == "Compare alternatives and make the tradeoffs explicit."
     assert payload["meta_action"]["action"] == "no_op"
     assert payload["graph_action"] is None
     assert payload["created_record"]["source"] == "artifact"
@@ -2254,6 +2874,9 @@ def test_whiteboard_accept_route_drafts_without_fabricated_user_message(tmp_path
     assert payload["workspace_update"]["proposal_kind"] == "draft"
     assert payload["turn_interpretation"]["mode"] == "chat"
     assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "draft"
+    assert payload["semantic_frame"]["target_surface"] == "whiteboard"
+    assert payload["semantic_frame"]["follow_up_type"] == "acceptance"
+    assert payload["semantic_frame"]["referenced_object"]["type"] == "whiteboard"
     assert "pending_whiteboard" in payload["response_mode"]["context_sources"]
     assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
     assert payload["created_record"]["source"] == "artifact"
@@ -2475,11 +3098,28 @@ def test_whiteboard_accept_uses_canonical_pinned_context_fields(tmp_path: Path, 
     )
 
     class DummyTurn:
-        def to_dict(self) -> dict[str, object]:
-            return {
-                "mode": "fallback",
-                "assistant_message": "done",
-                "response_mode": {
+        def to_body_parts(self) -> ChatTurnBodyParts:
+            return ChatTurnBodyParts(
+                user_message="accept whiteboard",
+                assistant_message="done",
+                workspace_id="v5-milestone-1",
+                workspace_title="Shared Workspace",
+                workspace_content=None,
+                workspace_update=None,
+                concept_cards=[],
+                trace_notes=[],
+                saved_notes=[],
+                vault_notes=[],
+                candidate_concepts=[],
+                candidate_trace_notes=[],
+                candidate_saved_notes=[],
+                candidate_vault_notes=[],
+                candidate_memory=[],
+                working_memory=[],
+                recall_details=[],
+                learned=[],
+                memory_trace_record=None,
+                response_mode={
                     "kind": "grounded",
                     "label": "Recall",
                     "recallCount": 0,
@@ -2488,7 +3128,12 @@ def test_whiteboard_accept_uses_canonical_pinned_context_fields(tmp_path: Path, 
                     "groundingSources": [],
                     "contextSources": [],
                 },
-            }
+                vetting={"selected_ids": []},
+                mode="fallback",
+                meta_action=None,
+                graph_action=None,
+                created_record=None,
+            )
 
     def _reply(self, **kwargs):
         observed.update(kwargs)
@@ -2693,12 +3338,28 @@ def test_chat_builds_navigator_continuity_context_from_recent_whiteboards_and_me
         )
 
     class DummyTurn:
-        def to_dict(self):
-            return {
-                "user_message": "yea can you pull that up on the whiteboard?",
-                "assistant_message": "Stub reply.",
-                "mode": "openai",
-                "response_mode": {
+        def to_body_parts(self) -> ChatTurnBodyParts:
+            return ChatTurnBodyParts(
+                user_message="yea can you pull that up on the whiteboard?",
+                assistant_message="Stub reply.",
+                workspace_id="v5-milestone-1",
+                workspace_title="Shared Workspace",
+                workspace_content=None,
+                workspace_update=None,
+                concept_cards=[],
+                trace_notes=[],
+                saved_notes=[],
+                vault_notes=[],
+                candidate_concepts=[],
+                candidate_trace_notes=[],
+                candidate_saved_notes=[],
+                candidate_vault_notes=[],
+                candidate_memory=[],
+                working_memory=[],
+                recall_details=[],
+                learned=[],
+                memory_trace_record=None,
+                response_mode={
                     "kind": "grounded",
                     "label": "Recall",
                     "note": "Supported by 1 recalled item from Recall.",
@@ -2708,19 +3369,12 @@ def test_chat_builds_navigator_continuity_context_from_recent_whiteboards_and_me
                     "recall_count": 1,
                     "working_memory_count": 1,
                 },
-                "workspace": {
-                    "workspace_id": "v5-milestone-1",
-                    "title": "Shared Workspace",
-                    "content": None,
-                },
-                "working_memory": [],
-                "recall": [],
-                "learned": [],
-                "workspace_update": None,
-                "graph_action": None,
-                "memory_trace_record": None,
-                "meta_action": {"action": "no_op", "rationale": "Test stub."},
-            }
+                vetting={"selected_ids": []},
+                mode="openai",
+                meta_action={"action": "no_op", "rationale": "Test stub."},
+                graph_action=None,
+                created_record=None,
+            )
 
     monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", lambda self, **kwargs: DummyTurn())
@@ -2817,12 +3471,28 @@ def test_chat_keeps_last_turn_referenced_record_empty_when_latest_recall_is_ambi
         )
 
     class DummyTurn:
-        def to_dict(self):
-            return {
-                "user_message": "pull that up on the whiteboard",
-                "assistant_message": "Stub reply.",
-                "mode": "openai",
-                "response_mode": {
+        def to_body_parts(self) -> ChatTurnBodyParts:
+            return ChatTurnBodyParts(
+                user_message="pull that up on the whiteboard",
+                assistant_message="Stub reply.",
+                workspace_id="v5-milestone-1",
+                workspace_title="Shared Workspace",
+                workspace_content=None,
+                workspace_update=None,
+                concept_cards=[],
+                trace_notes=[],
+                saved_notes=[],
+                vault_notes=[],
+                candidate_concepts=[],
+                candidate_trace_notes=[],
+                candidate_saved_notes=[],
+                candidate_vault_notes=[],
+                candidate_memory=[],
+                working_memory=[],
+                recall_details=[],
+                learned=[],
+                memory_trace_record=None,
+                response_mode={
                     "kind": "grounded",
                     "label": "Recall",
                     "note": "Supported by recalled items from Recall.",
@@ -2832,19 +3502,12 @@ def test_chat_keeps_last_turn_referenced_record_empty_when_latest_recall_is_ambi
                     "recall_count": 2,
                     "working_memory_count": 2,
                 },
-                "workspace": {
-                    "workspace_id": "v5-milestone-1",
-                    "title": "Shared Workspace",
-                    "content": None,
-                },
-                "working_memory": [],
-                "recall": [],
-                "learned": [],
-                "workspace_update": None,
-                "graph_action": None,
-                "memory_trace_record": None,
-                "meta_action": {"action": "no_op", "rationale": "Test stub."},
-            }
+                vetting={"selected_ids": []},
+                mode="openai",
+                meta_action={"action": "no_op", "rationale": "Test stub."},
+                graph_action=None,
+                created_record=None,
+            )
 
     monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", lambda self, **kwargs: DummyTurn())
@@ -3034,6 +3697,15 @@ def test_open_accepts_record_id_alias_for_memory(tmp_path: Path) -> None:
     assert opened_payload["graph_action"]["record_id"] == "user-prefers-chat-first-ux"
     assert opened_payload["graph_action"]["concept_id"] == "user-prefers-chat-first-ux"
     assert opened_payload["graph_action"]["source"] == "memory"
+
+
+def test_open_missing_saved_item_returns_404(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+
+    opened = client.post("/api/concepts/open", json={"record_id": "missing-saved-item"})
+
+    assert opened.status_code == 404
+    assert "was not found" in opened.json()["detail"]
 
 
 def test_draft_request_does_not_auto_write_memory(tmp_path: Path) -> None:
@@ -4584,6 +5256,9 @@ def test_navigation_can_preserve_selected_context_for_semantic_follow_up(tmp_pat
     assert payload["turn_interpretation"]["mode"] == "chat"
     assert payload["turn_interpretation"]["preserve_selected_record"] is True
     assert payload["turn_interpretation"]["selected_record_reason"] == selected_record_reason
+    assert payload["semantic_frame"]["follow_up_type"] == "continuation"
+    assert payload["semantic_frame"]["referenced_object"]["id"] == "rules-of-hangman-game"
+    assert payload["semantic_frame"]["commitments"][-1] == "Keep the pinned context active for this turn."
     assert selected_record_reason in payload["vetting"]["rationale"]
 
 
@@ -4944,6 +5619,10 @@ def test_off_topic_selected_scenario_comparison_does_not_anchor_short_turn(tmp_p
             "title": "Email Drafting",
             "type": "concept",
             "card": "Draft and refine short emails.",
+            "kind": "concept",
+            "memory_role": "semantic_knowledge",
+            "recall_status": "recalled",
+            "source_tier": "curated",
             "source": "concept",
             "source_label": "Concept KB",
             "trust": "high",

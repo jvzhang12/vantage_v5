@@ -3,18 +3,29 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Vantage V5</title>
+    <title>Vantage</title>
     <link rel="stylesheet" href="/static/vendor/highlight-github.min.css?v=20260421-math-render-code" />
-    <link rel="stylesheet" href="/static/styles.css?v=20260423-simple-composer-pass01" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260426-protocol-editor" />
   </head>
   <body>
     <div class="notice-rail" id="noticeRail" aria-live="polite"></div>
+    <div class="confirm-overlay" id="confirmOverlay" hidden>
+      <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
+        <p class="eyebrow confirm-eyebrow" id="confirmEyebrow">Confirm</p>
+        <h2 id="confirmTitle">Confirm action</h2>
+        <p class="subtle confirm-message" id="confirmMessage">This action needs confirmation.</p>
+        <div class="button-row confirm-actions">
+          <button type="button" class="button button--secondary" id="confirmCancelButton">Cancel</button>
+          <button type="button" id="confirmAcceptButton">Confirm</button>
+        </div>
+      </section>
+    </div>
     <div class="shell" id="shell">
       <section class="panel chat-panel">
         <header class="panel-head chat-masthead">
           <div class="chat-masthead-copy">
             <div class="chat-masthead-utility">
-              <p class="eyebrow chat-brand-mark">Vantage V5</p>
+              <p class="eyebrow chat-brand-mark">Vantage</p>
               <span class="status-pill status-pill--soft chat-status-inline" id="statusPill" hidden>Loading</span>
             </div>
             <h1 id="chatSurfaceTitle" hidden></h1>
@@ -25,18 +36,19 @@
             </div>
           </div>
           <div class="button-row chat-utility-actions">
-            <button type="button" class="button button--secondary" id="whiteboardToggleButton">Whiteboard</button>
-            <button type="button" class="button button--secondary" id="vantageToggleButton">Vantage</button>
+            <button type="button" class="button button--secondary" id="whiteboardToggleButton">Draft</button>
+            <button type="button" class="button button--secondary" id="vantageToggleButton">Inspect</button>
           </div>
         </header>
 
         <div class="transcript-shell">
           <div class="transcript" id="transcript"></div>
         </div>
+        <div class="quiet-activity-line" id="quietActivityLine" aria-live="polite">Ready</div>
 
         <section class="turn-workspace-update chat-workspace-update" id="workspaceUpdatePanel" hidden>
-          <div class="section-label" id="workspaceUpdateLabel">Whiteboard Offer</div>
-          <div class="turn-notice turn-notice--decision" id="workspaceUpdateSummary">Whiteboard collaboration choices will appear here.</div>
+          <div class="section-label" id="workspaceUpdateLabel">Draft Offer</div>
+          <div class="turn-notice turn-notice--decision" id="workspaceUpdateSummary">Draft collaboration choices will appear here.</div>
           <div class="chip-row" id="workspaceUpdateActions"></div>
         </section>
 
@@ -52,12 +64,12 @@
       <aside class="panel whiteboard-panel" id="workspaceDock" hidden>
         <header class="panel-head whiteboard-utility-bar">
           <div class="whiteboard-utility-copy">
-            <p class="eyebrow">Shared Whiteboard</p>
-            <p class="subtle hero-copy">This is the shared draft surface. Chat stays in the sidebar, and Vantage stays available for review.</p>
+            <p class="eyebrow">Shared Draft</p>
+            <p class="subtle hero-copy">This is the shared draft surface. Chat stays in the sidebar, and Inspect stays available for review.</p>
           </div>
           <div class="button-row button-row--work whiteboard-actions">
             <button id="hideWhiteboardButton" type="button" class="button button--secondary">Back to chat</button>
-            <button id="saveWorkspaceButton" type="button">Save whiteboard</button>
+            <button id="saveWorkspaceButton" type="button">Save draft</button>
             <button id="promoteWorkspaceButton" type="button">Publish artifact</button>
           </div>
         </header>
@@ -65,15 +77,15 @@
           <div class="whiteboard-page">
             <section class="whiteboard-title-deck">
               <div class="whiteboard-heading">
-                <div class="section-label section-label--document">Whiteboard</div>
+                <div class="section-label section-label--document">Draft</div>
                 <span class="subtle whiteboard-panel-label" id="workspaceDockLabel">Ready to write</span>
               </div>
               <h2 id="workspaceTitle">Working Draft</h2>
               <div class="workspace-meta" id="workspaceMeta">Document surface ready.</div>
             </section>
             <section class="turn-workspace-update whiteboard-decision-panel" id="whiteboardDecisionPanel" hidden>
-              <div class="section-label" id="whiteboardDecisionLabel">Whiteboard Decision</div>
-              <div class="turn-notice turn-notice--decision" id="whiteboardDecisionSummary">Whiteboard decisions will appear here when needed.</div>
+              <div class="section-label" id="whiteboardDecisionLabel">Draft Decision</div>
+              <div class="turn-notice turn-notice--decision" id="whiteboardDecisionSummary">Draft decisions will appear here when needed.</div>
               <div class="chip-row" id="whiteboardDecisionActions"></div>
             </section>
             <section class="turn-workspace-update whiteboard-artifact-panel" id="workspaceArtifactPanel" hidden>
@@ -99,8 +111,8 @@
       <aside class="panel vantage-panel" id="vantagePanel" hidden>
         <header class="panel-head">
           <div>
-            <h2>Vantage</h2>
-            <p class="subtle hero-copy" id="vantageSummary">Start with the short answer, then inspect what entered Working Memory, what was recalled, and what was learned.</p>
+            <h2>Inspect</h2>
+            <p class="subtle hero-copy" id="vantageSummary">Start with the short answer, then inspect the context in scope, what was pulled in, and what was saved for later.</p>
           </div>
           <div class="button-row">
             <button type="button" class="button button--secondary" id="closeVantageButton">Back to chat</button>
@@ -111,9 +123,9 @@
           <details class="dock" id="answerDock" open>
             <summary class="dock-summary">
               <div>
-                <p class="eyebrow">Provenance</p>
-                <h2>Why This Answer</h2>
-                <p class="subtle dock-summary-copy">Start here for the answer summary, what entered Working Memory, what was recalled, and what changed after the turn.</p>
+                <p class="eyebrow">Answer Context</p>
+                <h2>What I Used</h2>
+                <p class="subtle dock-summary-copy">Start here for the answer summary, the context in scope, what was pulled in, and what changed after the turn.</p>
               </div>
               <span class="subtle dock-label" id="answerDockLabel">Idle</span>
             </summary>
@@ -132,30 +144,31 @@
                 <div class="section-label">At a glance</div>
                 <div class="turn-notice" id="turnNotice">Why this answer happened, what supported it, and what changed after the turn.</div>
                 <div class="turn-summary-facts" id="turnSummaryFacts"></div>
+                <div class="inspect-buckets" id="turnInspectBuckets"></div>
               </section>
               <section class="turn-support-group turn-support-group--working-memory">
                 <div class="section-head">
                   <div>
-                    <div class="section-label">Working Memory</div>
+                    <div class="section-label">Context in Scope</div>
                     <div class="subtle" id="turnWorkingMemorySummaryMeta">Everything that was in scope for generation, not just the retrieved subset.</div>
                   </div>
                 </div>
                 <section class="turn-working-memory-block">
-                  <div class="turn-notice" id="turnWorkingMemoryNotice">Working Memory is the bounded context that was in scope for generation.</div>
+                  <div class="turn-notice" id="turnWorkingMemoryNotice">Context in scope is the bounded context that was available for generation.</div>
                   <div class="turn-summary-facts turn-summary-facts--working-memory" id="turnWorkingMemoryFacts"></div>
                 </section>
               </section>
               <section class="turn-support-group">
                 <div class="section-head">
                   <div>
-                    <div class="section-label">Recall</div>
+                    <div class="section-label">Pulled In</div>
                     <div class="subtle">Retrieved items pulled into the turn from your library and recent continuity.</div>
                   </div>
                 </div>
                 <details class="turn-support-details" id="turnRecallSection" open>
                   <summary class="turn-support-details__summary">
-                    <span class="section-label section-label--subtle">Recalled items</span>
-                    <span class="subtle turn-support-details__meta" id="turnRecallSummaryMeta">No recall yet</span>
+                    <span class="section-label section-label--subtle">Pulled-in items</span>
+                    <span class="subtle turn-support-details__meta" id="turnRecallSummaryMeta">Nothing pulled in yet</span>
                   </summary>
                   <div class="turn-support-block">
                     <div class="concept-list compact" id="turnWorkingMemoryList"></div>
@@ -165,7 +178,7 @@
               <section class="turn-support-group">
                 <div class="section-head">
                   <div>
-                    <div class="section-label">Learned</div>
+                    <div class="section-label">Saved for Later</div>
                     <div class="subtle">What the system saved or updated from this turn and why.</div>
                   </div>
                 </div>
@@ -182,7 +195,7 @@
               <section class="turn-support-group turn-support-group--deep">
                 <div class="section-head">
                   <div>
-                    <div class="section-label">Look deeper</div>
+                    <div class="section-label">Details</div>
                     <div class="subtle">Open these when you want route detail or recent-turn continuity.</div>
                   </div>
                 </div>
@@ -202,7 +215,7 @@
                     <span class="subtle turn-support-details__meta" id="turnLearnedCorrectionMeta">Collapsed</span>
                   </summary>
                   <div class="turn-support-block">
-                    <div class="turn-notice turn-notice--decision" id="turnLearnedCorrectionSummary">Learned-item correction options will appear here.</div>
+                    <div class="turn-notice turn-notice--decision" id="turnLearnedCorrectionSummary">Saved-item correction options will appear here.</div>
                     <div class="chip-row" id="turnLearnedCorrectionActions"></div>
                   </div>
                 </details>
@@ -210,7 +223,7 @@
                   <summary class="turn-reasoning-path__summary">
                     <div>
                       <div class="section-label">Reasoning Path</div>
-                      <div class="subtle turn-reasoning-path__summary-copy" id="turnReasoningPathSummary">Open the full reasoning path when you want the staged route and Working Memory details.</div>
+                      <div class="subtle turn-reasoning-path__summary-copy" id="turnReasoningPathSummary">Open the full reasoning path when you want the staged route and context-in-scope details.</div>
                     </div>
                     <span class="subtle turn-reasoning-path__summary-state" id="turnReasoningPathState">Collapsed</span>
                   </summary>
@@ -345,6 +358,6 @@
 
     <script src="/static/vendor/katex.min.js?v=20260421-math-render-code"></script>
     <script src="/static/vendor/highlight.min.js?v=20260421-math-render-code"></script>
-    <script type="module" src="/static/app.js?v=20260423-simple-composer-pass01"></script>
+    <script type="module" src="/static/app.js?v=20260426-visible-protocol-editor"></script>
   </body>
 </html>

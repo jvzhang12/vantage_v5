@@ -24,7 +24,7 @@ Implements keyword-style scoring across concepts, recent memory-trace records, s
 ## Key Classes / Functions
 
 - `SearchableRecord`: protocol describing the fields the scorer needs.
-- `CandidateMemory`: normalized search result with score, debug `reason`, user-facing `why_recalled`, source, trust, body, and optional path. `to_recall_dict()` emits the product-safe recall view with both `why_recalled` and canonical `recall_reason`, but without the raw debug scoring string.
+- `CandidateMemory`: normalized search result with score, debug `reason`, user-facing `why_recalled`, source, trust, body, optional path, and optional protocol metadata. `to_dict()` preserves `why_recalled` plus canonical `recall_reason`, protocol editor metadata, and additive taxonomy fields (`kind`, `memory_role`, `recall_status`, `source_tier`) for candidate payloads, while `to_recall_dict()` emits the product-safe recalled view without the raw debug scoring string.
 - `ConceptSearchService`: search façade for concept-only, memory-only, or mixed context queries.
 - `_search_records()`: applies weighted overlap scoring, phrase boosts, and filters out zero-score items.
 - `_token_variants()`: handles simple stemming and alias expansion.

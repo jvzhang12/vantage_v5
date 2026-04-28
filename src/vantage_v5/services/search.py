@@ -66,28 +66,20 @@ class CandidateMemory:
     body: str = ""
     path: str | None = None
     why_recalled: str | None = None
+    protocol: dict | None = None
 
     def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "title": self.title,
-            "type": self.type,
-            "card": self.card,
-            "score": self.score,
-            "reason": self.reason,
-            "source": self.source,
-            "source_label": _source_label(self.source),
-            "trust": self.trust,
-            "body": self.body,
-            "path": self.path,
-        }
-
-    def to_recall_dict(self) -> dict:
         payload = {
             "id": self.id,
             "title": self.title,
             "type": self.type,
             "card": self.card,
+            "kind": _record_kind(self.source, self.type),
+            "memory_role": _memory_role(self.source, self.type),
+            "recall_status": "candidate",
+            "source_tier": _source_tier(self.source, self.type),
+            "score": self.score,
+            "reason": self.reason,
             "source": self.source,
             "source_label": _source_label(self.source),
             "trust": self.trust,
@@ -97,6 +89,31 @@ class CandidateMemory:
         if self.why_recalled:
             payload["recall_reason"] = self.why_recalled
             payload["why_recalled"] = self.why_recalled
+        if self.protocol:
+            payload["protocol"] = self.protocol
+        return payload
+
+    def to_recall_dict(self) -> dict:
+        payload = {
+            "id": self.id,
+            "title": self.title,
+            "type": self.type,
+            "card": self.card,
+            "kind": _record_kind(self.source, self.type),
+            "memory_role": _memory_role(self.source, self.type),
+            "recall_status": "recalled",
+            "source_tier": _source_tier(self.source, self.type),
+            "source": self.source,
+            "source_label": _source_label(self.source),
+            "trust": self.trust,
+            "body": self.body,
+            "path": self.path,
+        }
+        if self.why_recalled:
+            payload["recall_reason"] = self.why_recalled
+            payload["why_recalled"] = self.why_recalled
+        if self.protocol:
+            payload["protocol"] = self.protocol
         return payload
 
 
@@ -354,6 +371,48 @@ def _source_label(source: str) -> str:
         "artifact": "Saved artifact",
         "vault_note": "Reference note",
     }.get(source, "Record")
+
+
+def _record_kind(source: str, record_type: str) -> str:
+    if record_type == "protocol":
+        return "protocol"
+    if source == "concept":
+        return "concept"
+    if source == "memory_trace":
+        return "memory_trace"
+    if source in {"memory", "artifact"}:
+        return "saved_note"
+    if source == "vault_note":
+        return "reference_note"
+    return "record"
+
+
+def _memory_role(source: str, record_type: str) -> str:
+    if record_type == "protocol":
+        return "protocol"
+    if source == "concept":
+        return "semantic_knowledge"
+    if source == "memory_trace":
+        return "turn_continuity"
+    if source in {"memory", "artifact"}:
+        return "saved_context"
+    if source == "vault_note":
+        return "reference_context"
+    return "context"
+
+
+def _source_tier(source: str, record_type: str) -> str:
+    if record_type == "protocol":
+        return "instruction"
+    if source == "concept":
+        return "curated"
+    if source == "memory_trace":
+        return "recent"
+    if source in {"memory", "artifact"}:
+        return "saved"
+    if source == "vault_note":
+        return "reference"
+    return "unknown"
 
 
 def _phrase_bonus(query_phrase: str, text: str, *, weight: float) -> float:

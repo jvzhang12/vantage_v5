@@ -459,10 +459,10 @@ The following implementation defaults are locked in for the V5 MVP.
 
 ### Product Scope
 The V5 MVP is explicitly:
-- single-user
+- single-user by default, with optional isolated private user profiles for hosted deployments
 - local-first
 
-This keeps the system aligned with Markdown-backed personal/project memory and avoids premature multi-user complexity.
+This keeps the system aligned with Markdown-backed personal/project memory while avoiding premature team-collaboration complexity.
 
 ### Model Roles
 For the MVP, chat, vetting, and meta calls should use the same default model family unless a strong reason emerges to split them later.
@@ -634,7 +634,7 @@ Canonical response fields:
 | `learned` | `created_record` | Server emits both; the webapp prefers `learned` and falls back to `created_record` for compatibility. | Remove the alias once the webapp no longer needs the fallback and tests cover `learned` only. |
 | `workspace_update.status` | `workspace_update.type` | Server and webapp normalize around `status`; the webapp still carries `type` through pending whiteboard context and older payloads. | Remove the alias once pending-workspace flows only use `status` end to end. |
 | `selected_record_id` | none | The webapp sends `selected_record_id`; the server consumes it for selected-item continuity. | Keep this row as documentation only; there is no active request alias to remove. |
-| `record_id` | `concept_id` | `POST /api/concepts/open` accepts both; the server resolves either one for opening a saved item into the workspace. | Remove `concept_id` once every caller uses `record_id`. |
+| `record_id` | `concept_id` | `POST /api/concepts/open` accepts both; the server resolves either one for opening a saved concept, memory, or artifact into the workspace. | Remove `concept_id` once every caller uses `record_id`. |
 
 In the current architecture, `whiteboard_mode` from the UI is a user preference, not the whole routing decision.
 The navigator interprets the turn semantically and can return continuity and whiteboard hints for auto-mode turns before the normal chat reply is generated.
@@ -843,6 +843,8 @@ Then open [http://127.0.0.1:8005](http://127.0.0.1:8005).
 
 If `OPENAI_API_KEY` is present in `.env`, chat runs through OpenAI.
 If not, the app falls back to a local placeholder chat response so the UI and workspace flow still work.
+
+For private online access, see [docs/deployment.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/deployment.md). The deployment path supports configurable host binding, opt-in HTTP Basic Auth, optional isolated user profiles, Docker, and persistent Markdown storage.
 
 ## Milestones
 

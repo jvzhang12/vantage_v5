@@ -1,5 +1,6 @@
 import {
   normalizeLearnedItems,
+  normalizeProtocolMetadata,
   normalizeResponseMode,
 } from "./turn_payloads.mjs";
 
@@ -202,6 +203,9 @@ export function describeRecallReason(item = null) {
   if (source === "memory") {
     return "A saved memory looked relevant to this request.";
   }
+  if (type === "protocol") {
+    return "A reusable protocol was applied to guide this turn.";
+  }
   if (source === "concept" || type === "concept") {
     return "A reusable idea in your library looked relevant to this request.";
   }
@@ -402,6 +406,230 @@ export function buildTurnAtAGlanceSummary({
   return parts.join(" ") || "This view explains why the answer happened, what entered Recall, and what changed after the turn.";
 }
 
+export function describeSemanticActionCopy({
+  semanticPolicy = null,
+  semanticFrame = null,
+} = {}) {
+  const explicitLabel = String(semanticPolicy?.actionLabel || "").trim();
+  if (explicitLabel) {
+    return explicitLabel;
+  }
+  const action = String(semanticPolicy?.semanticAction || "").trim().toLowerCase();
+  switch (action) {
+    case "ask_clarification":
+    case "clarify":
+      return "Ask a clarifying question";
+    case "draft":
+    case "draft_in_whiteboard":
+      return "Draft in whiteboard";
+    case "revise":
+    case "revise_whiteboard":
+      return "Revise the draft";
+    case "compare":
+    case "run_scenario_lab":
+      return "Compare options";
+    case "save":
+    case "save_artifact":
+    case "artifact_save":
+      return "Save this work";
+    case "publish":
+    case "publish_artifact":
+    case "artifact_publish":
+      return "Publish artifact";
+    case "inspect":
+    case "show_reasoning":
+    case "context_inspect":
+      return "Show why";
+    case "experiment_manage":
+    case "manage_experiment":
+      return "Manage experiment";
+    case "respond":
+    case "answer":
+      return "Answer directly";
+    default:
+      return describeSemanticFrameAction(semanticFrame);
+  }
+}
+
+export function describeSemanticClarificationCopy({
+  semanticPolicy = null,
+  semanticFrame = null,
+} = {}) {
+  const needsClarification = Boolean(
+    semanticPolicy?.needsClarification
+      ?? semanticFrame?.needsClarification,
+  );
+  const prompt = String(
+    semanticPolicy?.clarificationPrompt
+      || semanticFrame?.clarificationPrompt
+      || "",
+  ).trim();
+  if (needsClarification) {
+    return prompt || "Ask one clarifying question before continuing.";
+  }
+  return "No clarification needed.";
+}
+
+export function buildSemanticPolicyCopy({
+  semanticPolicy = null,
+  semanticFrame = null,
+} = {}) {
+  if (!semanticPolicy && !semanticFrame) {
+    return {
+      visible: false,
+      actionLabel: "",
+      clarificationLabel: "",
+      summary: "",
+    };
+  }
+  const actionLabel = describeSemanticActionCopy({ semanticPolicy, semanticFrame });
+  const clarificationLabel = describeSemanticClarificationCopy({ semanticPolicy, semanticFrame });
+  const reason = String(semanticPolicy?.reason || "").trim();
+  return {
+    visible: true,
+    actionLabel,
+    clarificationLabel,
+    summary: reason || `${actionLabel}. ${clarificationLabel}`,
+  };
+}
+
+export function buildInspectBuckets({
+  protocolItems = [],
+  usedItems = [],
+  recentItems = [],
+  draftItems = [],
+} = {}) {
+  const protocols = dedupeInspectItems([
+    ...normalizeInspectItems(protocolItems),
+    ...normalizeInspectItems(usedItems).filter(isProtocolItem),
+  ]);
+  const used = dedupeInspectItems(
+    normalizeInspectItems(usedItems).filter((item) => !isProtocolItem(item)),
+  );
+  const recent = dedupeInspectItems(normalizeInspectItems(recentItems));
+  const draft = dedupeInspectItems(normalizeInspectItems(draftItems));
+  return [
+    {
+      key: "protocol",
+      label: "Protocol",
+      count: protocols.length,
+      items: protocols,
+      summary: protocols.length
+        ? `${protocols.length} reusable ${pluralize("protocol", protocols.length)} guided this turn.`
+        : "No protocol guidance was applied.",
+      emptyMessage: "Protocols will appear here when reusable task guidance is applied.",
+    },
+    {
+      key: "used",
+      label: "Used",
+      count: used.length,
+      items: used,
+      summary: used.length
+        ? `${used.length} pulled-in ${pluralize("item", used.length)} supported the answer.`
+        : "No pulled-in items were used.",
+      emptyMessage: "Used items from Recall will appear here.",
+    },
+    {
+      key: "recent",
+      label: "Recent",
+      count: recent.length,
+      items: recent,
+      summary: recent.length
+        ? `${recent.length} recent ${pluralize("item", recent.length)} stayed inspectable.`
+        : "No recent continuity item surfaced.",
+      emptyMessage: "Recent Memory Trace context will appear here.",
+    },
+    {
+      key: "draft",
+      label: "Draft",
+      count: draft.length,
+      items: draft,
+      summary: draft.length
+        ? `${draft.length} draft ${pluralize("signal", draft.length)} shaped the turn.`
+        : "No draft context was in scope.",
+      emptyMessage: "Draft scope and draft actions will appear here.",
+    },
+  ];
+}
+
+export function buildQuietActivityCopy({
+  activity = [],
+  semanticPolicy = null,
+  semanticFrame = null,
+  scenarioLab = null,
+  workspaceUpdate = null,
+  grounding = null,
+  busy = false,
+} = {}) {
+  const explicit = Array.isArray(activity)
+    ? activity.map((item) => String(item?.message || item?.label || "").trim()).filter(Boolean)
+    : [];
+  if (explicit.length) {
+    return explicit.slice(0, 2).join(" · ");
+  }
+  if (busy) {
+    return "Vantage is interpreting the request and preparing context.";
+  }
+  const parts = [];
+  const semanticCopy = buildSemanticPolicyCopy({ semanticPolicy, semanticFrame });
+  if (semanticCopy.visible && semanticCopy.actionLabel) {
+    parts.push(semanticCopy.actionLabel);
+  }
+  if (scenarioLab?.status === "failed") {
+    parts.push("Scenario Lab returned to chat");
+  } else if (scenarioLab) {
+    const branchCount = scenarioLabBranchCount(scenarioLab);
+    parts.push(branchCount ? `Scenario Lab prepared ${branchCount} ${pluralize("branch", branchCount)}` : "Scenario Lab ready");
+  }
+  if (workspaceUpdate?.status === "offered") {
+    parts.push("Draft offered");
+  } else if (workspaceUpdate?.status === "draft_ready" || workspaceUpdate?.status === "updated") {
+    parts.push("Draft ready");
+  }
+  if (grounding?.groundingLabel && grounding.groundingLabel !== "Idle") {
+    parts.push(`Context: ${grounding.groundingLabel}`);
+  }
+  return parts.slice(0, 3).join(" · ") || "Ready";
+}
+
+function normalizeInspectItems(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .filter(Boolean)
+    .map((item) => {
+      const protocol = normalizeProtocolMetadata(item);
+      return {
+        ...item,
+        protocol,
+      };
+    });
+}
+
+function dedupeInspectItems(items = []) {
+  const seen = new Set();
+  const deduped = [];
+  for (const item of items) {
+    const key = String(item?.id || item?.title || item?.label || JSON.stringify(item)).trim();
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(item);
+  }
+  return deduped;
+}
+
+function isProtocolItem(item = null) {
+  const type = String(item?.type || item?.kind || "").trim().toLowerCase();
+  const protocolKind = String(
+    item?.protocol?.protocolKind
+      || item?.protocol?.protocol_kind
+      || item?.protocol_kind
+      || item?.protocolKind
+      || "",
+  ).trim();
+  return type === "protocol" || Boolean(protocolKind);
+}
+
 function responseModeEvidenceLabel(responseMode, payload) {
   const kind = String(responseMode?.kind || "").trim().toLowerCase();
   const groundingMode = String(responseMode?.groundingMode || responseMode?.grounding_mode || "").trim().toLowerCase();
@@ -430,6 +658,24 @@ function responseModeEvidenceLabel(responseMode, payload) {
     return count > 0 ? `Used ${count} recalled ${pluralize("item", count)}` : (String(responseMode?.label || "").trim() || "From earlier");
   }
   return null;
+}
+
+function describeSemanticFrameAction(semanticFrame = null) {
+  const taskType = String(semanticFrame?.taskType || semanticFrame?.task_type || "").trim().toLowerCase();
+  const targetSurface = String(semanticFrame?.targetSurface || semanticFrame?.target_surface || "").trim().toLowerCase();
+  if (targetSurface === "whiteboard") {
+    return taskType === "revision" ? "Revise the draft" : "Draft in whiteboard";
+  }
+  if (targetSurface === "scenario_lab" || taskType === "scenario_comparison") {
+    return "Compare options";
+  }
+  if (targetSurface === "artifact" || taskType === "artifact_save" || taskType === "artifact_publish") {
+    return "Save this work";
+  }
+  if (targetSurface === "vantage_inspect" || taskType === "context_inspection") {
+    return "Show why";
+  }
+  return "Answer directly";
 }
 
 function responseModeContextSources(responseMode = null) {

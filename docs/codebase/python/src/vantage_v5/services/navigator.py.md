@@ -9,6 +9,7 @@ LLM-based turn interpreter for Vantage V5. It decides whether a chat turn should
 - Decide whether an explicitly pinned context should be preserved as continuity context for the turn.
 - Stay conservative and route ambiguous requests back to normal chat.
 - Provide structured hints for Scenario Lab, including branch count and branch labels.
+- Provide a first-class `control_panel` plan describing the product controls the Navigator would press and the working-memory context it wants assembled.
 
 ## Core Data Flow
 
@@ -16,6 +17,9 @@ LLM-based turn interpreter for Vantage V5. It decides whether a chat turn should
 - That `continuity_context` is now metadata-first and intentionally small: `current_whiteboard`, a short `recent_whiteboards` list, `last_turn_referenced_record`, and `last_turn_recall`. It is server-built and internal to the navigator call; it does not require the public `/api/chat` request schema to change, and its newest referenced-record fact is read from internal Memory Trace frontmatter rather than inferred only from public payload aliases.
 - If OpenAI is unavailable it returns a fallback decision that keeps the turn in normal chat and leaves the whiteboard / continuity hints unset so later layers can use conservative fallback behavior.
 - Otherwise it calls the Responses API with a JSON schema contract and conservative instructions that reserve Scenario Lab for clear comparative what-if or option-analysis requests while also choosing whether normal chat should stay in chat, invite whiteboard collaboration, or draft directly into the whiteboard.
+- The model now also returns a `control_panel` object with action button presses, requested working-memory queries, and the intended response call after context assembly. This is additive for now, but it is the migration target for removing scattered deterministic intent classifiers.
+- The available control-panel actions include `apply_protocol`, which lets the Navigator choose reusable task guidance such as the Scenario Lab protocol before the response call.
+- Control-panel actions now include a nullable `protocol_kind` field. It should be `null` for non-protocol actions, and it is required for `apply_protocol` with one of `email`, `research_paper`, or `scenario_lab`.
 - Those instructions now explicitly frame workspace scenario metadata as transparent facts about the currently open whiteboard rather than a second hidden continuity system, so reopening a saved branch does not by itself force a fresh Scenario Lab rerun.
 - Those instructions now explicitly tell the model to treat `pending_workspace_update` as live drafting context, so a short acceptance or continuation turn can flip a previous whiteboard offer into `whiteboard_mode="draft"` instead of repeating the invitation or misclassifying the turn as ordinary chat.
 - The prompt also now tells the model that if the active whiteboard already contains a live draft and the user is revising that work, it should choose `whiteboard_mode="draft"` rather than reopening or reoffering the whiteboard.
@@ -26,17 +30,19 @@ LLM-based turn interpreter for Vantage V5. It decides whether a chat turn should
 
 ## Key Classes / Functions
 
-- `NavigationDecision`: structured interpretation result with `mode`, `confidence`, `reason`, optional `comparison_question`, branch hints, optional `whiteboard_mode`, and optional pinned-context continuity fields plus legacy compatibility aliases.
+- `NavigationDecision`: structured interpretation result with `mode`, `confidence`, `reason`, optional `comparison_question`, branch hints, optional `whiteboard_mode`, optional pinned-context continuity fields plus legacy compatibility aliases, and an optional `control_panel`.
 - `NavigationDecision.to_dict()`: serializes the router decision for traces and downstream payloads.
 - `NavigatorService`: OpenAI-backed interpreter used by the server before it dispatches a turn.
 - `route_turn()`: main entry point for interpretation.
 - `_openai_route()`: builds the structured navigator request and parses the model response.
 - `_fallback_decision()`: returns a safe chat decision when routing cannot be completed.
-- `_normalize_whiteboard_mode_hint()`, `_normalize_preserve_pinned_context()`, and `_normalize_reason()`: validate the semantic hint fields coming back from the model while keeping the legacy selected-record aliases tolerated at parse time.
+- `_normalize_whiteboard_mode_hint()`, `_normalize_preserve_pinned_context()`, `_normalize_reason()`, and `_normalize_control_panel()`: validate the semantic hint fields coming back from the model while keeping the legacy selected-record aliases tolerated at parse time.
 
 ## Notable Edge Cases
 
-- The service never writes files or opens workspaces directly; it only interprets the turn.
+- The service never writes files or opens workspaces directly; it only interprets the turn and now describes intended button presses in `control_panel`.
+- `apply_protocol` is only a structured request; the server and protocol service validate the protocol kind and assemble working memory later.
+- If `apply_protocol` omits `protocol_kind`, deterministic execution should not guess; the Navigator contract should be tightened instead so the model names the supported protocol explicitly.
 - Confidence is clamped into a `0.0` to `1.0` range.
 - Branch labels and counts are treated as hints, not guarantees, because Scenario Lab still validates and normalizes them later.
 - The allowed route set is intentionally small so the rest of the system can dispatch deterministically after interpretation.

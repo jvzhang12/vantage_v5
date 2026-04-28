@@ -214,6 +214,41 @@ They should be inspected in `Vantage` and reopened into the `Whiteboard` when th
 It should produce durable branch outputs and a comparison artifact, not just a formatted ordinary chat answer.
 It is routed separately from ordinary chat.
 
+### Protocol
+
+`Protocol` is reusable task guidance for a recurring class of work.
+
+Protocols can store user preferences, output shape, variables, and reasoning procedures.
+
+Examples include email drafting, research-paper drafting, and Scenario Lab reasoning.
+
+Protocols are not ordinary factual memories. When a protocol enters Working Memory, the model should treat it as task guidance or a recipe, not as evidence about the world.
+
+### Navigator Control Panel
+
+`Navigator Control Panel` is the structured action plan returned by the Navigator LLM.
+
+It describes product controls Vantage should press, such as responding, recalling context, applying a protocol, opening the whiteboard, drafting in the whiteboard, entering Scenario Lab, saving, publishing, managing experiment mode, or asking for clarification.
+
+The control panel is the intended place for broad user-intent interpretation.
+Deterministic code should validate and execute those structured actions rather than broadly classifying raw user text.
+
+### Semantic Frame
+
+`Semantic Frame` is a product-facing read model of what Vantage understood about the current turn.
+
+It includes fields such as user goal, task type, follow-up type, target surface, referenced object, signals, commitments, and confidence.
+
+It is an inspectable explanation layer, not durable memory.
+
+### Semantic Policy
+
+`Semantic Policy` is the deterministic local policy derived from the Semantic Frame plus known server context.
+
+It can safely answer or clarify narrow product commands such as saving the visible whiteboard, publishing an artifact, inspecting context, or managing experiment mode.
+
+This layer should stay narrow and should not become a broad raw-text intent router.
+
 ### Experiment Mode
 
 `Experiment Mode` is a session-local sandbox.
@@ -235,6 +270,8 @@ These distinctions should not drift:
 - `Learned` is about what changed this turn, not everything the system considered.
 - `Workspace` is a compatibility term; `Whiteboard` is the intended product term.
 - `Pinned Context` is the canonical continuity noun for the public/client seam; selected-record naming is now a compatibility alias.
+- `Protocol` is task guidance, not a factual source claim.
+- `Navigator Control Panel` is the target seam for intent interpretation; deterministic code is the executor and validator.
 
 ## Product Rules Implied By These Definitions
 

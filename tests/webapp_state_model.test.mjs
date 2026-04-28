@@ -30,14 +30,22 @@ import {
   buildTurnPanelGroundingCopy,
 } from "../src/vantage_v5/webapp/turn_panel_grounding.mjs";
 import {
+  buildSemanticPolicyCopy,
   buildReasoningPathInspection,
+  describeSemanticActionCopy,
+  describeSemanticClarificationCopy,
 } from "../src/vantage_v5/webapp/product_identity.mjs";
 import {
   normalizeLearnedItems,
   normalizeComparisonBranchIndex,
+  normalizeActivity,
+  normalizeProtocolMetadata,
   normalizeRecordId,
   normalizeResponseMode,
   normalizeScenarioLabPayload,
+  normalizeSemanticFrame,
+  normalizeSemanticPolicy,
+  normalizeSystemState,
   normalizeTurnPayload,
   normalizeTurnInterpretation,
   normalizeWorkspaceUpdate,
@@ -598,12 +606,23 @@ test("turn interpretation normalization prefers pinned context semantics while k
     pinned_context_reason: "The pinned context stays active for continuity.",
     preserve_selected_record: false,
     selected_record_reason: "Legacy selected-record wording should not win.",
+    control_panel: {
+      actions: [
+        { type: "recall", reason: "Load the pinned context." },
+        { type: "respond", reason: "Answer after Recall is assembled." },
+      ],
+      working_memory_queries: ["pinned context"],
+      response_call: { type: "chat_response", after_working_memory: true },
+    },
   });
 
   assert.equal(normalized.preservePinnedContext, true);
   assert.equal(normalized.pinnedContextReason, "The pinned context stays active for continuity.");
   assert.equal(normalized.preserveSelectedRecord, true);
   assert.equal(normalized.selectedRecordReason, "The pinned context stays active for continuity.");
+  assert.deepEqual(normalized.controlPanel.actions.map((action) => action.type), ["recall", "respond"]);
+  assert.deepEqual(normalized.controlPanel.workingMemoryQueries, ["pinned context"]);
+  assert.equal(normalized.controlPanel.responseCall.after_working_memory, true);
 });
 
 test("reasoning path inspection uses pinned context labels for continuity", () => {
@@ -1039,6 +1058,192 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
       selectedRecordId: null,
       selectedRecord: null,
       scenarioLab: null,
+      semanticFrame: null,
+      semanticPolicy: null,
+      systemState: null,
+      activity: [],
+    },
+  );
+
+  assert.deepEqual(
+    normalizeProtocolMetadata({
+      type: "protocol",
+      protocol: {
+        protocol_kind: "scenario_lab",
+        variables: { lens: "tradeoffs" },
+        applies_to: ["scenario planning"],
+        modifiable: "false",
+        is_builtin: "true",
+        overrides_builtin: "false",
+      },
+    }),
+    {
+      protocolKind: "scenario_lab",
+      variables: { lens: "tradeoffs" },
+      appliesTo: ["scenario planning"],
+      modifiable: false,
+      isBuiltin: true,
+      overridesBuiltin: false,
+    },
+  );
+
+  assert.deepEqual(
+    normalizeSystemState({
+      mode: "openai",
+      workspace_scope: "durable",
+      user: { id: "eden" },
+      nexus_enabled: "true",
+      experiment: { active: "yes", session_id: "exp-1" },
+    }),
+    {
+      mode: "openai",
+      scope: "durable",
+      userId: "eden",
+      nexusEnabled: true,
+      experiment: {
+        active: true,
+        sessionId: "exp-1",
+      },
+    },
+  );
+
+  assert.deepEqual(
+    normalizeActivity([
+      { type: "apply protocol", label: "Applied Scenario Lab", message: "Protocol-as-guidance", quiet: "yes" },
+    ]),
+    [
+      {
+        type: "apply_protocol",
+        label: "Applied Scenario Lab",
+        message: "Protocol-as-guidance",
+        tone: "neutral",
+        source: "",
+        quiet: true,
+        createdAt: "",
+      },
+    ],
+  );
+
+  assert.deepEqual(
+    normalizeSemanticFrame({
+      user_goal: "Move the work into a shared draft.",
+      task_type: "drafting",
+      follow_up_type: "deictic_reference",
+      target_surface: "whiteboard",
+      referenced_object: {
+        id: "v5-milestone-1",
+        title: "Milestone Draft",
+        type: "whiteboard",
+        source: "workspace",
+      },
+      confidence: 0.86,
+      needs_clarification: false,
+      commitments: ["Keep drafting work visible in the whiteboard."],
+    }),
+    {
+      userGoal: "Move the work into a shared draft.",
+      taskType: "drafting",
+      followUpType: "deictic_reference",
+      targetSurface: "whiteboard",
+      referencedObject: {
+        id: "v5-milestone-1",
+        title: "Milestone Draft",
+        type: "whiteboard",
+        source: "workspace",
+      },
+      confidence: 0.86,
+      needsClarification: false,
+      clarificationPrompt: null,
+      signals: {},
+      commitments: ["Keep drafting work visible in the whiteboard."],
+    },
+  );
+
+  assert.deepEqual(
+    normalizeSemanticPolicy({
+      semantic_action: "ask clarification",
+      action_label: "Clarify target draft",
+      needs_clarification: "yes",
+      clarification_prompt: "Which draft should I update?",
+      clarification_options: ["Current whiteboard", "Pinned milestone"],
+      status: "waiting_for_user",
+      reason: "The referenced draft is ambiguous.",
+      confidence: "0.71",
+      blocking: true,
+      signals: { ambiguous_reference: true },
+    }),
+    {
+      semanticAction: "ask_clarification",
+      actionLabel: "Clarify target draft",
+      needsClarification: true,
+      clarificationPrompt: "Which draft should I update?",
+      clarificationOptions: ["Current whiteboard", "Pinned milestone"],
+      status: "waiting_for_user",
+      reason: "The referenced draft is ambiguous.",
+      confidence: 0.71,
+      blocking: true,
+      signals: { ambiguous_reference: true },
+    },
+  );
+
+  assert.equal(
+    describeSemanticActionCopy({
+      semanticPolicy: { semanticAction: "ask_clarification" },
+      semanticFrame: { taskType: "revision", targetSurface: "whiteboard" },
+    }),
+    "Ask a clarifying question",
+  );
+  assert.equal(
+    describeSemanticClarificationCopy({
+      semanticPolicy: {
+        needsClarification: true,
+        clarificationPrompt: "Which draft should I update?",
+      },
+    }),
+    "Which draft should I update?",
+  );
+  assert.deepEqual(
+    buildSemanticPolicyCopy({
+      semanticPolicy: normalizeSemanticPolicy({
+        semanticAction: "draft_in_whiteboard",
+        needsClarification: false,
+        reason: "",
+      }),
+      semanticFrame: { taskType: "drafting", targetSurface: "whiteboard" },
+    }),
+    {
+      visible: true,
+      actionLabel: "Draft in whiteboard",
+      clarificationLabel: "No clarification needed.",
+      summary: "Draft in whiteboard. No clarification needed.",
+    },
+  );
+
+  assert.deepEqual(
+    normalizeTurnPayload({
+      semanticFrame: {
+        userGoal: "Revise the pinned draft.",
+        taskType: "revision",
+        targetSurface: "whiteboard",
+        needsClarification: true,
+        clarificationPrompt: "Should I revise the pinned draft or current whiteboard?",
+      },
+      semanticPolicy: {
+        actionKind: "clarify",
+        shouldClarify: true,
+      },
+    }).semanticPolicy,
+    {
+      semanticAction: "clarify",
+      actionLabel: "",
+      needsClarification: true,
+      clarificationPrompt: "Should I revise the pinned draft or current whiteboard?",
+      clarificationOptions: [],
+      status: "needs_clarification",
+      reason: "",
+      confidence: 0,
+      blocking: true,
+      signals: {},
     },
   );
 
@@ -1060,6 +1265,11 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
       requestedWhiteboardMode: "auto",
       resolvedWhiteboardMode: "draft",
       whiteboardModeSource: "request",
+      controlPanel: {
+        actions: [],
+        workingMemoryQueries: [],
+        responseCall: null,
+      },
       preservePinnedContext: true,
       pinnedContextReason: "Keep the pinned draft in scope.",
       preserveSelectedRecord: true,

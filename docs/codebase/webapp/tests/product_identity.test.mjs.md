@@ -19,6 +19,8 @@ Focused frontend unit tests for the product-identity helpers.
 - Verify the staged `Reasoning Path` inspection model stays truthful across recall-grounded, whiteboard-grounded, recent-chat-grounded, prior-whiteboard-grounded, mixed-context-grounded, and true best-guess turns, while also covering continuity-aware interpretation metadata, the Working Memory scope table, inspectable considered-context / recall detail groups, and the memory-trace bucket.
 - Verify `buildMemoryTraceSummary()` keeps recent-history contribution and the created trace record visible in Vantage without turning Memory Trace into a separate grounding mode.
 - Verify `describeRecallReason()` prefers explicit user-facing recall rationale, ignores machine scoring strings, and falls back to plain-language source-specific copy.
+- Verify `buildInspectBuckets()` separates protocol guidance, used Recall items, recent continuity, and draft signals.
+- Verify `buildQuietActivityCopy()` prefers explicit activity steps and falls back to concise turn-state summaries.
 - Verify learned-item correction helpers keep the first-pass correction loop truthful by distinguishing temporary versus durable saves and exposing continuation-oriented correction copy without claiming direct delete or scope mutation support.
 - Verify whiteboard lifecycle labels stay stable across transient, saved, and promoted states.
 

@@ -36,13 +36,14 @@ The goal is the same as the Python summaries: let future agents understand the s
 - `Chat` stays the default surface.
 - `Whiteboard` is a separate drafting surface that becomes visually primary when opened.
 - `Whiteboard` now keeps source editing and rendered preview distinct, so math-capable rendering stays on the preview/read side rather than inside the textarea itself.
-- `Vantage` is the inspection surface with three docks:
-  - an answer dock for Working Memory framing, Reasoning Path, Recall, Memory Trace, and Learned
+- `Vantage` is the inspection surface. Its visible docks currently focus on:
+  - an answer dock for Working Memory framing, Reasoning Path, Recall, Memory Trace, Learned, and semantic understanding
   - a separate Scenario Lab dock
-  - a Library dock with Concept KB, Memories, Artifacts, Reference Notes, and an inspector
+- The Library dock remains in the DOM/data model with Concept KB, Memories, Artifacts, Reference Notes, pinned-context controls, and an inspector, but it is temporarily hidden from the visible Vantage surface while the product stays simpler.
 - `Recall` is the surfaced retrieved subset shown in Vantage and compact chat evidence.
 - `Working Memory` is the broader inspection frame for what was in scope for generation.
 - `Memory Trace` is exposed in Vantage as recent-history contribution and the created turn trace record, not as a fourth top-level product surface or a Library bucket.
+- `Semantic Frame` / `Semantic Policy` payloads are normalized client-side and surfaced as compact `Understood As` / `Next Step` cues rather than a new diagnostics panel.
 
 ## Webapp Tests
 

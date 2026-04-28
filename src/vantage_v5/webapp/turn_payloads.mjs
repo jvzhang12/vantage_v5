@@ -155,6 +155,7 @@ export function normalizeTurnPayload(payload) {
   const normalizedPayload = payload && typeof payload === "object" ? payload : {};
   const recallItems = normalizeRecallItems(normalizedPayload);
   const pinnedContext = normalizedPayload.pinned_context || normalizedPayload.pinnedContext || normalizedPayload.selected_record || normalizedPayload.selectedRecord || null;
+  const semanticFrame = normalizeSemanticFrame(normalizedPayload.semantic_frame || normalizedPayload.semanticFrame);
   return {
     recallItems,
     workingMemoryItems: recallItems,
@@ -162,6 +163,10 @@ export function normalizeTurnPayload(payload) {
     memoryTraceRecord: normalizeMemoryTraceRecord(normalizedPayload.memory_trace_record || normalizedPayload.memoryTraceRecord),
     responseMode: normalizeResponseMode(normalizedPayload.response_mode, recallItems.length),
     scenarioLab: normalizeScenarioLabPayload(normalizedPayload.scenario_lab),
+    semanticFrame,
+    semanticPolicy: normalizeSemanticPolicy(normalizedPayload.semantic_policy || normalizedPayload.semanticPolicy, semanticFrame),
+    systemState: normalizeSystemState(normalizedPayload.system_state || normalizedPayload.systemState),
+    activity: normalizeActivity(normalizedPayload.activity || normalizedPayload.activities || normalizedPayload.events),
     workspaceUpdate: normalizeWorkspaceUpdate(normalizedPayload.workspace_update, normalizedPayload.workspace),
     workspaceContextScope: normalizeWorkspaceContextScope(normalizedPayload.workspace?.context_scope),
     pinnedContextId: normalizedPayload.pinned_context_id || normalizedPayload.pinnedContextId || normalizedPayload.selected_record_id || normalizedPayload.selectedRecordId || null,
@@ -169,6 +174,106 @@ export function normalizeTurnPayload(payload) {
     selectedRecordId: normalizedPayload.selected_record_id || normalizedPayload.selectedRecordId || normalizedPayload.pinned_context_id || normalizedPayload.pinnedContextId || null,
     selectedRecord: pinnedContext,
   };
+}
+
+export function normalizeProtocolMetadata(item) {
+  const source = item && typeof item === "object" ? item : {};
+  const protocol = source.protocol && typeof source.protocol === "object" ? source.protocol : {};
+  const metadata = source.metadata && typeof source.metadata === "object" ? source.metadata : {};
+  const variables = firstObject(protocol.variables, source.variables, metadata.variables);
+  const protocolKind = normalizeSemanticToken(
+    protocol.protocol_kind
+      || protocol.protocolKind
+      || source.protocol_kind
+      || source.protocolKind
+      || metadata.protocol_kind
+      || metadata.protocolKind
+      || "",
+    "",
+  );
+  return {
+    protocolKind,
+    variables,
+    appliesTo: normalizeSemanticStringList(
+      protocol.applies_to
+        || protocol.appliesTo
+        || source.applies_to
+        || source.appliesTo
+        || metadata.applies_to
+        || metadata.appliesTo
+        || [],
+    ),
+    modifiable: normalizeInterpretationBoolean(
+      protocol.modifiable
+        ?? source.modifiable
+        ?? metadata.modifiable
+        ?? true,
+    ) ?? true,
+    isBuiltin: normalizeInterpretationBoolean(
+      protocol.is_builtin
+        ?? protocol.isBuiltin
+        ?? source.is_builtin
+        ?? source.isBuiltin
+        ?? metadata.is_builtin
+        ?? metadata.isBuiltin,
+    ) ?? false,
+    overridesBuiltin: normalizeInterpretationBoolean(
+      protocol.overrides_builtin
+        ?? protocol.overridesBuiltin
+        ?? source.overrides_builtin
+        ?? source.overridesBuiltin
+        ?? metadata.overrides_builtin
+        ?? metadata.overridesBuiltin,
+    ) ?? false,
+  };
+}
+
+export function normalizeSystemState(systemState) {
+  if (!systemState || typeof systemState !== "object") {
+    return null;
+  }
+  const experiment = systemState.experiment && typeof systemState.experiment === "object"
+    ? systemState.experiment
+    : {};
+  const user = systemState.user && typeof systemState.user === "object"
+    ? systemState.user
+    : {};
+  return {
+    mode: normalizeSemanticToken(systemState.mode || systemState.runtime_mode || systemState.runtimeMode, ""),
+    scope: normalizeSemanticToken(systemState.scope || systemState.workspace_scope || systemState.workspaceScope, ""),
+    userId: String(user.id || systemState.user_id || systemState.userId || "").trim(),
+    nexusEnabled: normalizeInterpretationBoolean(systemState.nexus_enabled ?? systemState.nexusEnabled),
+    experiment: {
+      active: normalizeInterpretationBoolean(experiment.active ?? systemState.experiment_active ?? systemState.experimentActive) ?? false,
+      sessionId: String(experiment.session_id || experiment.sessionId || systemState.experiment_session_id || systemState.experimentSessionId || "").trim(),
+    },
+  };
+}
+
+export function normalizeActivity(activity) {
+  const source = Array.isArray(activity)
+    ? activity
+    : activity && typeof activity === "object" && Array.isArray(activity.steps)
+      ? activity.steps
+      : activity && typeof activity === "object" && Array.isArray(activity.items)
+        ? activity.items
+        : activity && typeof activity === "object" && Array.isArray(activity.events)
+          ? activity.events
+          : activity && typeof activity === "object"
+            ? [activity]
+            : [];
+  return source
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      type: normalizeSemanticToken(item.type || item.kind || item.event, "activity"),
+      label: normalizeSemanticDisplayText(item.label || item.title || item.type || item.kind || "Activity"),
+      message: normalizeSemanticDisplayText(item.message || item.summary || item.detail || item.reason || ""),
+      tone: normalizeSemanticToken(item.tone || item.status || "", "neutral"),
+      source: normalizeSemanticToken(item.source || item.origin || "", ""),
+      quiet: normalizeInterpretationBoolean(item.quiet ?? item.subtle) ?? true,
+      createdAt: String(item.created_at || item.createdAt || item.timestamp || "").trim(),
+    }))
+    .filter((item) => item.label || item.message);
 }
 
 function normalizeProvidedResponseMode(responseMode, fallbackRecallCount) {
@@ -712,11 +817,141 @@ export function normalizeTurnInterpretation(interpretation) {
     requestedWhiteboardMode: String(interpretation.requested_whiteboard_mode || "").trim().toLowerCase() || null,
     resolvedWhiteboardMode: String(interpretation.resolved_whiteboard_mode || "").trim().toLowerCase() || null,
     whiteboardModeSource: String(interpretation.whiteboard_mode_source || "").trim().toLowerCase() || null,
+    controlPanel: normalizeControlPanel(interpretation.control_panel || interpretation.controlPanel),
     preservePinnedContext,
     pinnedContextReason,
     preserveSelectedRecord: preservePinnedContext,
     selectedRecordReason: pinnedContextReason,
   };
+}
+
+export function normalizeControlPanel(controlPanel) {
+  if (!controlPanel || typeof controlPanel !== "object") {
+    return {
+      actions: [],
+      workingMemoryQueries: [],
+      responseCall: null,
+    };
+  }
+  const actions = Array.isArray(controlPanel.actions)
+    ? controlPanel.actions
+      .filter((action) => action && typeof action === "object")
+      .map((action) => ({
+        ...action,
+        type: String(action.type || "").trim(),
+        reason: String(action.reason || "").trim(),
+      }))
+      .filter((action) => action.type)
+    : [];
+  const rawQueries = controlPanel.working_memory_queries || controlPanel.workingMemoryQueries;
+  const workingMemoryQueries = Array.isArray(rawQueries)
+    ? rawQueries.map((query) => String(query || "").trim()).filter(Boolean)
+    : [];
+  const responseCall = controlPanel.response_call || controlPanel.responseCall || null;
+  return {
+    actions,
+    workingMemoryQueries,
+    responseCall: responseCall && typeof responseCall === "object" ? responseCall : null,
+  };
+}
+
+export function normalizeSemanticFrame(frame) {
+  if (!frame || typeof frame !== "object") {
+    return null;
+  }
+  const confidence = Number(frame.confidence);
+  const referencedObject = frame.referenced_object || frame.referencedObject || null;
+  return {
+    userGoal: String(frame.user_goal || frame.userGoal || "").trim(),
+    taskType: normalizeSemanticToken(frame.task_type || frame.taskType, "question_answering"),
+    followUpType: normalizeSemanticToken(frame.follow_up_type || frame.followUpType, "new_request"),
+    targetSurface: normalizeSemanticToken(frame.target_surface || frame.targetSurface, "chat"),
+    referencedObject: referencedObject && typeof referencedObject === "object"
+      ? {
+        id: String(referencedObject.id || referencedObject.record_id || "").trim(),
+        title: String(referencedObject.title || referencedObject.name || "").trim(),
+        type: String(referencedObject.type || "").trim(),
+        source: String(referencedObject.source || "").trim(),
+      }
+      : null,
+    confidence: Number.isFinite(confidence) ? confidence : 0,
+    needsClarification: Boolean(frame.needs_clarification ?? frame.needsClarification),
+    clarificationPrompt: String(frame.clarification_prompt || frame.clarificationPrompt || "").trim() || null,
+    signals: frame.signals && typeof frame.signals === "object" ? { ...frame.signals } : {},
+    commitments: Array.isArray(frame.commitments)
+      ? frame.commitments.map((item) => String(item || "").trim()).filter(Boolean)
+      : [],
+  };
+}
+
+export function normalizeSemanticPolicy(policy, semanticFrame = null) {
+  if (!policy || typeof policy !== "object") {
+    return null;
+  }
+  const confidence = Number(policy.confidence);
+  const needsClarification = normalizeInterpretationBoolean(
+    policy.needs_clarification
+      ?? policy.needsClarification
+      ?? policy.ask_clarification
+      ?? policy.askClarification
+      ?? policy.should_clarify
+      ?? policy.shouldClarify
+      ?? semanticFrame?.needsClarification,
+  ) ?? false;
+  const clarificationPrompt = normalizeSemanticDisplayText(
+    policy.clarification_prompt
+      || policy.clarificationPrompt
+      || policy.prompt
+      || semanticFrame?.clarificationPrompt
+      || "",
+  ) || null;
+  return {
+    semanticAction: normalizeSemanticToken(
+      policy.semantic_action
+        || policy.semanticAction
+        || policy.action
+        || policy.action_type
+        || policy.actionType
+        || policy.action_kind
+        || policy.actionKind
+        || policy.recommended_action
+        || policy.recommendedAction,
+      needsClarification ? "ask_clarification" : "respond",
+    ),
+    actionLabel: normalizeSemanticDisplayText(policy.action_label || policy.actionLabel),
+    needsClarification,
+    clarificationPrompt,
+    clarificationOptions: normalizeSemanticStringList(policy.clarification_options || policy.clarificationOptions || policy.options),
+    status: normalizeSemanticToken(policy.status || policy.state, needsClarification ? "needs_clarification" : "ready"),
+    reason: normalizeSemanticDisplayText(policy.reason || policy.rationale || policy.summary),
+    confidence: Number.isFinite(confidence) ? confidence : 0,
+    blocking: Boolean(policy.blocking ?? policy.is_blocking ?? policy.isBlocking ?? needsClarification),
+    signals: policy.signals && typeof policy.signals === "object" ? { ...policy.signals } : {},
+  };
+}
+
+function normalizeSemanticDisplayText(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function normalizeSemanticStringList(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => normalizeSemanticDisplayText(item)).filter(Boolean);
+}
+
+function normalizeSemanticToken(value, fallback) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || fallback;
+}
+
+function firstObject(...values) {
+  for (const value of values) {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return { ...value };
+    }
+  }
+  return {};
 }
 
 function normalizeInterpretationBoolean(value) {

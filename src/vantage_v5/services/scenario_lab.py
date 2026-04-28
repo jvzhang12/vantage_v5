@@ -9,12 +9,17 @@ from typing import Any
 
 from openai import OpenAI
 
+from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_card_fields
+from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_kind
 from vantage_v5.services.navigator import NavigationDecision
+from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.response_mode import build_response_mode_payload
 from vantage_v5.services.response_mode import finalize_assistant_message
 from vantage_v5.services.search import CandidateMemory
 from vantage_v5.services.search import ConceptSearchService
 from vantage_v5.services.search import tokenize
+from vantage_v5.services.turn_payloads import assemble_scenario_lab_turn_body
+from vantage_v5.services.turn_payloads import ScenarioLabTurnBodyParts
 from vantage_v5.services.vetting import anchor_selected_record_candidate
 from vantage_v5.services.vetting import build_continuity_hint
 from vantage_v5.services.vetting import resolve_selected_record_candidate
@@ -22,7 +27,6 @@ from vantage_v5.services.vetting import should_preserve_selected_record
 from vantage_v5.services.vetting import ConceptVettingService
 from vantage_v5.storage.artifacts import ArtifactRecord
 from vantage_v5.storage.artifacts import ArtifactStore
-from vantage_v5.storage.artifacts import parse_artifact_lifecycle_metadata
 from vantage_v5.storage.memory_trace import parse_memory_trace_metadata
 from vantage_v5.storage.artifacts import parse_artifact_scenario_metadata
 from vantage_v5.storage.concepts import ConceptStore
@@ -121,52 +125,34 @@ class ScenarioLabTurn:
     comparison_artifact: dict[str, Any]
     created_record: dict[str, Any]
 
+    def to_body_parts(self) -> ScenarioLabTurnBodyParts:
+        return ScenarioLabTurnBodyParts(
+            user_message=self.user_message,
+            assistant_message=self.assistant_message,
+            workspace_id=self.workspace_id,
+            workspace_title=self.workspace_title,
+            workspace_content=self.workspace_content,
+            concept_cards=self.concept_cards,
+            saved_notes=self.saved_notes,
+            vault_notes=self.vault_notes,
+            candidate_concepts=self.candidate_concepts,
+            candidate_saved_notes=self.candidate_saved_notes,
+            candidate_vault_notes=self.candidate_vault_notes,
+            candidate_memory=self.candidate_memory,
+            working_memory=self.working_memory,
+            learned=self.learned,
+            memory_trace_record=self.memory_trace_record,
+            response_mode=self.response_mode,
+            vetting=self.vetting,
+            navigator=self.navigator,
+            comparison_question=self.comparison_question,
+            branches=self.branches,
+            comparison_artifact=self.comparison_artifact,
+            created_record=self.created_record,
+        )
+
     def to_dict(self) -> dict[str, Any]:
-        created_record = self.created_record or (self.learned[0] if self.learned else None)
-        selected_memory = _group_memory_payload(self.saved_notes, self.vault_notes)
-        candidate_memory = _group_memory_payload(self.candidate_saved_notes, self.candidate_vault_notes)
-        return {
-            "user_message": self.user_message,
-            "assistant_message": self.assistant_message,
-            "workspace": {
-                "workspace_id": self.workspace_id,
-                "title": self.workspace_title,
-                "content": self.workspace_content,
-            },
-            "memory": selected_memory,
-            "selected_memory": selected_memory,
-            "candidate_memory": candidate_memory,
-            "concept_cards": self.concept_cards,
-            "saved_notes": self.saved_notes,
-            "vault_notes": self.vault_notes,
-            "turn_vault_notes": self.vault_notes,
-            "candidate_concepts": self.candidate_concepts,
-            "candidate_saved_notes": self.candidate_saved_notes,
-            "candidate_vault_notes": self.candidate_vault_notes,
-            "candidate_memory_results": self.candidate_memory,
-            "recall": self.working_memory,
-            "working_memory": self.working_memory,
-            "learned": self.learned,
-            "memory_trace_record": self.memory_trace_record,
-            "response_mode": self.response_mode,
-            "vetting": self.vetting,
-            "mode": "scenario_lab",
-            "meta_action": {
-                "action": "no_op",
-                "rationale": "Scenario Lab writes branch workspaces and a comparison artifact outside the normal memory loop.",
-            },
-            "graph_action": None,
-            "created_record": created_record,
-            "scenario_lab": {
-                "navigator": self.navigator,
-                "question": self.comparison_question,
-                "comparison_question": self.comparison_question,
-                "summary": self.comparison_artifact.get("card") or self.assistant_message,
-                "recommendation": self.comparison_artifact.get("recommendation"),
-                "branches": self.branches,
-                "comparison_artifact": self.comparison_artifact,
-            },
-        }
+        return assemble_scenario_lab_turn_body(self.to_body_parts())
 
 
 class ScenarioLabService:
@@ -187,6 +173,7 @@ class ScenarioLabService:
         vault_store: VaultNoteStore,
         search_service: ConceptSearchService,
         vetting_service: ConceptVettingService,
+        protocol_engine: ProtocolEngine,
         traces_dir: Path,
     ) -> None:
         self.model = model
@@ -202,6 +189,7 @@ class ScenarioLabService:
         self.vault_store = vault_store
         self.search_service = search_service
         self.vetting_service = vetting_service
+        self.protocol_engine = protocol_engine
         self.traces_dir = traces_dir
         self.client = OpenAI(api_key=openai_api_key) if openai_api_key else None
 
@@ -214,6 +202,7 @@ class ScenarioLabService:
         navigation: NavigationDecision,
         selected_record_id: str | None = None,
         pending_workspace_update: dict[str, Any] | None = None,
+        applied_protocol_kinds: list[str] | None = None,
     ) -> ScenarioLabTurn:
         if not self.client:
             raise RuntimeError("Scenario Lab requires OpenAI mode.")
@@ -273,6 +262,13 @@ class ScenarioLabService:
             selected_record_source=selected_memory.source if preserve_selected_memory and selected_memory else None,
             limit=16,
         )
+        protocol_guidance = self.protocol_engine.build_guidance(
+            protocol_kinds=applied_protocol_kinds or [],
+            concept_records=concepts,
+        )
+        protocol_candidates = protocol_guidance.candidate_memory()
+        if protocol_candidates:
+            candidate_memory = _merge_candidate_memory(protocol_candidates, candidate_memory, limit=16)
         if preserve_selected_memory and selected_memory is not None:
             candidate_memory = _merge_candidate_memory([selected_memory], candidate_memory, limit=16)
         vetted_memory, vetting = self.vetting_service.vet(
@@ -463,6 +459,8 @@ class ScenarioLabService:
                 "Keep assumptions explicit. "
                 "If a selected record is provided, treat it as the in-focus continuity anchor for follow-up turns. "
                 "If pending whiteboard context is provided, treat it as live continuity context from the immediately prior turn. "
+                "Treat protocol items in vetted_memory as task recipes and reasoning guidance, not as factual source claims. "
+                "When a Scenario Lab Protocol is present, use its first-principles, counterfactual, causal, and tradeoff guidance to shape the branches. "
                 "Use compact, concrete language that works well in Markdown workspaces. "
                 "The comparison should end with a practical recommendation and next steps."
             ),
@@ -645,6 +643,9 @@ class ScenarioLabService:
                         "risk_summary": _first_line(branch.risks),
                         "confidence": branch.confidence,
                         "kind": "workspace_branch",
+                        "memory_role": "scenario_branch",
+                        "recall_status": "created",
+                        "source_tier": "workspace",
                         "status": "counterfactual",
                         "source": "workspace",
                         "scope": "experiment" if "experiments" in document.path.parts else "durable",
@@ -985,6 +986,10 @@ def _record_payload(record: ArtifactRecord) -> dict[str, Any]:
         "card": record.card,
         "body": record.body,
         "status": record.status,
+        "kind": "memory_trace" if record.source == "memory_trace" else "saved_note",
+        "memory_role": "turn_continuity" if record.source == "memory_trace" else "saved_context",
+        "recall_status": "logged" if record.source == "memory_trace" else "learned",
+        "source_tier": "recent" if record.source == "memory_trace" else "saved",
         "links_to": record.links_to,
         "comes_from": record.comes_from,
         "source": record.source,
@@ -996,7 +1001,7 @@ def _record_payload(record: ArtifactRecord) -> dict[str, Any]:
     if record.source == "memory_trace":
         payload.update(parse_memory_trace_metadata(record))
     else:
-        payload.update(parse_artifact_lifecycle_metadata(record))
+        payload.update(artifact_lifecycle_card_fields(record))
         payload.update(scenario_metadata)
         payload["why_learned"] = _learned_reason(record)
         payload["correction_affordance"] = {
@@ -1008,7 +1013,7 @@ def _record_payload(record: ArtifactRecord) -> dict[str, Any]:
 
 def _learned_reason(record: ArtifactRecord) -> str:
     scenario_metadata = ArtifactStore.parse_scenario_metadata(record) or {}
-    lifecycle = str(parse_artifact_lifecycle_metadata(record).get("artifact_lifecycle") or "").strip().lower()
+    lifecycle = artifact_lifecycle_kind(record)
     if scenario_metadata.get("scenario_kind") == "comparison" or lifecycle == "comparison_hub":
         return "Saved as a Scenario Lab comparison hub so the branch comparison can be revisited."
     if lifecycle == "whiteboard_snapshot":
@@ -1062,17 +1067,6 @@ def _comparison_branch_index(branches: list[dict[str, Any]]) -> list[dict[str, A
             entry["summary"] = summary
         branch_index.append(entry)
     return branch_index
-
-
-def _group_memory_payload(
-    saved_notes: list[dict[str, Any]],
-    reference_notes: list[dict[str, Any]],
-) -> dict[str, Any]:
-    return {
-        "saved_notes": saved_notes,
-        "reference_notes": reference_notes,
-        "total": len(saved_notes) + len(reference_notes),
-    }
 
 
 def _merge_records(*record_lists: list[Any]) -> list[Any]:

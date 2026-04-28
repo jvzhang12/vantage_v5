@@ -2,8 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildInspectBuckets,
   buildLearnedCorrectionModel,
   buildMemoryTraceSummary,
+  buildQuietActivityCopy,
   buildReasoningPathInspection,
   buildTurnAtAGlanceSummary,
   buildChatTurnEvidence,
@@ -272,6 +274,64 @@ test("describeRecallReason ignores machine scoring text and falls back to produc
       reason: "vault_note: title=1 card=0 body=2",
     }),
     "A reference note looked relevant to this request.",
+  );
+  assert.equal(
+    describeRecallReason({
+      source: "concept",
+      type: "protocol",
+    }),
+    "A reusable protocol was applied to guide this turn.",
+  );
+});
+
+test("buildInspectBuckets separates protocol guidance from used, recent, and draft context", () => {
+  const buckets = buildInspectBuckets({
+    usedItems: [
+      {
+        id: "scenario-lab-protocol",
+        type: "protocol",
+        title: "Scenario Lab Protocol",
+        protocol: { protocol_kind: "scenario_lab" },
+      },
+      { id: "memory-1", title: "Prior launch note", source: "memory" },
+    ],
+    recentItems: [{ id: "trace-1", title: "Recent turn trace" }],
+    draftItems: [{ id: "draft-scope", title: "Draft scope: Visible" }],
+  });
+
+  assert.deepEqual(
+    buckets.map((bucket) => [bucket.key, bucket.count]),
+    [
+      ["protocol", 1],
+      ["used", 1],
+      ["recent", 1],
+      ["draft", 1],
+    ],
+  );
+  assert.equal(buckets[0].items[0].protocol.protocolKind, "scenario_lab");
+  assert.equal(buckets[1].items[0].title, "Prior launch note");
+});
+
+test("buildQuietActivityCopy prefers explicit activity and otherwise summarizes the active turn", () => {
+  assert.equal(
+    buildQuietActivityCopy({
+      activity: [
+        { label: "Applied email protocol" },
+        { message: "Draft ready" },
+      ],
+    }),
+    "Applied email protocol · Draft ready",
+  );
+
+  assert.equal(
+    buildQuietActivityCopy({
+      semanticPolicy: { semanticAction: "run_scenario_lab" },
+      semanticFrame: { taskType: "scenario_comparison", targetSurface: "scenario_lab" },
+      scenarioLab: { branches: [{ id: "a" }, { id: "b" }] },
+      workspaceUpdate: { status: "draft_ready" },
+      grounding: { groundingLabel: "Recall" },
+    }),
+    "Compare options · Scenario Lab prepared 2 branches · Draft ready",
   );
 });
 

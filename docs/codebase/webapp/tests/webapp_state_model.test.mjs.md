@@ -7,7 +7,8 @@ Focused regression tests for the webapp state helpers and normalization layer.
 - Verify the surface-state enum behavior.
 - Verify workspace-context scoping for chat requests.
 - Verify deictic whiteboard reopen resolution for follow-ups that should reopen a uniquely recalled durable item instead of drafting against the currently open whiteboard.
-- Verify response-mode, learned-item, pinned-context, record-id, interpretation, and workspace-update normalization against the canonical backend DTO contract, including direct `groundingMode`, canonical recall alias handling, returned learned-item correction metadata such as `scope`, `durability`, `why_learned`, and `correction_affordance`, returned whiteboard-scope handling, and the richer interpretation fields used by the staged `Reasoning Path`.
+- Verify response-mode, learned-item, pinned-context, record-id, interpretation, semantic-frame, semantic-policy, protocol metadata, system-state, activity, and workspace-update normalization against the canonical backend DTO contract, including direct `groundingMode`, canonical recall alias handling, returned learned-item correction metadata such as `scope`, `durability`, `why_learned`, and `correction_affordance`, returned whiteboard-scope handling, the richer interpretation fields used by the staged `Reasoning Path`, and the semantic-frame fields used by the compact Inspect understanding cue.
+- Verify semantic action and clarification copy helpers stay concise and display-ready while remaining unwired from the DOM.
 - Verify the turn-payload normalization keeps the returned `memory_trace_record` available to the client.
 - Verify dirty local whiteboards survive passive refresh rules.
 - Verify workspace snapshots preserve the whiteboard-owned latest durable artifact cue used by the new E1-A whiteboard save affordance.

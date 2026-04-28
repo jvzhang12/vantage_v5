@@ -7,6 +7,11 @@ Normalization layer between backend payload DTOs and the client’s rendering st
 - Convert backend response-mode payloads into stable client-facing state without re-inventing client-only grounding kinds.
 - Normalize Scenario Lab payloads into a UI-ready comparison model so the webapp can surface question, recommendation, parsed branch details, and saved-comparison details without reparsing Markdown everywhere.
 - Normalize turn interpretation metadata from navigator/server output.
+- Preserve the Navigator `control_panel` plan in normalized turn interpretation state.
+- Normalize the newer semantic-frame metadata into client camelCase state for Inspect.
+- Normalize optional `semantic_policy` / `semanticPolicy` payloads next to the semantic frame for future display and clarification policy surfaces.
+- Normalize protocol metadata, including built-in and built-in-override flags, so Inspect can distinguish default protocols from saved customizations.
+- Normalize safe `system_state` and final-turn `activity` payloads into client state.
 - Normalize `workspace_update` payloads into the client’s pending-offer / pending-draft shape.
 - Normalize the returned `memory_trace_record` payload so the client can render the created turn trace without re-inventing backend DTO fallbacks.
 
@@ -16,9 +21,15 @@ Normalization layer between backend payload DTOs and the client’s rendering st
 - `normalizeScenarioLabPayload()`
 - `normalizeLearnedItems()`
 - `normalizeMemoryTraceRecord()`
+- `normalizeProtocolMetadata()`
 - `normalizeRecordId()`
+- `normalizeSystemState()`
+- `normalizeActivity()`
 - `normalizeTurnPayload()`
 - `normalizeTurnInterpretation()`
+- `normalizeControlPanel()`
+- `normalizeSemanticFrame()`
+- `normalizeSemanticPolicy()`
 - `normalizeWorkspaceUpdate()`
 
 ## Notable Behavior
@@ -35,7 +46,9 @@ Normalization layer between backend payload DTOs and the client’s rendering st
 - Exports `normalizeComparisonBranchIndex()` so the webapp renderer and payload normalizer can share the same branch-roster fallback without duplicating helper logic.
 - Centralizes the remaining C3 compatibility shims for `learned` versus `created_record`, `record_id` versus `concept_id`, and returned `workspace.context_scope`, so `app.js` and the identity helpers do not each re-implement those fallbacks.
 - Normalizes pinned-context continuity with canonical `pinnedContext` / `pinnedContextId` plus legacy selected-record aliases, and does the same for interpretation payloads so the UI can stop talking about selected-record continuity when it really means pinned context.
-- Exposes a small `normalizeTurnPayload()` helper that packages the canonical turn-facing pieces the webapp actually consumes directly: normalized recall items, normalized response mode, normalized learned items, normalized `memoryTraceRecord`, normalized Scenario Lab state, normalized workspace updates, and the returned whiteboard scope disclosure.
+- Exposes a small `normalizeTurnPayload()` helper that packages the canonical turn-facing pieces the webapp actually consumes directly: normalized recall items, normalized response mode, normalized learned items, normalized `memoryTraceRecord`, normalized Scenario Lab state, normalized semantic frame, normalized semantic policy, normalized safe system state, normalized final-turn activity, normalized workspace updates, and the returned whiteboard scope disclosure.
+- Normalizes `semantic_frame` into `semanticFrame` with camelCase fields such as `userGoal`, `taskType`, `followUpType`, `targetSurface`, `referencedObject`, `signals`, and `commitments`, so `app.js` can present Vantage's understanding without parsing server DTOs inline.
+- Normalizes `semantic_policy` / `semanticPolicy` into `semanticPolicy` with display-ready fields such as `semanticAction`, `actionLabel`, `needsClarification`, `clarificationPrompt`, `clarificationOptions`, `status`, `reason`, `confidence`, and `blocking`, while using the semantic frame as a safe fallback for clarification copy when the policy omits it.
 - Leaves candidate trace arrays and selected trace-note arrays outside `normalizeTurnPayload()`. `app.js` normalizes those through its generic memory-item path because they render as cards, not as response-mode DTOs.
-- Preserves the richer interpretation DTO fields the staged `Reasoning Path` now uses directly, including `requestedWhiteboardMode` and `selectedRecordReason`, instead of flattening route decisions down to only mode, reason, and confidence.
+- Preserves the richer interpretation DTO fields the staged `Reasoning Path` now uses directly, including `requestedWhiteboardMode`, `selectedRecordReason`, and `controlPanel`, instead of flattening route decisions down to only mode, reason, and confidence.
 - Depends on `whiteboard_decisions.mjs` to understand whether a workspace update has already been resolved.

@@ -7,6 +7,7 @@ Presentation helpers for the small “this product is different” signals shown
 - Build compact per-turn evidence chips such as recalled-item counts, learned items, Scenario Lab identity, and product-specific grounding labels like Recall, Whiteboard, Prior Whiteboard, or Recall + Recent Chat.
 - Decide not only which compact chat evidence chips appear, but also their relative emphasis, so the transcript can stay truthful without giving every chip equal visual weight.
 - Build the short Vantage header summary that mirrors the same turn truth without conflating Recall with broader Working Memory framing or other grounded context such as Whiteboard or Recent Chat, and allow the Library count to be omitted while the Library surface is hidden.
+- Build concise semantic action and clarification copy from normalized semantic policy/frame payloads, keeping the text ready for future UI surfaces without wiring it into the DOM yet.
 - Build the staged `Reasoning Path` inspection model for the answer dock: Request, Route, Considered context, Recall, Working Memory, and Outcome, including stage metadata and drill-down groups.
 - Build the short Memory Trace inspection copy that explains whether recent history contributed to Recall and whether the turn created a durable or experiment-scoped trace record.
 - Normalize whiteboard lifecycle labels such as transient draft, saved whiteboard, and promoted artifact.
@@ -16,15 +17,22 @@ Presentation helpers for the small “this product is different” signals shown
 - Accept both canonical `branchIndex` and backend-compatible `branch_index` shapes when deriving Scenario Lab evidence, so the compact chat chips stay aligned during the compatibility window.
 - Translate Scenario Lab route confidence and branch-confidence text into calmer product language so the recommendation surface reads qualitative rather than console-like.
 - Build the short first-read Vantage summary sentence that keeps the top of the provenance panel outcome-focused instead of stacking long explanatory copy.
+- Build Inspect taxonomy buckets for Protocol, Used, Recent, and Draft context so guidance, evidence, continuity, and live draft scope do not collapse into one flat Recall list.
+- Build quiet activity copy from final-turn activity, semantic policy, Scenario Lab, draft updates, and grounding state, using the production busy copy `Vantage is interpreting the request and preparing context.` while a turn is in flight.
 
 ## Key Functions
 
 - `buildChatTurnEvidence()`
+- `buildInspectBuckets()`
+- `buildQuietActivityCopy()`
 - `buildGuidedInspectionSummary()`
 - `buildLearnedCorrectionModel()`
 - `buildReasoningPathInspection()`
 - `buildMemoryTraceSummary()`
+- `buildSemanticPolicyCopy()`
 - `buildTurnAtAGlanceSummary()`
+- `describeSemanticActionCopy()`
+- `describeSemanticClarificationCopy()`
 - `describeLearnedCorrectionModeLabel()`
 - `describeScenarioRouteConfidence()`
 - `describeScenarioBranchConfidence()`
@@ -42,7 +50,8 @@ Presentation helpers for the small “this product is different” signals shown
 - Reuses the shared turn-payload helpers for learned-item fallback and canonical recall counts, so compact evidence chips do not depend on their own parallel `created_record` or camelCase/snake_case parsing.
 - Centralizes the turn-grounding view-model the app uses for Vantage summaries and panels, including the canonical `recallCount` even when the visible recalled-item list is shorter.
 - Uses the same canonical recall count for compact chat evidence, so chat chips and Vantage do not disagree when the visible recalled-item list is shorter than the grounded count.
-- Normalizes user-facing recall rationale from canonical fields such as `recall_reason` and `why_recalled`, ignores machine scoring strings, and falls back to calm source-specific copy for Recall cards.
+- Normalizes user-facing recall rationale from canonical fields such as `recall_reason` and `why_recalled`, ignores machine scoring strings, and falls back to calm source-specific copy for Recall cards, including protocol-specific fallback copy when a protocol item has no explicit rationale.
+- Separates applied protocols from factual recalled items in Inspect. Protocols appear as task guidance, recent trace items appear as Recent, and response-mode draft sources appear in Draft without double-counting the same recalled item.
 - Normalizes a first-pass learned-item correction model from existing payload truth such as `scope`, `durability`, and `correction_affordance`, so the UI can expose direct whiteboard revision and pinned-context continuity while labeling wrong / make-temporary / forget requests as `Not direct yet` until durable mutation support exists.
 - Keeps correction-mode helper labels truthful: unsupported mutation paths now read as guidance such as `How to mark wrong`, while the real actionable path stays `Revise in whiteboard` / `Continue in whiteboard`.
 - Translates response-mode payloads into user-facing badges like `Best Guess`, `Recall`, `Whiteboard`, `Prior Whiteboard`, source-specific mixed-context labels such as `Recall + Recent Chat`, or `Used 2 recalled items`.
@@ -61,3 +70,4 @@ Presentation helpers for the small “this product is different” signals shown
 - Exposes the concrete candidate pools and selected recall items in the stage drill-down so users can inspect what was actually pulled up without opening chat internals, including recent-history candidates from `candidate_trace_notes`.
 - Carries requested whiteboard mode, resolved whiteboard mode, decision source, and pinned-context continuity reason into the path summary so the interpretation stage can explain route choices without exposing raw chain-of-thought text.
 - Adds a compact at-a-glance summary helper for the top of Vantage, so the first visible explanation can say things like `This answer used 2 recalled items` or `Scenario Lab prepared 3 branches` before the user opens deeper support sections.
+- Adds semantic policy copy helpers that convert action tokens such as `ask_clarification`, `draft_in_whiteboard`, `run_scenario_lab`, or `show_reasoning` into short product-facing labels and pair them with a concise clarification line.

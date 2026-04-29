@@ -14,6 +14,7 @@ from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_card
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_kind
 from vantage_v5.services.executor import ExecutedAction
 from vantage_v5.services.executor import GraphActionExecutor
+from vantage_v5.services.learned_review import build_write_review
 from vantage_v5.services.meta import MetaDecision
 from vantage_v5.services.meta import MetaService
 from vantage_v5.services.protocol_engine import ProtocolEngine
@@ -1083,6 +1084,7 @@ class ChatService:
             "why_learned": _learned_reason(record, revision_parent_id=revision_parent_id),
             "correction_affordance": _correction_affordance(record),
         }
+        payload["write_review"] = build_write_review(payload)
         payload.update(artifact_lifecycle_card_fields(record))
         return payload
 

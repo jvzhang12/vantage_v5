@@ -89,6 +89,25 @@ def _protocol_item(record_id: str = "protocol-1") -> dict[str, Any]:
     }
 
 
+def _assert_review_first_write_review(record: dict[str, Any]) -> None:
+    review = record["write_review"]
+    assert review["write_reason"]
+    assert review["scope"] == record.get("scope", "durable")
+    assert review["durability"] == record.get("durability", "durable")
+    assert review["record"]["id"] == record["id"]
+    assert review["record"]["source"] == record["source"]
+    assert {action["kind"] for action in review["allowed_actions"]} == {
+        "open_in_whiteboard",
+        "revise_in_whiteboard",
+        "pin_for_next_turn",
+    }
+    assert review["direct_mutation_supported"] is False
+    assert review["mutation_supported"] is False
+    assert review["unsupported_actions"] == [
+        {"kind": "direct_mutation", "label": "Direct mutation is not supported"}
+    ]
+
+
 def test_answer_basis_maps_intuitive_without_context() -> None:
     basis = _answer_basis_for(recall_count=4)
 
@@ -628,7 +647,17 @@ def test_assemble_service_turn_payload_preserves_staging_payloads(tmp_path: Path
 
 
 def test_assemble_chat_turn_body_preserves_chat_payload_aliases() -> None:
-    learned = [{"id": "artifact-1", "title": "Draft", "source": "artifact"}]
+    learned = [
+        {
+            "id": "artifact-1",
+            "title": "Draft",
+            "source": "artifact",
+            "scope": "durable",
+            "durability": "durable",
+            "why_learned": "Saved as a whiteboard snapshot so the in-progress draft stays inspectable.",
+            "correction_affordance": {"kind": "open_in_whiteboard", "label": "Open in whiteboard"},
+        }
+    ]
     payload = assemble_chat_turn_body(
         ChatTurnBodyParts(
             user_message="draft this",
@@ -669,12 +698,25 @@ def test_assemble_chat_turn_body_preserves_chat_payload_aliases() -> None:
     assert payload["recall_details"][0]["why_recalled"] == "Relevant."
     assert payload["learned"] == learned
     assert payload["created_record"] == learned[0]
+    assert payload["created_record"]["why_learned"] == "Saved as a whiteboard snapshot so the in-progress draft stays inspectable."
+    assert payload["created_record"]["correction_affordance"]["kind"] == "open_in_whiteboard"
+    _assert_review_first_write_review(payload["created_record"])
     assert payload["answer_basis"]["kind"] == "memory_backed"
     assert payload["answer_basis"]["label"] == "Memory-Backed"
 
 
 def test_assemble_scenario_lab_turn_body_preserves_scenario_payload_aliases() -> None:
-    learned = [{"id": "comparison-1", "title": "Launch Comparison", "source": "artifact"}]
+    learned = [
+        {
+            "id": "comparison-1",
+            "title": "Launch Comparison",
+            "source": "artifact",
+            "scope": "durable",
+            "durability": "durable",
+            "why_learned": "Saved as a Scenario Lab comparison hub so the branch comparison can be revisited.",
+            "correction_affordance": {"kind": "open_in_whiteboard", "label": "Open in whiteboard"},
+        }
+    ]
     comparison_artifact = {
         "id": "comparison-1",
         "title": "Launch Comparison",
@@ -717,6 +759,9 @@ def test_assemble_scenario_lab_turn_body_preserves_scenario_payload_aliases() ->
     assert payload["recall"] == payload["working_memory"]
     assert payload["learned"] == learned
     assert payload["created_record"] == learned[0]
+    assert payload["created_record"]["why_learned"] == "Saved as a Scenario Lab comparison hub so the branch comparison can be revisited."
+    assert payload["created_record"]["correction_affordance"]["kind"] == "open_in_whiteboard"
+    _assert_review_first_write_review(payload["created_record"])
     assert payload["meta_action"]["action"] == "no_op"
     assert payload["graph_action"] is None
     assert payload["scenario_lab"]["question"] == "Which launch path should we choose?"
@@ -727,3 +772,40 @@ def test_assemble_scenario_lab_turn_body_preserves_scenario_payload_aliases() ->
     assert payload["scenario_lab"]["comparison_artifact"] == comparison_artifact
     assert payload["answer_basis"]["kind"] == "memory_backed"
     assert payload["answer_basis"]["label"] == "Memory-Backed"
+
+
+def test_finalize_turn_payload_ignores_malformed_learned_and_created_record_aliases() -> None:
+    payload = finalize_turn_payload(
+        {
+            "learned": [
+                "artifact-1",
+                None,
+                {"id": "artifact-2", "title": "Draft", "source": "artifact"},
+            ],
+            "created_record": "artifact-1",
+            "working_memory": [],
+            "response_mode": {"recall_count": 0},
+        },
+        pinned_context_id=None,
+        pinned_context=None,
+    )
+
+    assert payload["learned"] == [payload["created_record"]]
+    assert payload["created_record"]["id"] == "artifact-2"
+    _assert_review_first_write_review(payload["created_record"])
+
+
+def test_finalize_turn_payload_does_not_alias_malformed_created_record() -> None:
+    payload = finalize_turn_payload(
+        {
+            "learned": [],
+            "created_record": ["artifact-1"],
+            "working_memory": [],
+            "response_mode": {"recall_count": 0},
+        },
+        pinned_context_id=None,
+        pinned_context=None,
+    )
+
+    assert payload["learned"] == []
+    assert payload["created_record"] is None

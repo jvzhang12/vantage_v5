@@ -3,7 +3,8 @@ import {
   normalizeLearnedItems,
   normalizeProtocolMetadata,
   normalizeResponseMode,
-} from "./turn_payloads.mjs?v=20260429-answer-basis-2";
+  normalizeWriteReview,
+} from "./turn_payloads.mjs?v=20260429-write-review";
 
 function pluralize(word, count) {
   if (word === "branch") {
@@ -70,7 +71,7 @@ function learnedEvidenceLabel(items) {
   const first = kinds[0];
   const sameKind = kinds.every((kind) => kind === first);
   const labelKind = sameKind ? pluralize(first, items.length) : pluralize("item", items.length);
-  return `Learned ${items.length} ${labelKind}`;
+  return `Saved for Later: ${items.length} ${labelKind}`;
 }
 
 function groundingEvidenceLabel(payload) {
@@ -254,25 +255,31 @@ function isLearnedScenarioComparison(item = null) {
 }
 
 export function describeLearnedScopeLabel(item = null) {
-  const durability = String(item?.durability || "").trim().toLowerCase();
-  const scope = String(item?.scope || "").trim().toLowerCase();
+  const writeReview = normalizeWriteReview(item?.write_review || item?.writeReview);
+  const durability = String(writeReview?.durability || item?.durability || "").trim().toLowerCase();
+  const scope = String(writeReview?.scope || item?.scope || "").trim().toLowerCase();
   if (durability === "temporary" || scope === "experiment") {
     return "Temporary in this experiment";
   }
   if (durability === "durable" || scope === "durable") {
     return "Saved in your library";
   }
-  return "Saved from this turn";
+  return "Saved for Later";
 }
 
 export function buildLearnedCorrectionModel(item = null) {
+  const writeReview = normalizeWriteReview(item?.write_review || item?.writeReview);
   const correctionKind = String(
-    item?.correctionAffordance?.kind
+    writeReview?.primaryAction?.kind
+    || writeReview?.primary_action?.kind
+    || item?.correctionAffordance?.kind
     || item?.correction_affordance?.kind
     || "",
   ).trim().toLowerCase();
   const explicitPrimaryLabel = String(
-    item?.correctionAffordance?.label
+    writeReview?.primaryAction?.label
+    || writeReview?.primary_action?.label
+    || item?.correctionAffordance?.label
     || item?.correction_affordance?.label
     || "",
   ).trim();
@@ -291,9 +298,10 @@ export function buildLearnedCorrectionModel(item = null) {
   const primaryActionLabel = explicitLooksLikeWhiteboardAction && normalizedExplicitLabel !== "open in whiteboard"
     ? explicitPrimaryLabel
     : canonicalPrimaryActionLabel;
-  const summary = temporary
-    ? "This item is temporary in this experiment. Direct correction works through the whiteboard, and you can pin it for the next turn while you explain what should change."
-    : "This item is saved in your library. Direct correction works through the whiteboard, and you can pin it for the next turn while you explain what should change.";
+  const fallbackSummary = temporary
+    ? "Review this saved item while it is temporary in this experiment through the whiteboard, and pin it for the next turn while you explain what should change."
+    : "Review this library-saved item through the whiteboard, and pin it for the next turn while you explain what should change.";
+  const summary = writeReview?.summary || fallbackSummary;
   const modeSummaries = {
     overview: summary,
     wrong: temporary
@@ -301,7 +309,7 @@ export function buildLearnedCorrectionModel(item = null) {
       : "Not direct yet. Vantage cannot mark this library-saved item as wrong directly in this build. Revise it in the whiteboard and pin it for the next turn if you want the correction carried forward.",
     temporary: temporary
       ? "This item is already temporary in this experiment. It stays session-local unless you promote a later revision."
-      : "Not direct yet. Changing this learned item from library-saved to temporary is not supported directly in this build. Revise it in the whiteboard during an experiment if you want a temporary follow-up instead.",
+      : "Not direct yet. Changing this saved item from library-saved to temporary is not supported directly in this build. Revise it in the whiteboard during an experiment if you want a temporary follow-up instead.",
     forget: temporary
       ? "Not direct yet. Direct forget or delete is not supported here yet. This temporary item will disappear when the experiment ends unless you promote it."
       : "Not direct yet. Direct forget or delete is not supported for library-saved items yet. Leave it unpinned so it stops carrying forward, or revise it in the whiteboard to make a corrected replacement.",
@@ -430,7 +438,7 @@ export function buildTurnAtAGlanceSummary({
   }
 
   if (learnedCount > 0) {
-    parts.push(`Learned ${learnedCount} ${pluralize("item", learnedCount)} from this turn.`);
+    parts.push(`Saved for Later: ${learnedCount} ${pluralize("item", learnedCount)} from this turn.`);
   }
 
   return parts.join(" ") || "This view explains why the answer happened, what entered Recall, and what changed after the turn.";
@@ -879,7 +887,7 @@ export function buildGuidedInspectionSummary({
   } else {
     parts.push("Recall: none surfaced yet");
   }
-  parts.push(`What I learned: ${learnedCount ? `${learnedCount} item${learnedCount === 1 ? "" : "s"}` : "nothing new yet"}`);
+  parts.push(`Saved for Later: ${learnedCount ? `${learnedCount} item${learnedCount === 1 ? "" : "s"}` : "nothing new yet"}`);
   if (includeLibrary) {
     parts.push(`Library: ${libraryCount} item${libraryCount === 1 ? "" : "s"}`);
   }
@@ -1266,7 +1274,7 @@ export function buildReasoningPathInspection({
     step: "Step 6",
     meta: normalizeStageMeta([
       !grounding.isIdle ? { label: "Grounding", value: grounding.groundingLabel } : null,
-      { label: "What I learned", value: Array.isArray(learnedItems) && learnedItems.length ? `${learnedItems.length} item${learnedItems.length === 1 ? "" : "s"}` : "Nothing learned" },
+      { label: "Saved for Later", value: Array.isArray(learnedItems) && learnedItems.length ? `${learnedItems.length} item${learnedItems.length === 1 ? "" : "s"}` : "Nothing saved" },
       hasTraceRecord ? { label: "Memory Trace", value: "Recorded" } : null,
     ]),
     detail: {
@@ -1278,7 +1286,7 @@ export function buildReasoningPathInspection({
       ]),
       groups: [
         {
-          label: "Saved from this turn",
+          label: "Saved for Later",
           items: cloneReasoningItems(learnedItems),
           context: "learned",
           emptyMessage: "No durable item was created by this turn.",
@@ -1650,7 +1658,7 @@ export function buildReasoningPathStages({
         !grounding.isIdle
           ? { label: "Grounding", value: grounding.groundingLabel }
           : null,
-        { label: "What I learned", value: learnedCount ? `${learnedCount} item${learnedCount === 1 ? "" : "s"}` : "Nothing learned" },
+        { label: "Saved for Later", value: learnedCount ? `${learnedCount} item${learnedCount === 1 ? "" : "s"}` : "Nothing saved" },
         hasTraceRecord ? { label: "Memory Trace", value: "Recorded" } : null,
       ]),
     },
@@ -1683,7 +1691,7 @@ function buildOutcomeSummary({
   }
 
   if (learnedCount > 0) {
-    parts.push(`What I learned saved ${learnedCount} new item${learnedCount === 1 ? "" : "s"} after the answer.`);
+    parts.push(`Saved for Later added ${learnedCount} new item${learnedCount === 1 ? "" : "s"} after the answer.`);
   } else if (workspaceUpdate?.status === "updated") {
     parts.push("The whiteboard was updated from this turn.");
   } else if (workspaceUpdate?.status === "draft_ready") {

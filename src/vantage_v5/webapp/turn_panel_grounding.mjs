@@ -26,7 +26,7 @@ export function buildTurnPanelGroundingCopy({
   }
 
   if (learnedCount > 0) {
-    metaParts.push(`What I learned: ${learnedCount}`);
+    metaParts.push(`Saved for Later: ${learnedCount}`);
   }
 
   return {
@@ -39,7 +39,7 @@ export function buildTurnPanelGroundingCopy({
         : hasGroundedContext
           ? groundingLabel
           : learnedCount > 0
-            ? `${learnedCount} learned`
+            ? `${learnedCount} saved`
             : groundingLabel,
     turnIntentLabel: groundingLabel,
   };

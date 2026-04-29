@@ -52,11 +52,18 @@ Use these for active implementation work:
 - [implementation-roadmap.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/implementation-roadmap.md)
 - [system-improvements-checklist.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/system-improvements-checklist.md)
 - [system-improvements-assessment.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/system-improvements-assessment.md)
+- [conversation-continuity-resume-todo.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/conversation-continuity-resume-todo.md)
 - [whiteboard-draft-retention-todo.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/whiteboard-draft-retention-todo.md)
 - [refactor-deep-modules-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/refactor-deep-modules-plan.md)
 - [architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md)
 - [subagent-orchestration-protocol.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/subagent-orchestration-protocol.md)
 - [codebase/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/README.md)
+
+Current status note:
+
+- `answer_basis` badges and protocol/evidence separation are implemented, but the broader Inspect consolidation remains ongoing.
+- `learned` remains the API field for turn-created or turn-saved records; UI copy may present the same review surface as `Saved for Later`.
+- Direct saved-item mutation actions such as mark wrong, forget, or make temporary are deferred until backend storage, search, and privacy semantics are explicit.
 
 ### Deployment
 

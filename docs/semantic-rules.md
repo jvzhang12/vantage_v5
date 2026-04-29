@@ -17,7 +17,7 @@ Read this after [glossary.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Re
 
 ## Core Rule
 
-The system should stay chat-first while making context, drafting, and durable learning inspectable.
+The system should stay chat-first while making context, drafting, and saved turn outcomes inspectable.
 
 That means:
 
@@ -165,15 +165,26 @@ Implementation checklist:
 - do not silently replace unrelated unsaved work
 - preserve non-destructive fork-or-replace behavior when a new draft conflicts with an existing unsaved draft
 
-## Rule 10: Learned Means Durable Change, Not Internal Reasoning
+## Rule 10: Learned Means Saved Outcome, Not Internal Reasoning
 
-`Learned` should report what changed durably because of the turn.
+`learned` remains the API field for records created, saved, or updated because of the turn.
+
+The UI may call this review surface `Saved for Later`.
+
+`Learned` should report the saved outcome from the turn, not internal reasoning.
+
+In durable mode, that usually means a durable Library change.
+
+In Experiment Mode, it can mean a temporary saved outcome from the turn rather than a durable change.
 
 Implementation checklist:
 
 - concepts, memories, or artifacts created after the turn belong in `Learned`
+- temporary experiment-mode saved outcomes also belong in `Learned` / `Saved for Later` when they are saved for review inside the session
 - transient interpretation or retrieval reasoning does not belong in `Learned`
+- do not overstate durability when the system only saved a temporary experiment outcome
 - do not overstate learning when the system only considered something without saving it
+- keep direct mutation actions such as mark wrong, forget, or make temporary deferred until backend storage, search, and privacy semantics are explicit
 
 ## Rule 11: Grounding Disclosures Must Stay Truthful
 
@@ -228,6 +239,7 @@ Implementation checklist:
 
 - temporary notes should remain session-local unless promoted
 - experiment inspection should not blur temporary and durable state
+- `Learned` / `Saved for Later` should mean saved outcome from the turn, not only durable change
 - UI copy should stay clear about what is temporary and what is durable
 
 ## Rule 15: Protocols Are Guidance, Not Evidence

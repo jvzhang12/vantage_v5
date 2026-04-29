@@ -5,6 +5,7 @@ from typing import Any
 
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_card_fields
 from vantage_v5.services.protocols import BUILT_IN_PROTOCOLS
+from vantage_v5.services.learned_review import build_write_review
 from vantage_v5.storage.artifacts import ArtifactStore
 
 
@@ -103,6 +104,7 @@ def serialize_built_in_protocol_card(protocol_kind: str) -> dict[str, Any]:
 
 def serialize_saved_note_card(record: Any, *, scope: str = "durable") -> dict[str, Any]:
     source_label = _saved_note_source_label(record.source, scope)
+    durability = "temporary" if scope == "experiment" else "durable"
     payload = {
         "id": record.id,
         "title": record.title,
@@ -118,11 +120,18 @@ def serialize_saved_note_card(record: Any, *, scope: str = "durable") -> dict[st
         "recall_status": "available",
         "source_tier": "saved",
         "scope": scope,
+        "durability": durability,
         "filename": record.path.name,
     }
     payload.update(lineage_payload(record))
     payload.update(artifact_lifecycle_card_fields(record))
     payload.update(scenario_payload(saved_record_scenario_metadata(record)))
+    payload["why_learned"] = _saved_note_write_reason(payload)
+    payload["correction_affordance"] = {
+        "kind": "open_in_whiteboard",
+        "label": "Open in whiteboard",
+    }
+    payload["write_review"] = build_write_review(payload)
     return payload
 
 
@@ -228,3 +237,16 @@ def _saved_note_source_label(source: str, scope: str) -> str:
             return "Vantage default artifacts"
         return "Saved artifacts"
     return "Saved notes"
+
+
+def _saved_note_write_reason(payload: dict[str, Any]) -> str:
+    lifecycle = payload.get("artifact_lifecycle")
+    if payload.get("scenario_kind") == "comparison" or lifecycle == "comparison_hub":
+        return "Saved as a Scenario Lab comparison hub so the branch comparison can be revisited."
+    if lifecycle == "whiteboard_snapshot":
+        return "Saved as a whiteboard snapshot so the in-progress draft stays inspectable."
+    if lifecycle == "promoted_artifact":
+        return "Promoted the whiteboard into a durable artifact."
+    if payload.get("source") == "memory":
+        return "Saved as memory because the user asked Vantage to remember it."
+    return "Saved as a durable artifact."

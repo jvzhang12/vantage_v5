@@ -797,6 +797,15 @@ def test_semantic_policy_saves_visible_whiteboard_without_chat_guessing(tmp_path
     assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
     assert payload["created_record"]["source"] == "artifact"
     assert payload["created_record"]["artifact_lifecycle"] == "whiteboard_snapshot"
+    assert payload["created_record"]["write_review"]["write_reason"] == (
+        "Saved as a whiteboard snapshot so the in-progress draft stays inspectable."
+    )
+    assert {action["kind"] for action in payload["created_record"]["write_review"]["allowed_actions"]} == {
+        "open_in_whiteboard",
+        "revise_in_whiteboard",
+        "pin_for_next_turn",
+    }
+    assert payload["created_record"]["write_review"]["direct_mutation_supported"] is False
     assert (repo_root / "workspaces" / "semantic-save-draft.md").exists()
     assert (repo_root / "artifacts" / f"{payload['created_record']['id']}.md").exists()
 
@@ -3416,6 +3425,12 @@ def test_open_promote_and_remember_flow(tmp_path: Path) -> None:
     assert payload["learned"] == [payload["created_record"]]
     assert payload["created_record"]["scope"] == "durable"
     assert payload["created_record"]["source"] == "memory"
+    assert payload["created_record"]["write_review"]["record"]["source"] == "memory"
+    assert payload["created_record"]["write_review"]["scope"] == "durable"
+    assert payload["created_record"]["write_review"]["write_reason"] == (
+        "Saved as memory because the user asked Vantage to remember it."
+    )
+    assert payload["created_record"]["write_review"]["mutation_supported"] is False
     assert (repo_root / "memories" / f"{payload['created_record']['id']}.md").exists()
 
 
@@ -6577,6 +6592,9 @@ def test_experiment_mode_keeps_temporary_memory_isolated(tmp_path: Path) -> None
     assert chat_payload["created_record"]["durability"] == "temporary"
     assert chat_payload["created_record"]["why_learned"] == "Saved as memory because the user asked Vantage to remember it."
     assert chat_payload["created_record"]["correction_affordance"]["kind"] == "open_in_whiteboard"
+    assert chat_payload["created_record"]["write_review"]["scope"] == "experiment"
+    assert chat_payload["created_record"]["write_review"]["durability"] == "temporary"
+    assert chat_payload["created_record"]["write_review"]["record"]["kind"] == "saved_note"
     assert (session_root / "memories" / f"{record_id}.md").exists()
     assert not (repo_root / "memories" / f"{record_id}.md").exists()
 
@@ -6626,6 +6644,11 @@ def test_experiment_mode_keeps_scenario_outputs_isolated(tmp_path: Path, monkeyp
     assert payload["created_record"]["durability"] == "temporary"
     assert payload["created_record"]["why_learned"] == "Saved as a Scenario Lab comparison hub so the branch comparison can be revisited."
     assert payload["created_record"]["correction_affordance"]["kind"] == "open_in_whiteboard"
+    assert payload["created_record"]["write_review"]["write_reason"] == (
+        "Saved as a Scenario Lab comparison hub so the branch comparison can be revisited."
+    )
+    assert payload["created_record"]["write_review"]["record"]["source"] == "artifact"
+    assert payload["created_record"]["write_review"]["direct_mutation_supported"] is False
 
     artifact_id = payload["created_record"]["id"]
     assert (session_root / "artifacts" / f"{artifact_id}.md").exists()

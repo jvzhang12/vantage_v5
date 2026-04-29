@@ -37,7 +37,9 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Clarify when information becomes a concept versus a memory versus an artifact.
 - [ ] Decide whether `concept card` should become `concept key` in user-facing docs and UI while preserving internal compatibility.
 - [ ] Avoid noisy automatic durable writes.
-- [ ] Make grounding disclosures clear when an answer uses no recalled context.
+- [x] Add answer-basis payload and badge language for intuitive, memory-backed, protocol-guided, whiteboard-grounded, and mixed-context turns.
+- [x] Keep protocol guidance separate from factual grounding in answer-basis payloads and UI.
+- [ ] Keep grounding disclosures clear when an answer uses no recalled context.
 
 ## Library And Durable Stores
 
@@ -59,15 +61,17 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Continue consolidating surface state across Chat, Whiteboard, and Vantage.
 - [ ] Reduce surprising layout changes.
 - [ ] Keep compact evidence visible in chat without turning chat into an inspection panel.
-- [ ] Add intuitive answer-basis badges that distinguish model-only intuition from memory-backed, protocol-guided, whiteboard-grounded, and mixed-context answers.
-- [ ] Improve lifecycle cues for drafts, saved items, and learned items.
+- [x] Add intuitive answer-basis badges that distinguish model-only intuition from memory-backed, protocol-guided, whiteboard-grounded, and mixed-context answers.
+- [x] Add the first read-only `Saved for Later` review slice over the canonical `learned` payload.
+- [ ] Improve lifecycle cues for drafts, saved items, and learned items beyond the first review slice.
 - [ ] Keep Vantage useful as an inspection surface without overwhelming the main workflow.
 
 ## Persistence And Multi-User
 
 - [ ] Keep local-first storage simple and inspectable.
 - [ ] Preserve user-profile isolation in multi-user mode.
-- [ ] Make experiment-mode writes clearly session-local.
+- [ ] Make logout/login continuity robust so users can resume recent conversation and active whiteboard work.
+- [ ] Make experiment-mode writes clearly session-local, including `Learned` / `Saved for Later` review items that represent saved outcomes from the turn even when their scope is temporary.
 - [ ] Improve backup, cleanup, and retention behavior for runtime state.
 - [ ] Keep deployment defaults private and conservative.
 
@@ -85,6 +89,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Keep architecture docs current when module responsibilities change.
 - [ ] Keep implementation plans separate from canonical product semantics.
 - [ ] Link detailed child plans from this checklist as they emerge.
+- [ ] Keep `learned` documented as the API field while allowing `Saved for Later` as UI copy.
 
 ## Open Backlog Items
 
@@ -93,5 +98,8 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Decide whether retained transient drafts should participate in Recall.
 - [ ] Decide whether concept records should be explained as query/key/value objects, and where that language should appear.
 - [ ] Decide how aggressively Vantage should invite the Whiteboard for work products.
-- [ ] Decide the exact label set for answer-basis badges.
+- [x] Decide the current label set for answer-basis badges.
+- [ ] Revisit the answer-basis label set after more product use.
+- [ ] Define backend semantics before adding direct saved-item actions such as mark wrong, forget, or make temporary.
+- [ ] Decide whether conversation resume should use Memory Trace reconstruction or a first-class thread snapshot.
 - [ ] Decide which internal details belong in Vantage versus developer/debug surfaces.

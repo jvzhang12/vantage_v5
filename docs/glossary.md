@@ -116,11 +116,17 @@ It is where the user can inspect:
 
 ### Learned
 
-`Learned` is what the system created, saved, or updated as a result of the current turn.
+`Learned` is the API field for what the system created, saved, or updated as a result of the current turn.
+
+The UI may call this review surface `Saved for Later`, especially when the goal is to show the user what was saved after a turn.
 
 This should answer a narrow question:
 
-`What changed durably because of this turn?`
+`What saved outcome came from this turn?`
+
+In durable mode, that usually means a durable concept, memory, artifact, or reference note changed.
+
+In Experiment Mode, a `learned` / `Saved for Later` item can be a temporary saved outcome from the turn. It does not imply a durable Library change unless it is promoted or otherwise marked durable.
 
 ### Pinned Context
 
@@ -255,6 +261,10 @@ This layer should stay narrow and should not become a broad raw-text intent rout
 
 In Experiment Mode, created notes remain temporary unless the user explicitly promotes them.
 
+`Learned` / `Saved for Later` in Experiment Mode means the turn produced a saved temporary outcome, not necessarily a durable change.
+
+Direct actions such as marking a saved item wrong, forgetting it, or making it temporary are deferred until backend storage, search, and privacy semantics are explicit.
+
 ## Canonical Distinctions
 
 These distinctions should not drift:
@@ -267,7 +277,9 @@ These distinctions should not drift:
 - `Whiteboard` may be in Working Memory, but it is still a separate surface.
 - `Working Memory` is the whole in-scope generation context; top-level `recall` is only the vetted recalled subset, with `working_memory` retained as an alias.
 - `Recall` is the retrieval step or vetted subset that can become part of Working Memory.
-- `Learned` is about what changed this turn, not everything the system considered.
+- `Learned` is the canonical API field for saved outcomes from the turn; `Saved for Later` can be the UI label.
+- `Learned` is about saved outcomes from this turn, not everything the system considered.
+- In Experiment Mode, `Learned` / `Saved for Later` can mean a temporary saved outcome rather than a durable Library change.
 - `Workspace` is a compatibility term; `Whiteboard` is the intended product term.
 - `Pinned Context` is the canonical continuity noun for the public/client seam; selected-record naming is now a compatibility alias.
 - `Protocol` is task guidance, not a factual source claim.
@@ -293,7 +305,7 @@ The UI should preserve these roles:
 - `Working Memory` explains the full current-turn generation context, while `working_memory` names the narrower vetted recalled subset when that distinction matters.
 - `Memory Trace` explains the recent searchable history layer available for recall.
 - `Recall` should usually be explained as what was pulled in from Memory Trace and the Library, rather than as the top-level product noun.
-- `Learned` explains durable changes from the turn.
+- `Learned` explains saved outcomes from the turn; UI copy may call this `Saved for Later`.
 - `Library` explains what exists beyond the current turn.
 
 That separation is part of the product, not just implementation detail.

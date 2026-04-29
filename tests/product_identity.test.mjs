@@ -34,7 +34,7 @@ test("buildChatTurnEvidence reports recalled items and learned memories from the
 
   assert.deepEqual(
     evidence.map((item) => item.label),
-    ["Memory-Backed", "Learned 1 note"],
+    ["Memory-Backed", "Saved for Later: 1 note"],
   );
   assert.deepEqual(
     evidence.map((item) => item.emphasis),
@@ -114,7 +114,7 @@ test("buildChatTurnEvidence and guided inspection count branches from the compar
       learnedCount: 0,
       libraryCount: 2,
     }),
-    "Scenario Lab: 2 branches • Recall: 1 item • What I learned: nothing new yet • Library: 2 items",
+    "Scenario Lab: 2 branches • Recall: 1 item • Saved for Later: nothing new yet • Library: 2 items",
   );
 });
 
@@ -420,10 +420,29 @@ test("buildLearnedCorrectionModel keeps the first-pass correction loop truthful"
   assert.equal(durableComparison.keepContextLabel, "Pin for next turn");
   assert.equal(durableComparison.pinnedContextLabel, "Pinned for next turn");
   assert.equal(durableComparison.scopeLabel, "Saved in your library");
-  assert.match(durableComparison.summary, /saved in your library/i);
+  assert.match(durableComparison.summary, /library-saved item/i);
   assert.match(durableComparison.modeSummaries.temporary, /not direct yet/i);
   assert.match(durableComparison.modeSummaries.forget, /not supported/i);
   assert.equal(durableComparison.limitations.length, 2);
+
+  const writeReview = buildLearnedCorrectionModel({
+    source: "memory",
+    scope: "durable",
+    durability: "durable",
+    learned_reason: "Legacy save reason.",
+    write_review: {
+      scope: "experiment",
+      durability: "temporary",
+      summary: "Review saved item from the experiment before carrying it forward.",
+      primary_action: {
+        kind: "open_in_whiteboard",
+        label: "Review in whiteboard",
+      },
+    },
+  });
+  assert.equal(writeReview.scopeLabel, "Temporary in this experiment");
+  assert.equal(writeReview.primaryActionLabel, "Review in whiteboard");
+  assert.equal(writeReview.summary, "Review saved item from the experiment before carrying it forward.");
 });
 
 test("buildLearnedCorrectionModel ignores misleading explicit labels for the whiteboard action", () => {
@@ -485,7 +504,7 @@ test("buildTurnAtAGlanceSummary keeps the first Vantage summary short and outcom
       hasGroundedContext: true,
       learnedCount: 1,
     }),
-    "This answer used 2 recalled items. Learned 1 item from this turn.",
+    "This answer used 2 recalled items. Saved for Later: 1 item from this turn.",
   );
 
   assert.equal(
@@ -502,7 +521,7 @@ test("buildTurnAtAGlanceSummary keeps the first Vantage summary short and outcom
       scenarioLabStatus: "failed",
       learnedCount: 1,
     }),
-    "Scenario Lab fell back to chat. Learned 1 item from this turn.",
+    "Scenario Lab fell back to chat. Saved for Later: 1 item from this turn.",
   );
 
   assert.equal(
@@ -527,7 +546,7 @@ test("buildGuidedInspectionSummary keeps the Vantage header aligned with turn tr
       libraryCount: 7,
       pinnedTitle: "Roadmap",
     }),
-    "Scenario Lab: 2 branches • Grounding: Whiteboard • What I learned: 1 item • Library: 7 items • Pinned: Roadmap",
+    "Scenario Lab: 2 branches • Grounding: Whiteboard • Saved for Later: 1 item • Library: 7 items • Pinned: Roadmap",
   );
 });
 
@@ -539,7 +558,7 @@ test("buildGuidedInspectionSummary prefers recalled counts over generic recall l
       learnedCount: 0,
       libraryCount: 4,
     }),
-    "Recall: 3 items • What I learned: nothing new yet • Library: 4 items",
+    "Recall: 3 items • Saved for Later: nothing new yet • Library: 4 items",
   );
 });
 
@@ -552,7 +571,7 @@ test("buildGuidedInspectionSummary can omit the hidden Library surface", () => {
       libraryCount: 4,
       includeLibrary: false,
     }),
-    "Recall: 3 items • What I learned: nothing new yet",
+    "Recall: 3 items • Saved for Later: nothing new yet",
   );
 });
 
@@ -564,7 +583,7 @@ test("buildGuidedInspectionSummary keeps broader grounded context separate from 
       learnedCount: 0,
       libraryCount: 2,
     }),
-    "Grounding: Recent Chat • What I learned: nothing new yet • Library: 2 items",
+    "Grounding: Recent Chat • Saved for Later: nothing new yet • Library: 2 items",
   );
 });
 
@@ -581,7 +600,7 @@ test("buildGuidedInspectionSummary uses product-facing labels for prior whiteboa
       learnedCount: 0,
       libraryCount: 3,
     }),
-    "Grounding: Prior Whiteboard • What I learned: nothing new yet • Library: 3 items",
+    "Grounding: Prior Whiteboard • Saved for Later: nothing new yet • Library: 3 items",
   );
 });
 
@@ -598,7 +617,7 @@ test("buildGuidedInspectionSummary preserves broader grounding when working memo
       learnedCount: 0,
       libraryCount: 5,
     }),
-    "Recall: 2 items • Grounding: Memory + Recent Chat • What I learned: nothing new yet • Library: 5 items",
+    "Recall: 2 items • Grounding: Memory + Recent Chat • Saved for Later: nothing new yet • Library: 5 items",
   );
 });
 
@@ -610,7 +629,7 @@ test("buildGuidedInspectionSummary surfaces intuitive answer grounding explicitl
       learnedCount: 0,
       libraryCount: 2,
     }),
-    "Grounding: Intuitive Answer • What I learned: nothing new yet • Library: 2 items",
+    "Grounding: Intuitive Answer • Saved for Later: nothing new yet • Library: 2 items",
   );
 });
 

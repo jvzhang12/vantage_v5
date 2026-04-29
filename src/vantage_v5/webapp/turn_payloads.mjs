@@ -168,12 +168,65 @@ export function normalizeAnswerBasis(answerBasis = null, {
   };
 }
 
+export function normalizeWriteReview(value) {
+  const source = value && typeof value === "object" ? value : null;
+  if (!source) {
+    return null;
+  }
+  const reason = firstNonEmptyString(
+    source.reason,
+    source.write_reason,
+    source.writeReason,
+    source.why_saved,
+    source.whySaved,
+    source.why_learned,
+    source.whyLearned,
+    source.rationale,
+  );
+  const scope = firstNonEmptyString(source.scope, source.review_scope, source.reviewScope);
+  const durability = firstNonEmptyString(source.durability);
+  const summary = firstNonEmptyString(source.summary, source.copy, source.review_copy, source.reviewCopy);
+  const primaryAction = source.primary_action && typeof source.primary_action === "object"
+    ? source.primary_action
+    : source.primaryAction && typeof source.primaryAction === "object"
+      ? source.primaryAction
+      : null;
+  const normalized = {
+    ...source,
+    ...(reason ? { reason } : {}),
+    ...(reason ? { write_reason: reason, writeReason: reason } : {}),
+    ...(scope ? { scope } : {}),
+    ...(durability ? { durability } : {}),
+    ...(summary ? { summary } : {}),
+    ...(primaryAction ? { primaryAction, primary_action: primaryAction } : {}),
+  };
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function normalizeLearnedItem(item) {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+  const id = normalizeRecordId(item, "");
+  if (!id) {
+    return null;
+  }
+  const writeReview = normalizeWriteReview(item.write_review || item.writeReview);
+  return {
+    ...item,
+    id,
+    ...(writeReview ? { writeReview, write_review: writeReview } : {}),
+  };
+}
+
 export function normalizeLearnedItems(payload) {
   if (Array.isArray(payload?.learned)) {
-    return payload.learned;
+    return payload.learned.map((item) => normalizeLearnedItem(item)).filter(Boolean);
   }
-  if (payload?.created_record && typeof payload.created_record === "object") {
-    return [payload.created_record];
+  const createdRecord = payload?.created_record || payload?.createdRecord;
+  if (createdRecord && typeof createdRecord === "object") {
+    const normalized = normalizeLearnedItem(createdRecord);
+    return normalized ? [normalized] : [];
   }
   return [];
 }

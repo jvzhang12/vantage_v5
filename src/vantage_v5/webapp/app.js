@@ -28,7 +28,7 @@ import {
   describeResponseModeLabel,
   deriveTurnGrounding,
   deriveWhiteboardLifecycle,
-} from "./product_identity.mjs?v=20260429-answer-basis-2";
+} from "./product_identity.mjs?v=20260429-write-review";
 import {
   buildWorkspaceContextPayload,
   deriveChatWhiteboardMode,
@@ -54,7 +54,7 @@ import {
 } from "./workspace_state.mjs?v=20260421-scenario-fix";
 import {
   buildTurnPanelGroundingCopy,
-} from "./turn_panel_grounding.mjs?v=20260429-answer-basis-2";
+} from "./turn_panel_grounding.mjs?v=20260429-write-review";
 import {
   normalizeAnswerBasis,
   normalizeLearnedItems,
@@ -70,8 +70,9 @@ import {
   normalizeTurnStage,
   normalizeTurnInterpretation,
   normalizeSemanticPolicy,
+  normalizeWriteReview,
   normalizeWorkspaceUpdate,
-} from "./turn_payloads.mjs?v=20260429-answer-basis-2";
+} from "./turn_payloads.mjs?v=20260429-write-review";
 import {
   deriveWhiteboardPreviewState,
   renderRichText,
@@ -2997,7 +2998,7 @@ function renderTurnPanel() {
     turnLearnedListEl,
     state.turnLearned,
     "learned",
-    "Nothing new was learned from this turn.",
+    "Nothing was saved for later from this turn.",
   );
   renderMemoryTracePanel();
   renderReasoningPathPanel(reasoningPath, interpretation);
@@ -4267,7 +4268,7 @@ function renderMemoryInspector() {
   if (!item) {
     const empty = document.createElement("div");
     empty.className = "empty-note";
-    empty.textContent = "Select something from What I used, What I learned, or the library to review it here. Selection alone does not keep it in scope for the next turn.";
+    empty.textContent = "Select something from What I used, Saved for Later, or the library to review it here. Selection alone does not keep it in scope for the next turn.";
     conceptInspectorEl.appendChild(empty);
     return;
   }
@@ -4325,7 +4326,7 @@ function renderMemoryInspector() {
   if (isTurnLearnedItem(item)) {
     const learnedCorrection = buildLearnedCorrectionModel(item);
     meta.append(createMiniMeta("saved as", learnedCorrection.scopeLabel || describeLearnedScopeLabel(item)));
-    meta.append(createMiniMeta("correction path", learnedCorrection.primaryActionLabel || "Revise in whiteboard"));
+    meta.append(createMiniMeta("review path", learnedCorrection.primaryActionLabel || "Revise in whiteboard"));
   }
 
   const summary = document.createElement("div");
@@ -4425,7 +4426,7 @@ function renderMemoryInspector() {
     correctionGuidance.className = "inspector-guidance";
     const guidanceLabel = document.createElement("div");
     guidanceLabel.className = "inspector-body-label";
-    guidanceLabel.textContent = "Correction options";
+    guidanceLabel.textContent = "Review saved item";
 
     const guidanceSummary = document.createElement("p");
     guidanceSummary.className = "inspector-guidance-copy";
@@ -4701,8 +4702,10 @@ function normalizeLearnedReasonText(value) {
 }
 
 function describeLearnedReason(item) {
+  const writeReview = normalizeWriteReview(item?.write_review || item?.writeReview);
   const provided = normalizeLearnedReasonText(
-    item?.learnedReason
+    writeReview?.reason
+    || item?.learnedReason
     || item?.learned_reason
     || item?.whyLearned
     || item?.why_learned
@@ -4748,9 +4751,9 @@ function buildLearnedCorrectionHint(item, correctionModel) {
     return "";
   }
   if (isPinnedMemoryItem(item)) {
-    return `Correction path: ${correctionModel.primaryActionLabel}. This item is already pinned for the next turn.`;
+    return `Review saved item: ${correctionModel.primaryActionLabel}. This item is already pinned for the next turn.`;
   }
-  return `Correction path: ${correctionModel.primaryActionLabel} or pin it for the next turn.`;
+  return `Review saved item: ${correctionModel.primaryActionLabel} or pin it for the next turn.`;
 }
 
 function getLearnedCorrectionItem() {
@@ -4840,8 +4843,8 @@ function renderLearnedCorrectionPanel() {
   const activeMode = String(state.learnedCorrection?.mode || "overview").trim() || "overview";
   const summaryText = correctionModel?.modeSummaries?.[activeMode]
     || correctionModel?.summary
-    || "Direct correction works through the whiteboard.";
-  const title = item?.title || item?.id || "This learned item";
+    || "Review runs through the whiteboard.";
+  const title = item?.title || item?.id || "This saved item";
   const summary = isPinnedMemoryItem(item) && activeMode === "overview"
     ? `${title}: ${summaryText} It is currently pinned for the next turn.`
     : `${title}: ${summaryText}`;
@@ -5178,7 +5181,7 @@ function createMemoryCard(item, context) {
       ),
     );
   } else if (context === "learned") {
-    meta.append(createBadge("learned this turn", "success"));
+    meta.append(createBadge("saved for later", "success"));
     meta.append(createBadge(learnedCorrection?.scopeLabel || describeLearnedScopeLabel(item), "soft"));
     meta.append(createBadge(learnedTypeLabel(item), "soft"));
   }
@@ -5989,6 +5992,7 @@ function normalizeMemoryItem(item, source) {
   const card = item.card || item.summary || item.description || item.note_card || item.snippet || item.excerpt || normalized.card;
   const status = item.status || (isVaultNote ? "read-only" : normalized.status);
   const explicitType = String(item.type || item.kind || item.record_kind || "").trim();
+  const writeReview = normalizeWriteReview(item.write_review || item.writeReview);
   const protocol = normalizeProtocolMetadata(item);
   const scenarioPayload = item.scenario && typeof item.scenario === "object" ? item.scenario : null;
   const scenarioKind = String(item.scenario_kind || scenarioPayload?.scenario_kind || "").trim().toLowerCase();
@@ -6044,14 +6048,16 @@ function normalizeMemoryItem(item, source) {
     provenance: item.provenance || item.source_meta || item.metadata || null,
     recallReason: item.recall_reason || item.recallReason || item.why_recalled || item.whyRecalled || item.user_reason || item.userReason || "",
     recall_reason: item.recall_reason || item.recallReason || item.why_recalled || item.whyRecalled || item.user_reason || item.userReason || "",
-    learnedReason: item.learned_reason || item.learnedReason || item.why_learned || item.whyLearned || item.save_reason || item.saveReason || item.rationale || "",
-    learned_reason: item.learned_reason || item.learnedReason || item.why_learned || item.whyLearned || item.save_reason || item.saveReason || item.rationale || "",
+    learnedReason: writeReview?.reason || item.learned_reason || item.learnedReason || item.why_learned || item.whyLearned || item.save_reason || item.saveReason || item.rationale || "",
+    learned_reason: writeReview?.reason || item.learned_reason || item.learnedReason || item.why_learned || item.whyLearned || item.save_reason || item.saveReason || item.rationale || "",
     whyLearned: item.why_learned || item.whyLearned || item.learned_reason || item.learnedReason || "",
     why_learned: item.why_learned || item.whyLearned || item.learned_reason || item.learnedReason || "",
     scope: item.scope || normalized.scope || "",
     durability: item.durability || normalized.durability || "",
     correctionAffordance: item.correction_affordance || item.correctionAffordance || null,
     correction_affordance: item.correction_affordance || item.correctionAffordance || null,
+    writeReview,
+    write_review: writeReview,
     debugReason: item.reason || item.debug_reason || item.debugReason || "",
     scenario: scenarioPayload,
     scenarioKind,

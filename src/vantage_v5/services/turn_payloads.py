@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from vantage_v5.services.learned_review import ensure_write_review
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.response_mode import build_answer_basis_payload
 from vantage_v5.services.turn_staging import StageAuditResult
@@ -334,7 +335,12 @@ def assemble_service_turn_payload(
 
 
 def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
-    created_record = parts.created_record or (parts.learned[0] if parts.learned else None)
+    learned = _record_list(parts.learned)
+    created_record = parts.created_record if isinstance(parts.created_record, dict) else (learned[0] if learned else None)
+    for record in learned:
+        ensure_write_review(record)
+    if created_record is not None:
+        ensure_write_review(created_record)
     selected_memory = _turn_memory_payload(parts.saved_notes, parts.vault_notes)
     candidate_memory = _turn_memory_payload(parts.candidate_saved_notes, parts.candidate_vault_notes)
     payload = {
@@ -362,7 +368,7 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
         "recall": parts.working_memory,
         "working_memory": parts.working_memory,
         "recall_details": parts.recall_details,
-        "learned": parts.learned,
+        "learned": learned,
         "memory_trace_record": parts.memory_trace_record,
         "response_mode": parts.response_mode,
         "vetting": parts.vetting,
@@ -379,7 +385,12 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
 
 
 def assemble_scenario_lab_turn_body(parts: ScenarioLabTurnBodyParts) -> dict[str, Any]:
-    created_record = parts.created_record or (parts.learned[0] if parts.learned else None)
+    learned = _record_list(parts.learned)
+    created_record = parts.created_record if isinstance(parts.created_record, dict) else (learned[0] if learned else None)
+    for record in learned:
+        ensure_write_review(record)
+    if created_record is not None:
+        ensure_write_review(created_record)
     selected_memory = _turn_memory_payload(parts.saved_notes, parts.vault_notes)
     candidate_memory = _turn_memory_payload(parts.candidate_saved_notes, parts.candidate_vault_notes)
     payload = {
@@ -403,7 +414,7 @@ def assemble_scenario_lab_turn_body(parts: ScenarioLabTurnBodyParts) -> dict[str
         "candidate_memory_results": parts.candidate_memory,
         "recall": parts.working_memory,
         "working_memory": parts.working_memory,
-        "learned": parts.learned,
+        "learned": learned,
         "memory_trace_record": parts.memory_trace_record,
         "response_mode": parts.response_mode,
         "vetting": parts.vetting,
@@ -514,14 +525,22 @@ def finalize_turn_payload(
     pinned_context_id: str | None,
     pinned_context: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    learned = payload.get("learned")
-    if not isinstance(learned, list):
-        learned = []
+    learned = _record_list(payload.get("learned"))
+    payload["learned"] = learned
     created_record = payload.get("created_record")
+    if not isinstance(created_record, dict):
+        created_record = None
+        payload["created_record"] = None
     if created_record is None and learned:
-        payload["created_record"] = learned[0]
+        created_record = learned[0]
+        payload["created_record"] = created_record
     elif created_record is not None and not learned:
-        payload["learned"] = [created_record]
+        learned = [created_record]
+        payload["learned"] = learned
+    for record in learned:
+        ensure_write_review(record)
+    if created_record is not None:
+        ensure_write_review(created_record)
 
     graph_action = payload.get("graph_action")
     if isinstance(graph_action, dict):
@@ -562,6 +581,12 @@ def finalize_turn_payload(
     _preserve_stage_payloads(payload)
     payload["answer_basis"] = build_answer_basis_payload(payload)
     return payload
+
+
+def _record_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
 
 
 def _preserve_stage_payloads(payload: dict[str, Any]) -> None:

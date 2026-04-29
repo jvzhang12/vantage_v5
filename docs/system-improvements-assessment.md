@@ -12,11 +12,12 @@ The suggestions mostly fit the current repository.
 
 The strongest pattern is:
 
-`Improve Vantage by making context provenance, guidance, and durable learning clearer without adding new top-level surfaces.`
+`Improve Vantage by making context provenance, guidance, and saved turn outcomes clearer without adding new top-level surfaces.`
 
-The repo already has much of the substrate:
+The repo now has much of the substrate:
 
 - `response_mode` for grounding / best-guess disclosure
+- `answer_basis` for turn-level basis badges and separated evidence / guidance buckets
 - `turn_interpretation` for Navigator route and control-panel decisions
 - `Recall` and candidate context payloads
 - `Working Memory` inspection
@@ -31,9 +32,9 @@ Most improvements should refine those existing surfaces rather than create a sec
 
 ### 1. Answer-Basis Badges
 
-This is the best near-term product improvement.
+Status: implemented as a turn payload and frontend badge/review model.
 
-It should be a thin user-facing layer over existing `response_mode`, recalled item metadata, and protocol guidance.
+It is a thin user-facing layer over existing `response_mode`, recalled item metadata, recent chat / whiteboard context, and protocol guidance.
 
 Recommended badge set:
 
@@ -67,7 +68,7 @@ Definition note:
 
 This already exists in pieces through Inspect, Reasoning Path, Context in Scope, Pulled In, Memory Trace, and Saved for Later.
 
-The improvement should unify those pieces into a clearer turn receipt:
+The answer-basis and Saved for Later slices improve the turn receipt, but the whole Inspect consolidation is not done. The remaining improvement should unify these pieces into a clearer turn receipt:
 
 - answer basis badge
 - grounding sources
@@ -81,19 +82,26 @@ This should live in `Vantage` / Inspect, not as a heavy default chat panel.
 
 ### 3. Memory Write Review
 
-The repo already has post-turn `Learned` / `Saved for Later` behavior.
+Status: a read-only review slice is implemented.
 
-The right next step is not approval before every write. That would make chat feel heavy.
+The API field remains `learned`; the UI may call the same turn-created/saved items `Saved for Later`. That label is product copy, not a payload rename.
 
-Better direction:
+The right next step is still not approval before every write. That would make chat feel heavy.
+
+Implemented first pass:
 
 - show what was saved
 - explain why it was saved
 - expose durability / scope
-- add correction actions over time
-- support delete / forget / revise / mark wrong once backend actions exist
+- keep direct correction affordances read-only or guidance-only where backend mutation is not explicit
 
 This keeps learning inspectable without interrupting normal chat.
+
+Deferred:
+
+- direct mutation actions such as `mark wrong`, `forget`, or `make temporary`
+- durable edit / delete / scope mutation
+- backend storage, search, and privacy semantics for those mutation paths
 
 ### 4. Context Budget View
 
@@ -129,15 +137,15 @@ Do not make protocols look like factual evidence, saved drafts, or ordinary conc
 
 ### 6. Recall Failure UX
 
-The current `Best Guess` behavior is already close, but the user-facing label should become `Intuitive Answer`.
+The current implementation keeps the backend `best_guess` response mode while using `Intuitive Answer` as the softer answer-basis label.
 
-The improvement is clearer product copy:
+The product copy should keep making this clear:
 
 - no relevant Vantage memory was used
 - the answer came from general model understanding
 - user can save, correct, or pin context if useful
 
-The product should use `Intuitive Answer` as the softer badge label, but its meaning should remain precise:
+The meaning should remain precise:
 
 `The answer came from general learned capability rather than a specific recalled Vantage context object.`
 
@@ -206,11 +214,11 @@ Recommended emphasis:
 
 ## Recommended Implementation Order
 
-1. Add an `answer_basis` payload derived from existing `response_mode`, recalled items, protocol actions, and context sources.
-2. Update frontend badge copy to use the answer-basis mapping without adding a new surface.
-3. Separate protocol guidance from factual grounding in payload and UI.
-4. Improve `Saved for Later` / `Learned` into the memory write review surface.
-5. Add correction actions for saved items and bad recall.
+1. Complete: add an `answer_basis` payload derived from existing `response_mode`, recalled items, protocol actions, and context sources.
+2. Complete: update frontend badge copy to use the answer-basis mapping without adding a new top-level surface.
+3. Complete: separate protocol guidance from factual grounding in payload and UI.
+4. Complete first pass: improve `Saved for Later` / `Learned` into a read-only memory write review surface.
+5. Deferred: add direct correction actions for saved items and bad recall once backend storage, search, and privacy semantics are explicit.
 6. Add Context Budget inside Inspect.
 7. Build a more visible Protocol Library / protocol Inspect subview.
 8. Experiment with concept key/value terminology in docs or advanced metadata only.
@@ -218,16 +226,17 @@ Recommended emphasis:
 
 ## Concrete Checklist Additions
 
-- [ ] Define `answer_basis` backend DTO.
-- [ ] Map `response_mode.kind == "best_guess"` to `Intuitive Answer`.
-- [ ] Map recalled non-protocol items to `Memory-Backed`.
-- [ ] Map applied protocol guidance to `Protocol-Guided`.
-- [ ] Map whiteboard context sources to `Whiteboard-Grounded`.
-- [ ] Map multiple sources to `Mixed Context`.
-- [ ] Ensure protocols do not count as factual memory evidence.
-- [ ] Add tests for answer-basis mapping.
-- [ ] Add frontend tests for badge rendering.
-- [ ] Improve Saved for Later with review/correction affordances.
+- [x] Define `answer_basis` backend DTO.
+- [x] Map `response_mode.kind == "best_guess"` to `Intuitive Answer`.
+- [x] Map recalled non-protocol items to `Memory-Backed`.
+- [x] Map applied protocol guidance to `Protocol-Guided`.
+- [x] Map whiteboard context sources to `Whiteboard-Grounded`.
+- [x] Map multiple sources to `Mixed Context`.
+- [x] Ensure protocols do not count as factual memory evidence.
+- [x] Add tests for answer-basis mapping.
+- [x] Add frontend tests for badge rendering.
+- [x] Improve Saved for Later with read-only review affordances.
+- [ ] Add direct Saved for Later mutation actions once backend storage/search/privacy semantics are explicit.
 - [ ] Add Context Budget to Inspect.
 - [ ] Draft a small protocol-library UX plan.
 - [ ] Keep concept key/value terminology exploratory until validated.

@@ -11,6 +11,7 @@ from openai import OpenAI
 
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_card_fields
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_kind
+from vantage_v5.services.learned_review import build_write_review
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.response_mode import build_response_mode_payload
@@ -1056,6 +1057,7 @@ def _record_payload(record: ArtifactRecord) -> dict[str, Any]:
             "kind": "open_in_whiteboard",
             "label": "Open in whiteboard",
         }
+        payload["write_review"] = build_write_review(payload)
     return payload
 
 

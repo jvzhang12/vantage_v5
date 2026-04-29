@@ -854,7 +854,7 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
       },
       learnedCount: 1,
       expected: {
-        metaText: "Recall: 2 items • Grounding: Memory-Backed • What I learned: 1",
+        metaText: "Recall: 2 items • Grounding: Memory-Backed • Saved for Later: 1",
         answerDockLabel: "Memory-Backed",
         turnIntentLabel: "Memory-Backed",
       },
@@ -959,7 +959,7 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
   }
 });
 
-test("turn panel grounding copy covers idle and learned-only fallback branches", () => {
+test("turn panel grounding copy covers idle and saved-only fallback branches", () => {
   assert.deepEqual(
     buildTurnPanelGroundingCopy({
       grounding: {
@@ -992,8 +992,8 @@ test("turn panel grounding copy covers idle and learned-only fallback branches",
     }),
     {
       groundingLabel: "Idle",
-      metaText: "No grounded context surfaced yet • What I learned: 2",
-      answerDockLabel: "2 learned",
+      metaText: "No grounded context surfaced yet • Saved for Later: 2",
+      answerDockLabel: "2 saved",
       turnIntentLabel: "Idle",
     },
   );
@@ -1002,7 +1002,7 @@ test("turn panel grounding copy covers idle and learned-only fallback branches",
 test("turn payload normalization now expects canonical backend DTOs", () => {
   assert.deepEqual(
     normalizeLearnedItems({
-      learned: [{ id: "learned-memory" }],
+      learned: [null, { card: "missing id" }, { id: "learned-memory" }],
       created_record: { id: "legacy-created-record" },
     }),
     [{ id: "learned-memory" }],
@@ -1010,7 +1010,7 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
 
   assert.deepEqual(
     normalizeLearnedItems({
-      created_record: { id: "legacy-created-record" },
+      createdRecord: { id: "legacy-created-record" },
     }),
     [{ id: "legacy-created-record" }],
   );
@@ -1026,6 +1026,11 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
           kind: "open_in_whiteboard",
           label: "Open in whiteboard",
         },
+        writeReview: {
+          write_reason: "The user asked Vantage to remember it.",
+          scope: "experiment",
+          summary: "Review this saved item through the whiteboard.",
+        },
       },
     }),
     [{
@@ -1036,6 +1041,20 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
       correction_affordance: {
         kind: "open_in_whiteboard",
         label: "Open in whiteboard",
+      },
+      writeReview: {
+        reason: "The user asked Vantage to remember it.",
+        write_reason: "The user asked Vantage to remember it.",
+        writeReason: "The user asked Vantage to remember it.",
+        scope: "experiment",
+        summary: "Review this saved item through the whiteboard.",
+      },
+      write_review: {
+        reason: "The user asked Vantage to remember it.",
+        write_reason: "The user asked Vantage to remember it.",
+        writeReason: "The user asked Vantage to remember it.",
+        scope: "experiment",
+        summary: "Review this saved item through the whiteboard.",
       },
     }],
   );

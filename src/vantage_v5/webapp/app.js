@@ -73,7 +73,7 @@ import {
   normalizeSemanticPolicy,
   normalizeWriteReview,
   normalizeWorkspaceUpdate,
-} from "./turn_payloads.mjs?v=20260429-context-budget";
+} from "./turn_payloads.mjs?v=20260429-protocol-guidance";
 import {
   deriveWhiteboardPreviewState,
   renderRichText,
@@ -163,6 +163,12 @@ const workspaceUpdateActionsEl = document.getElementById("workspaceUpdateActions
 const scenarioLabSectionEl = document.getElementById("scenarioLabSection");
 const quietActivityLineEl = document.getElementById("quietActivityLine");
 const turnInspectBucketsEl = document.getElementById("turnInspectBuckets");
+const protocolGuidanceSectionEl = document.getElementById("protocolGuidanceSection");
+const appliedProtocolGuidanceListEl = document.getElementById("appliedProtocolGuidanceList");
+const availableProtocolGuidanceDetailsEl = document.getElementById("availableProtocolGuidanceDetails");
+const availableProtocolGuidanceSummaryMetaEl = document.getElementById("availableProtocolGuidanceSummaryMeta");
+const availableProtocolGuidanceListEl = document.getElementById("availableProtocolGuidanceList");
+const protocolGuidanceEditorEl = document.getElementById("protocolGuidanceEditor");
 const turnWorkingMemoryListEl = document.getElementById("turnWorkingMemoryList");
 const turnTraceListEl = document.getElementById("turnTraceList");
 const turnLearnedListEl = document.getElementById("turnLearnedList");
@@ -265,6 +271,7 @@ const state = {
   },
   history: [],
   catalogConcepts: [],
+  protocolCatalog: [],
   catalogSavedNotes: [],
   catalogVaultNotes: [],
   sessionConcepts: [],
@@ -385,6 +392,7 @@ function createIdleTurnState() {
 
 function resetTransientExperimentUiState() {
   state.sessionConcepts = [];
+  state.protocolCatalog = [];
   state.sessionSavedNotes = [];
   state.sessionVaultNotes = [];
   state.turnConcepts = [];
@@ -607,7 +615,13 @@ function restoreTurnSnapshot() {
     state.selectedConceptId = restoredTurnState.selectedConceptId;
     state.selectedVaultNoteId = restoredTurnState.selectedVaultNoteId;
     state.selectionOrigin = restoredTurnState.selectionOrigin;
-    state.turnConcepts = Array.isArray(snapshot.turnConcepts) ? snapshot.turnConcepts : [];
+    const restoredTurnConcepts = splitProtocolGuidanceItems(
+      Array.isArray(snapshot.turnConcepts) ? snapshot.turnConcepts : [],
+    );
+    const restoredCandidateConcepts = splitProtocolGuidanceItems(
+      Array.isArray(snapshot.candidateConcepts) ? snapshot.candidateConcepts : [],
+    );
+    state.turnConcepts = restoredTurnConcepts.regularItems;
     state.turnSavedNotes = Array.isArray(snapshot.turnSavedNotes) ? snapshot.turnSavedNotes : [];
     state.turnVaultNotes = Array.isArray(snapshot.turnVaultNotes) ? snapshot.turnVaultNotes : [];
     state.turnWorkingMemory = Array.isArray(snapshot.turnWorkingMemory) ? snapshot.turnWorkingMemory : [];
@@ -627,11 +641,19 @@ function restoreTurnSnapshot() {
           : createEmptyLearnedCorrectionState());
     state.turnReasoningPathStageKey = snapshot.turnReasoningPathStageKey || "";
     state.turnReasoningPathExpanded = snapshot.turnReasoningPathExpanded === true;
-    state.candidateConcepts = Array.isArray(snapshot.candidateConcepts) ? snapshot.candidateConcepts : [];
+    state.candidateConcepts = restoredCandidateConcepts.regularItems;
     state.candidateSavedNotes = Array.isArray(snapshot.candidateSavedNotes) ? snapshot.candidateSavedNotes : [];
     state.candidateTraceNotes = Array.isArray(snapshot.candidateTraceNotes) ? snapshot.candidateTraceNotes : [];
     state.candidateVaultNotes = Array.isArray(snapshot.candidateVaultNotes) ? snapshot.candidateVaultNotes : [];
     state.pinnedContext = restoredTurnState.pinnedContext;
+    state.protocolCatalog = mergeProtocolCatalogCollections(
+      state.protocolCatalog,
+      [
+        ...restoredTurnConcepts.protocolItems,
+        ...restoredCandidateConcepts.protocolItems,
+        ...state.turnWorkingMemory.filter(isProtocolGuidanceItem),
+      ],
+    );
     state.catalogConcepts = mergeConceptCollections(state.catalogConcepts, state.turnConcepts);
     state.catalogConcepts = mergeConceptCollections(state.catalogConcepts, state.candidateConcepts);
     state.catalogSavedNotes = mergeMemoryCollections(state.catalogSavedNotes, state.turnSavedNotes);
@@ -1745,9 +1767,10 @@ function applyWorkspacePayload(payload, { preserveDirty = false } = {}) {
 
 async function loadConceptCatalog({ silent = false } = {}) {
   try {
-    const [memoryResult, conceptResult] = await Promise.all([
+    const [memoryResult, conceptResult, protocolResult] = await Promise.all([
       fetchJson("/api/memory"),
       fetchJson("/api/concepts"),
+      fetchJson("/api/protocols?include_builtins=true"),
     ]);
     if (!memoryResult.response.ok) {
       throw new Error(memoryResult.payload?.detail || `Memory failed to load with status ${memoryResult.response.status}`);
@@ -1755,10 +1778,16 @@ async function loadConceptCatalog({ silent = false } = {}) {
     if (!conceptResult.response.ok) {
       throw new Error(conceptResult.payload?.detail || `Concepts failed to load with status ${conceptResult.response.status}`);
     }
+    if (!protocolResult.response.ok) {
+      throw new Error(protocolResult.payload?.detail || `Protocols failed to load with status ${protocolResult.response.status}`);
+    }
     const memoryPayload = memoryResult.payload;
     const conceptPayload = conceptResult.payload;
+    const protocolPayload = protocolResult.payload;
     const normalizedMemory = normalizeMemoryPayload(memoryPayload, "catalog");
-    state.catalogConcepts = normalizeConceptList(conceptPayload?.concepts || [], "concept");
+    state.catalogConcepts = normalizeConceptList(conceptPayload?.concepts || [], "concept")
+      .filter((concept) => !isProtocolGuidanceItem(concept));
+    state.protocolCatalog = normalizeProtocolCatalogItems(protocolPayload?.protocols || [], "protocol-catalog");
     state.catalogSavedNotes = normalizedMemory.savedNotes;
     state.catalogVaultNotes = normalizedMemory.referenceNotes;
     rebuildConceptCatalog();
@@ -2118,6 +2147,12 @@ function applyChatPayload(payload) {
     normalizedTurnPayload.learnedItems,
     "turn-learned",
   );
+  const candidateConceptItems = splitProtocolGuidanceItems(
+    normalizeConceptList(payload.candidate_concepts || [], "concept"),
+  );
+  const turnConceptItems = splitProtocolGuidanceItems(
+    normalizeConceptList(payload.concept_cards || [], "concept"),
+  );
   state.pendingWhiteboardDecision = null;
   state.turn = {
     userMessage: payload.user_message || "",
@@ -2144,11 +2179,11 @@ function applyChatPayload(payload) {
   };
   state.turnReasoningPathStageKey = "";
   state.turnReasoningPathExpanded = false;
-  state.candidateConcepts = normalizeConceptList(payload.candidate_concepts || [], "concept");
+  state.candidateConcepts = candidateConceptItems.regularItems;
   state.candidateSavedNotes = candidateMemory.savedNotes;
   state.candidateTraceNotes = normalizeWorkingMemoryItems(payload.candidate_trace_notes || [], "candidate-trace");
   state.candidateVaultNotes = candidateMemory.referenceNotes;
-  state.turnConcepts = normalizeConceptList(payload.concept_cards || [], "concept");
+  state.turnConcepts = turnConceptItems.regularItems;
   state.turnSavedNotes = turnMemory.savedNotes;
   state.turnVaultNotes = turnMemory.referenceNotes;
   state.turnWorkingMemory = recallItems;
@@ -2158,6 +2193,14 @@ function applyChatPayload(payload) {
     : null;
   state.turnLearned = learnedItems;
   syncLearnedCorrectionState({ persist: false });
+  state.protocolCatalog = mergeProtocolCatalogCollections(
+    state.protocolCatalog,
+    [
+      ...candidateConceptItems.protocolItems,
+      ...turnConceptItems.protocolItems,
+      ...recallItems.filter(isProtocolGuidanceItem),
+    ],
+  );
   state.catalogConcepts = mergeConceptCollections(state.catalogConcepts, state.turnConcepts);
   state.catalogConcepts = mergeConceptCollections(state.catalogConcepts, state.candidateConcepts);
   state.catalogSavedNotes = mergeMemoryCollections(state.catalogSavedNotes, state.turnSavedNotes);
@@ -2994,6 +3037,7 @@ function renderTurnPanel() {
     stageAudit: state.turn.stageAudit,
   });
   renderInspectBuckets({ grounding, interpretation, workspaceUpdate });
+  renderProtocolGuidanceSection();
   renderQuietActivityLine({ grounding, scenarioLab, workspaceUpdate, semanticFrame, semanticPolicy });
   renderWorkingMemoryPanel({
     grounding,
@@ -3005,10 +3049,10 @@ function renderTurnPanel() {
   renderWorkspaceUpdatePanel(workspaceUpdate, { hidden: Boolean(scenarioLab && !scenarioLabFailed) });
   renderMemoryGroup(
     turnWorkingMemoryListEl,
-    // Legacy name: `turnWorkingMemory` still holds the recalled subset only.
-    state.turnWorkingMemory,
+    // Legacy name: `turnWorkingMemory` still holds recalled items plus protocol guidance.
+    state.turnWorkingMemory.filter((item) => !isProtocolGuidanceItem(item)),
     "turn",
-    "Nothing was pulled in for this turn.",
+    "No factual memory evidence was pulled in for this turn.",
   );
   renderMemoryGroup(
     turnLearnedListEl,
@@ -3230,6 +3274,251 @@ function createInspectBucket(bucket) {
     article.append(sample);
   }
   return article;
+}
+
+function renderProtocolGuidanceSection() {
+  if (
+    !protocolGuidanceSectionEl
+    || !appliedProtocolGuidanceListEl
+    || !availableProtocolGuidanceListEl
+  ) {
+    return;
+  }
+
+  const appliedProtocols = getAppliedProtocolGuidanceItems();
+  const availableProtocols = getAvailableProtocolGuidanceItems(appliedProtocols);
+  protocolGuidanceSectionEl.classList.toggle("protocol-guidance--has-applied", appliedProtocols.length > 0);
+
+  appliedProtocolGuidanceListEl.innerHTML = "";
+  if (appliedProtocols.length) {
+    for (const protocol of appliedProtocols) {
+      appliedProtocolGuidanceListEl.append(createProtocolGuidanceCard(protocol, { applied: true }));
+    }
+  } else {
+    appliedProtocolGuidanceListEl.append(
+      createProtocolGuidanceEmptyNote("No protocol guidance was applied to this turn."),
+    );
+  }
+
+  if (availableProtocolGuidanceSummaryMetaEl) {
+    availableProtocolGuidanceSummaryMetaEl.textContent = availableProtocols.length
+      ? `${availableProtocols.length} available · collapsed`
+      : "None available";
+  }
+  if (availableProtocolGuidanceDetailsEl) {
+    availableProtocolGuidanceDetailsEl.open = false;
+  }
+
+  availableProtocolGuidanceListEl.innerHTML = "";
+  if (availableProtocols.length) {
+    for (const protocol of availableProtocols) {
+      availableProtocolGuidanceListEl.append(createProtocolGuidanceCard(protocol));
+    }
+  } else {
+    availableProtocolGuidanceListEl.append(
+      createProtocolGuidanceEmptyNote("No additional reusable guidance is available yet."),
+    );
+  }
+
+  renderSelectedProtocolGuidanceEditor();
+}
+
+function createProtocolGuidanceEmptyNote(message) {
+  const empty = document.createElement("div");
+  empty.className = "empty-note protocol-guidance__empty";
+  empty.textContent = message;
+  return empty;
+}
+
+function createProtocolGuidanceCard(protocol, { applied = false } = {}) {
+  const article = document.createElement("article");
+  article.className = "protocol-guidance-card";
+  if (applied) {
+    article.classList.add("protocol-guidance-card--applied");
+  }
+  if (protocol.id === state.selectedConceptId) {
+    article.classList.add("is-selected");
+  }
+  article.dataset.protocolId = protocol.id || "";
+
+  const main = document.createElement("div");
+  main.className = "protocol-guidance-card__main";
+
+  const title = document.createElement("h3");
+  title.className = "protocol-guidance-card__title";
+  title.textContent = protocol.title || protocol.id || "Untitled protocol";
+
+  const summary = document.createElement("p");
+  summary.className = "protocol-guidance-card__summary";
+  summary.textContent = protocol.card || "Reusable guidance for recurring work.";
+
+  const meta = document.createElement("div");
+  meta.className = "protocol-guidance-card__meta";
+  if (applied) {
+    meta.append(createBadge("Applied", "accent"));
+  }
+  meta.append(createBadge(protocolOriginLabel(protocol), protocolOriginTone(protocol)));
+  const protocolKind = normalizeProtocolMetadata(protocol).protocolKind;
+  if (protocolKind) {
+    meta.append(createBadge(humanizeSemanticToken(protocolKind), "soft"));
+  }
+
+  main.append(title, summary, meta);
+
+  const actions = document.createElement("div");
+  actions.className = "protocol-guidance-card__actions";
+  const openButton = createActionButton(
+    "Review",
+    applied ? "primary" : "secondary",
+  );
+  openButton.disabled = state.busy || !protocol.id;
+  openButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openProtocolGuidance(protocol.id);
+  });
+  actions.append(openButton);
+
+  article.addEventListener("click", () => {
+    openProtocolGuidance(protocol.id);
+  });
+  article.append(main, actions);
+  return article;
+}
+
+function renderSelectedProtocolGuidanceEditor() {
+  if (!protocolGuidanceEditorEl) {
+    return;
+  }
+  protocolGuidanceEditorEl.innerHTML = "";
+  const selectedProtocol = getSelectedProtocolGuidanceItem();
+  if (!selectedProtocol) {
+    protocolGuidanceEditorEl.hidden = true;
+    return;
+  }
+  protocolGuidanceEditorEl.hidden = false;
+  protocolGuidanceEditorEl.append(createProtocolEditorSection(selectedProtocol));
+}
+
+function openProtocolGuidance(protocolId) {
+  const protocol = getProtocolGuidanceById(protocolId);
+  if (!protocol) {
+    pushNotice("Protocol unavailable", "That protocol guidance could not be found.", "warning");
+    return;
+  }
+  state.selectedConceptId = protocol.id;
+  state.selectedVaultNoteId = "";
+  state.selectionOrigin = "protocol-guidance";
+  persistTurnSnapshot();
+  pushNotice("Protocol selected", `${protocol.title || protocol.id} is open for review.`, "info");
+  renderTurnPanel();
+  renderMemoryPanel();
+}
+
+function getSelectedProtocolGuidanceItem() {
+  if (!state.selectedConceptId) {
+    return null;
+  }
+  const selected = getProtocolGuidanceById(state.selectedConceptId);
+  return selected && isProtocolGuidanceItem(selected) ? selected : null;
+}
+
+function getAppliedProtocolGuidanceItems() {
+  return dedupeProtocolGuidanceItems([
+    ...state.turnWorkingMemory,
+    ...state.turnConcepts,
+  ].filter(isProtocolGuidanceItem).map(enrichProtocolGuidanceItem));
+}
+
+function getAvailableProtocolGuidanceItems(appliedProtocols = []) {
+  const appliedKeys = new Set(appliedProtocols.map(protocolGuidanceKey).filter(Boolean));
+  return state.protocolCatalog
+    .filter((protocol) => !appliedKeys.has(protocolGuidanceKey(protocol)))
+    .sort(compareProtocolGuidanceItems);
+}
+
+function getProtocolGuidanceById(protocolId) {
+  const targetId = String(protocolId || "").trim();
+  if (!targetId) {
+    return null;
+  }
+  const direct = [
+    ...state.turnWorkingMemory,
+    ...state.turnConcepts,
+    ...state.protocolCatalog,
+  ].find((protocol) => protocol?.id === targetId && isProtocolGuidanceItem(protocol));
+  if (direct) {
+    return enrichProtocolGuidanceItem(direct);
+  }
+  return null;
+}
+
+function enrichProtocolGuidanceItem(item) {
+  const catalogMatch = findProtocolCatalogMatch(item);
+  return mergeProtocolGuidanceItem(item, catalogMatch);
+}
+
+function findProtocolCatalogMatch(item) {
+  const id = String(item?.id || "").trim();
+  const kind = normalizeProtocolMetadata(item).protocolKind;
+  return state.protocolCatalog.find((candidate) => {
+    const candidateKind = normalizeProtocolMetadata(candidate).protocolKind;
+    return (id && candidate.id === id) || (kind && candidateKind === kind);
+  }) || null;
+}
+
+function mergeProtocolGuidanceItem(item, fallback = null) {
+  const normalizedFallback = fallback && isProtocolGuidanceItem(fallback)
+    ? fallback
+    : null;
+  const source = item && typeof item === "object" ? item : {};
+  const fallbackProtocol = normalizedFallback?.protocol && typeof normalizedFallback.protocol === "object"
+    ? normalizedFallback.protocol
+    : {};
+  const sourceProtocol = source.protocol && typeof source.protocol === "object"
+    ? source.protocol
+    : {};
+  return normalizeProtocolCatalogItems([
+    {
+      ...(normalizedFallback || {}),
+      ...source,
+      id: source.id || normalizedFallback?.id || "",
+      title: source.title || normalizedFallback?.title || "",
+      card: source.card || normalizedFallback?.card || source.summary || normalizedFallback?.summary || "",
+      body: source.body || normalizedFallback?.body || source.content || normalizedFallback?.content || "",
+      type: "protocol",
+      kind: "protocol",
+      protocol: {
+        ...fallbackProtocol,
+        ...sourceProtocol,
+      },
+    },
+  ], source.source || normalizedFallback?.source || "protocol-guidance")[0] || null;
+}
+
+function protocolOriginLabel(item) {
+  const explicitLabel = String(item?.source_label || item?.sourceLabel || "").trim();
+  if (["Built-in", "Custom override", "Custom"].includes(explicitLabel)) {
+    return explicitLabel;
+  }
+  const protocol = normalizeProtocolMetadata(item);
+  if (protocol.isBuiltin || protocol.isCanonical) {
+    return "Built-in";
+  }
+  if (protocol.overridesBuiltin || protocol.overridesCanonical) {
+    return "Custom override";
+  }
+  return "Custom";
+}
+
+function protocolOriginTone(item) {
+  const label = protocolOriginLabel(item);
+  if (label === "Built-in") {
+    return "soft";
+  }
+  if (label === "Custom override") {
+    return "warm";
+  }
+  return "success";
 }
 
 function buildDraftInspectItems({
@@ -4398,7 +4687,7 @@ function renderMemoryInspector() {
     meta.append(createMiniMeta("protocol", protocol.protocolKind || "custom"));
     meta.append(createMiniMeta("applies to", protocol.appliesTo.length ? protocol.appliesTo.join(", ") : "not specified"));
     meta.append(createMiniMeta("editable", protocol.modifiable ? "yes" : "no"));
-    meta.append(createMiniMeta("source", protocol.isBuiltin ? "built-in" : protocol.overridesBuiltin ? "custom override" : "custom"));
+    meta.append(createMiniMeta("source", protocolOriginLabel(item)));
   }
   if (isTurnLearnedItem(item)) {
     const learnedCorrection = buildLearnedCorrectionModel(item);
@@ -4544,6 +4833,7 @@ function renderMemoryInspector() {
 
 function createProtocolEditorSection(item) {
   const protocol = normalizeProtocolMetadata(item);
+  const savesAsOverride = protocol.isBuiltin || protocol.isCanonical;
   const section = document.createElement("section");
   section.className = "protocol-editor";
 
@@ -4553,7 +4843,7 @@ function createProtocolEditorSection(item) {
 
   const summary = document.createElement("p");
   summary.className = "protocol-editor__summary";
-  summary.textContent = protocol.isBuiltin
+  summary.textContent = savesAsOverride
     ? "This is a built-in protocol. Saving creates a custom override without mutating the built-in default."
     : protocol.overridesBuiltin
       ? "This protocol customizes a built-in default."
@@ -4572,12 +4862,14 @@ function createProtocolEditorSection(item) {
   const status = document.createElement("p");
   status.className = "protocol-editor__status";
   status.textContent = protocol.modifiable
-    ? "Edit the fields, then save to update future matching requests."
+    ? savesAsOverride
+      ? "Edit the fields, then save a custom override for future matching requests."
+      : "Edit the fields, then save to update future matching requests."
     : "This protocol is not marked modifiable.";
 
   const actions = document.createElement("div");
   actions.className = "protocol-editor__actions";
-  const saveButton = createActionButton(protocol.isBuiltin ? "Save custom override" : "Save protocol", "primary");
+  const saveButton = createActionButton(savesAsOverride ? "Save custom override" : "Save protocol", "primary");
   saveButton.disabled = state.busy || !protocol.modifiable || !protocol.protocolKind;
   saveButton.addEventListener("click", async () => {
     status.textContent = "Saving protocol...";
@@ -4655,14 +4947,11 @@ function createProtocolTextarea(labelText, value, { rows = 4, monospace = false 
 }
 
 function upsertProtocolConcept(protocolPayload) {
-  const normalized = normalizeConcept(protocolPayload, "concept");
-  const target = normalized.scope === "experiment" ? state.sessionConcepts : state.catalogConcepts;
-  const index = target.findIndex((concept) => concept.id === normalized.id);
-  if (index >= 0) {
-    target[index] = { ...target[index], ...normalized };
-  } else {
-    target.unshift(normalized);
+  const normalized = normalizeProtocolCatalogItems([protocolPayload], "protocol-catalog")[0];
+  if (!normalized) {
+    return;
   }
+  state.protocolCatalog = mergeProtocolCatalogCollections(state.protocolCatalog, [normalized]);
   state.turnWorkingMemory = state.turnWorkingMemory.map((item) => item.id === normalized.id ? { ...item, ...normalized } : item);
   state.turnConcepts = state.turnConcepts.map((item) => item.id === normalized.id ? { ...item, ...normalized } : item);
   rebuildConceptCatalog();
@@ -5795,6 +6084,7 @@ function getConceptById(conceptId) {
     state.turnWorkingMemory.find((concept) => concept.id === conceptId)
     || state.turnConcepts.find((concept) => concept.id === conceptId)
     || state.turnSavedNotes.find((concept) => concept.id === conceptId)
+    || state.protocolCatalog.find((concept) => concept.id === conceptId)
     || state.allConcepts.find((concept) => concept.id === conceptId)
     || state.allSavedNotes.find((concept) => concept.id === conceptId)
     || null
@@ -5967,6 +6257,94 @@ function normalizeConceptList(concepts, source) {
   return concepts
     .map((concept) => normalizeConcept(concept, source))
     .filter((concept) => concept.id);
+}
+
+function normalizeProtocolCatalogItems(protocols, source) {
+  return dedupeProtocolGuidanceItems(
+    (Array.isArray(protocols) ? protocols : [])
+      .map((protocol) => normalizeConcept({
+        ...protocol,
+        type: "protocol",
+        kind: "protocol",
+      }, source))
+      .filter((protocol) => protocol.id && isProtocolGuidanceItem(protocol)),
+  );
+}
+
+function splitProtocolGuidanceItems(items) {
+  const regularItems = [];
+  const protocolItems = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    if (isProtocolGuidanceItem(item)) {
+      protocolItems.push(item);
+    } else {
+      regularItems.push(item);
+    }
+  }
+  return { regularItems, protocolItems };
+}
+
+function isProtocolGuidanceItem(item) {
+  const type = String(item?.type || item?.kind || item?.memory_role || item?.memoryRole || "").trim().toLowerCase();
+  const protocol = normalizeProtocolMetadata(item);
+  return type === "protocol" || Boolean(protocol.protocolKind);
+}
+
+function protocolGuidanceKey(item) {
+  const protocol = normalizeProtocolMetadata(item);
+  return protocol.protocolKind || String(item?.id || "").trim();
+}
+
+function dedupeProtocolGuidanceItems(items = []) {
+  const map = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item?.id || !isProtocolGuidanceItem(item)) {
+      continue;
+    }
+    const key = protocolGuidanceKey(item);
+    if (!key) {
+      continue;
+    }
+    const existing = map.get(key);
+    if (existing) {
+      const itemRank = protocolOriginRank(item);
+      const existingRank = protocolOriginRank(existing);
+      const preferIncoming = itemRank <= existingRank;
+      map.set(
+        key,
+        preferIncoming
+          ? mergeProtocolGuidanceItem(item, existing)
+          : mergeProtocolGuidanceItem(existing, item),
+      );
+    } else {
+      map.set(key, item);
+    }
+  }
+  return [...map.values()].sort(compareProtocolGuidanceItems);
+}
+
+function mergeProtocolCatalogCollections(first, second) {
+  return dedupeProtocolGuidanceItems([
+    ...(Array.isArray(first) ? first : []),
+    ...(Array.isArray(second) ? second : []),
+  ]);
+}
+
+function compareProtocolGuidanceItems(left, right) {
+  const leftOrigin = protocolOriginRank(left);
+  const rightOrigin = protocolOriginRank(right);
+  return leftOrigin - rightOrigin || compareConcepts(left, right);
+}
+
+function protocolOriginRank(item) {
+  const protocol = normalizeProtocolMetadata(item);
+  if (protocol.overridesBuiltin || protocol.overridesCanonical) {
+    return 0;
+  }
+  if (!protocol.isBuiltin) {
+    return 1;
+  }
+  return 2;
 }
 
 function normalizeMemoryPayload(payload, source) {
@@ -6245,6 +6623,8 @@ function mergeConceptCollections(first, second) {
 }
 
 function rebuildConceptCatalog() {
+  state.catalogConcepts = state.catalogConcepts.filter((concept) => !isProtocolGuidanceItem(concept));
+  state.sessionConcepts = state.sessionConcepts.filter((concept) => !isProtocolGuidanceItem(concept));
   state.allConcepts = mergeConceptCollections(state.catalogConcepts, state.sessionConcepts);
   state.allSavedNotes = mergeMemoryCollections(state.catalogSavedNotes, state.sessionSavedNotes);
   state.allVaultNotes = mergeMemoryCollections(state.catalogVaultNotes, state.sessionVaultNotes);
@@ -6253,6 +6633,10 @@ function rebuildConceptCatalog() {
 
 function upsertSessionConcept(concept) {
   const normalized = normalizeConcept(concept, "session");
+  if (isProtocolGuidanceItem(normalized)) {
+    upsertProtocolConcept(normalized);
+    return;
+  }
   const index = state.sessionConcepts.findIndex((item) => item.id === normalized.id);
   if (index >= 0) {
     state.sessionConcepts[index] = { ...state.sessionConcepts[index], ...normalized };

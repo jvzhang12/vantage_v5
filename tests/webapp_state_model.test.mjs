@@ -1347,8 +1347,21 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
       appliesTo: ["scenario planning"],
       modifiable: false,
       isBuiltin: true,
+      isCanonical: false,
       overridesBuiltin: false,
+      overridesCanonical: false,
     },
+  );
+
+  assert.equal(
+    normalizeProtocolMetadata({
+      protocol: {
+        protocol_kind: "email",
+        is_canonical: "true",
+        overrides_canonical: "true",
+      },
+    }).overridesCanonical,
+    true,
   );
 
   assert.deepEqual(

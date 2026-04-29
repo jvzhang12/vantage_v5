@@ -133,6 +133,8 @@ Good UX direction:
 - allow inline editing where already supported
 - surface `Protocol-Guided` on turns where one applied
 
+Inspect Protocols is backed by `GET /api/protocols?include_builtins=true`, which returns persisted protocols plus missing built-in defaults in one deduped catalog. Source labels should stay simple: `Built-in`, `Custom override`, and `Custom`. The underlying flags (`is_builtin`, `is_canonical`, `overrides_builtin`, `overrides_canonical`) carry the exact backend provenance without making the UI sound like protocols are factual evidence.
+
 Risk:
 
 Do not make protocols look like factual evidence, saved drafts, or ordinary concepts. They are task guidance.
@@ -222,7 +224,7 @@ Recommended emphasis:
 4. Complete first pass: improve `Saved for Later` / `Learned` into a read-only memory write review surface.
 5. Deferred: add direct correction actions for saved items and bad recall once backend storage, search, and privacy semantics are explicit.
 6. Complete: add Context Budget inside Inspect.
-7. Build a more visible Protocol Library / protocol Inspect subview.
+7. Complete: build a more visible Protocols guidance subview inside Inspect.
 8. Experiment with concept key/value terminology in docs or advanced metadata only.
 9. Add freshness/confidence labels once correction paths and semantics are clear.
 
@@ -240,7 +242,7 @@ Recommended emphasis:
 - [x] Improve Saved for Later with read-only review affordances.
 - [ ] Add direct Saved for Later mutation actions once backend storage/search/privacy semantics are explicit.
 - [x] Add Context Budget to Inspect.
-- [ ] Draft a small protocol-library UX plan.
+- [x] Draft and implement a small Protocols guidance UX inside Inspect.
 - [ ] Keep concept key/value terminology exploratory until validated.
 
 ## Bottom Line

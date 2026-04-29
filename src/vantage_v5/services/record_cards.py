@@ -51,8 +51,14 @@ def serialize_concept_card(concept: Any, *, scope: str = "durable") -> dict[str,
         "filename": concept.path.name,
     }
     if concept.type == "protocol":
+        overrides_builtin, overrides_canonical = _protocol_override_flags(scope, metadata)
         payload["kind"] = "protocol"
         payload["memory_role"] = "protocol"
+        payload["source_label"] = _protocol_source_label(
+            scope,
+            overrides_builtin=overrides_builtin,
+            overrides_canonical=overrides_canonical,
+        )
         payload["source_tier"] = "instruction"
         payload["protocol"] = {
             "protocol_kind": metadata.get("protocol_kind"),
@@ -61,8 +67,8 @@ def serialize_concept_card(concept: Any, *, scope: str = "durable") -> dict[str,
             "modifiable": bool(metadata.get("modifiable", True)),
             "is_builtin": False,
             "is_canonical": scope == "canonical",
-            "overrides_builtin": bool(metadata.get("override_of_builtin")),
-            "overrides_canonical": bool(metadata.get("override_of_canonical")),
+            "overrides_builtin": overrides_builtin,
+            "overrides_canonical": overrides_canonical,
         }
     payload.update(lineage_payload(concept))
     return payload
@@ -78,7 +84,7 @@ def serialize_built_in_protocol_card(protocol_kind: str) -> dict[str, Any]:
         "body": built_in["body"],
         "status": "active",
         "source": "concept",
-        "source_label": "Built-in protocols",
+        "source_label": "Built-in",
         "trust": "high",
         "kind": "protocol",
         "memory_role": "protocol",
@@ -97,7 +103,9 @@ def serialize_built_in_protocol_card(protocol_kind: str) -> dict[str, Any]:
             "applies_to": built_in.get("applies_to") or [],
             "modifiable": True,
             "is_builtin": True,
+            "is_canonical": False,
             "overrides_builtin": False,
+            "overrides_canonical": False,
         },
     }
 
@@ -221,6 +229,20 @@ def _concept_source_label(scope: str) -> str:
     if scope == "canonical":
         return "Vantage defaults"
     return "Concept KB"
+
+
+def _protocol_override_flags(scope: str, metadata: dict[str, Any]) -> tuple[bool, bool]:
+    overrides_builtin = bool(metadata.get("override_of_builtin"))
+    overrides_canonical = bool(metadata.get("override_of_canonical"))
+    return overrides_builtin, overrides_canonical
+
+
+def _protocol_source_label(scope: str, *, overrides_builtin: bool, overrides_canonical: bool) -> str:
+    if scope == "canonical":
+        return "Built-in"
+    if overrides_builtin or overrides_canonical:
+        return "Custom override"
+    return "Custom"
 
 
 def _saved_note_source_label(source: str, scope: str) -> str:

@@ -271,8 +271,12 @@ def build_protocol_write_from_update(
         )
     metadata = {
         "learned_by": "protocol_api",
-        "override_of_builtin": supported_kind in BUILT_IN_PROTOCOLS,
-        "override_of_canonical": _is_canonical_record(existing) if existing is not None else False,
+        "override_of_builtin": supported_kind in BUILT_IN_PROTOCOLS
+        or bool(existing is not None and existing.metadata.get("override_of_builtin")),
+        "override_of_canonical": bool(existing is not None and (
+            _is_canonical_record(existing)
+            or existing.metadata.get("override_of_canonical")
+        )),
     }
     return ProtocolWrite(
         protocol_id=_protocol_id(supported_kind),

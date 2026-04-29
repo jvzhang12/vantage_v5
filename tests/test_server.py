@@ -1014,12 +1014,18 @@ def test_protocol_apis_include_builtins_and_persist_builtin_override(tmp_path: P
     by_id = {item["id"]: item for item in protocols.json()["protocols"]}
     assert "scenario-lab-protocol" in by_id
     assert by_id["scenario-lab-protocol"]["scope"] == "builtin"
+    assert by_id["scenario-lab-protocol"]["source_label"] == "Built-in"
     assert by_id["scenario-lab-protocol"]["protocol"]["is_builtin"] is True
+    assert by_id["scenario-lab-protocol"]["protocol"]["is_canonical"] is False
+    assert by_id["scenario-lab-protocol"]["protocol"]["overrides_builtin"] is False
+    assert by_id["scenario-lab-protocol"]["protocol"]["overrides_canonical"] is False
 
     fetched_by_kind = client.get("/api/protocols/scenario_lab")
     assert fetched_by_kind.status_code == 200
     assert fetched_by_kind.json()["id"] == "scenario-lab-protocol"
     assert fetched_by_kind.json()["scope"] == "builtin"
+    assert fetched_by_kind.json()["source_label"] == "Built-in"
+    assert fetched_by_kind.json()["protocol"]["overrides_canonical"] is False
 
     updated = client.put(
         "/api/protocols/scenario_lab",
@@ -1033,8 +1039,11 @@ def test_protocol_apis_include_builtins_and_persist_builtin_override(tmp_path: P
     updated_payload = updated.json()
     assert updated_payload["id"] == "scenario-lab-protocol"
     assert updated_payload["scope"] == "durable"
+    assert updated_payload["source_label"] == "Custom override"
     assert updated_payload["protocol"]["is_builtin"] is False
+    assert updated_payload["protocol"]["is_canonical"] is False
     assert updated_payload["protocol"]["overrides_builtin"] is True
+    assert updated_payload["protocol"]["overrides_canonical"] is False
     assert updated_payload["protocol"]["variables"]["default_surface"] == "premium_scenario_lab"
     assert updated_payload["card"] == "Custom Scenario Lab guidance for premium comparisons."
     assert (repo_root / "concepts" / "scenario-lab-protocol.md").exists()
@@ -1044,6 +1053,7 @@ def test_protocol_apis_include_builtins_and_persist_builtin_override(tmp_path: P
     matches = [item for item in protocols_after.json()["protocols"] if item["id"] == "scenario-lab-protocol"]
     assert len(matches) == 1
     assert matches[0]["scope"] == "durable"
+    assert matches[0]["source_label"] == "Custom override"
 
 
 def test_canonical_protocols_are_read_through_and_user_overrides_are_private(tmp_path: Path) -> None:
@@ -1061,7 +1071,11 @@ def test_canonical_protocols_are_read_through_and_user_overrides_are_private(tmp
     assert protocols.status_code == 200
     by_id = {item["id"]: item for item in protocols.json()["protocols"]}
     assert by_id["email-drafting-protocol"]["scope"] == "canonical"
+    assert by_id["email-drafting-protocol"]["source_label"] == "Built-in"
+    assert by_id["email-drafting-protocol"]["protocol"]["is_builtin"] is False
     assert by_id["email-drafting-protocol"]["protocol"]["is_canonical"] is True
+    assert by_id["email-drafting-protocol"]["protocol"]["overrides_builtin"] is False
+    assert by_id["email-drafting-protocol"]["protocol"]["overrides_canonical"] is False
     assert not (repo_root / "users" / "eden" / "concepts" / "email-drafting-protocol.md").exists()
 
     updated = client.put(
@@ -1074,22 +1088,50 @@ def test_canonical_protocols_are_read_through_and_user_overrides_are_private(tmp
     )
     assert updated.status_code == 200
     assert updated.json()["scope"] == "durable"
+    assert updated.json()["source_label"] == "Custom override"
+    assert updated.json()["protocol"]["is_canonical"] is False
     assert updated.json()["protocol"]["overrides_canonical"] is True
     assert updated.json()["protocol"]["variables"]["signature"] == "Eden Vale"
     assert (repo_root / "users" / "eden" / "concepts" / "email-drafting-protocol.md").exists()
     assert "Eden Vale" not in (repo_root / "canonical" / "concepts" / "email-drafting-protocol.md").read_text(encoding="utf-8")
 
+    second_update = client.put(
+        "/api/protocols/email",
+        headers=eden_headers,
+        json={
+            "variables": {"signature": "Eden Vale", "default_close": "Thanks"},
+        },
+    )
+    assert second_update.status_code == 200
+    assert second_update.json()["source_label"] == "Custom override"
+    assert second_update.json()["protocol"]["overrides_canonical"] is True
+
     eden_protocols = client.get("/api/protocols", headers=eden_headers)
     assert eden_protocols.status_code == 200
     eden_by_id = {item["id"]: item for item in eden_protocols.json()["protocols"]}
     assert eden_by_id["email-drafting-protocol"]["scope"] == "durable"
+    assert eden_by_id["email-drafting-protocol"]["source_label"] == "Custom override"
     assert eden_by_id["email-drafting-protocol"]["protocol"]["variables"]["signature"] == "Eden Vale"
+
+    eden_catalog = client.get("/api/protocols", params={"include_builtins": "true"}, headers=eden_headers)
+    assert eden_catalog.status_code == 200
+    eden_catalog_items = eden_catalog.json()["protocols"]
+    assert len([item for item in eden_catalog_items if item["id"] == "email-drafting-protocol"]) == 1
+    assert len([item for item in eden_catalog_items if item["id"] == "scenario-lab-protocol"]) == 1
 
     jordan_protocols = client.get("/api/protocols", headers=jordan_headers)
     assert jordan_protocols.status_code == 200
     jordan_by_id = {item["id"]: item for item in jordan_protocols.json()["protocols"]}
     assert jordan_by_id["email-drafting-protocol"]["scope"] == "canonical"
+    assert jordan_by_id["email-drafting-protocol"]["source_label"] == "Built-in"
     assert jordan_by_id["email-drafting-protocol"]["protocol"]["variables"]["signature"] == ""
+
+    jordan_catalog = client.get("/api/protocols", params={"include_builtins": "true"}, headers=jordan_headers)
+    assert jordan_catalog.status_code == 200
+    jordan_catalog_by_id = {item["id"]: item for item in jordan_catalog.json()["protocols"]}
+    assert jordan_catalog_by_id["email-drafting-protocol"]["source_label"] == "Built-in"
+    assert jordan_catalog_by_id["email-drafting-protocol"]["protocol"]["variables"]["signature"] == ""
+    assert jordan_catalog_by_id["scenario-lab-protocol"]["source_label"] == "Built-in"
 
 
 def test_protocol_edit_in_experiment_writes_to_experiment_concepts(tmp_path: Path) -> None:
@@ -1218,6 +1260,11 @@ def test_email_protocol_is_learned_and_recalled_for_matching_draft(tmp_path: Pat
     protocol_payload = protocols.json()["protocols"][0]
     assert protocol_payload["id"] == "email-drafting-protocol"
     assert protocol_payload["kind"] == "protocol"
+    assert protocol_payload["source_label"] == "Custom"
+    assert protocol_payload["protocol"]["is_builtin"] is False
+    assert protocol_payload["protocol"]["is_canonical"] is False
+    assert protocol_payload["protocol"]["overrides_builtin"] is False
+    assert protocol_payload["protocol"]["overrides_canonical"] is False
     assert protocol_payload["protocol"]["variables"]["signature"] == "Jordan Zhang"
 
     draft = client.post(

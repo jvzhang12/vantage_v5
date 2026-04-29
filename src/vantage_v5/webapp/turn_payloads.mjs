@@ -683,6 +683,14 @@ export function normalizeProtocolMetadata(item) {
         ?? metadata.is_builtin
         ?? metadata.isBuiltin,
     ) ?? false,
+    isCanonical: normalizeInterpretationBoolean(
+      protocol.is_canonical
+        ?? protocol.isCanonical
+        ?? source.is_canonical
+        ?? source.isCanonical
+        ?? metadata.is_canonical
+        ?? metadata.isCanonical,
+    ) ?? false,
     overridesBuiltin: normalizeInterpretationBoolean(
       protocol.overrides_builtin
         ?? protocol.overridesBuiltin
@@ -690,6 +698,14 @@ export function normalizeProtocolMetadata(item) {
         ?? source.overridesBuiltin
         ?? metadata.overrides_builtin
         ?? metadata.overridesBuiltin,
+    ) ?? false,
+    overridesCanonical: normalizeInterpretationBoolean(
+      protocol.overrides_canonical
+        ?? protocol.overridesCanonical
+        ?? source.overrides_canonical
+        ?? source.overridesCanonical
+        ?? metadata.overrides_canonical
+        ?? metadata.overridesCanonical,
     ) ?? false,
   };
 }

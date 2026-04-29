@@ -15,6 +15,29 @@ Protocols are reusable instructions for recurring classes of work. They sit betw
 - `PUT /api/protocols/{protocol_kind}` updates a protocol from the Inspect editor. Editing a built-in protocol creates a persisted override in the active scope instead of mutating the built-in default.
 - Experiment mode protocol edits are temporary because they write to the experiment concept store; durable mode edits write to the durable concept store.
 
+## Inspect Protocols Contract
+
+The Inspect Protocols view should load the catalog with `GET /api/protocols?include_builtins=true`. That response includes active persisted protocol records plus built-in protocols that do not already have a persisted record for the same protocol kind.
+
+Every catalog item uses the same card shape as concept records and includes protocol metadata under `protocol`:
+
+- `protocol_kind`
+- `variables`
+- `applies_to`
+- `modifiable`
+- `is_builtin`
+- `is_canonical`
+- `overrides_builtin`
+- `overrides_canonical`
+
+Source labels are intentionally UX-oriented:
+
+- `Built-in`: a code built-in or canonical Vantage default.
+- `Custom override`: a persisted protocol that overrides a built-in or canonical default.
+- `Custom`: a persisted user-created protocol that is not marked as an override.
+
+The catalog is deduped by protocol kind. When a user has a custom override, the override is returned instead of the lower-priority built-in or canonical default. In authenticated mode, custom protocol records live under the active user's storage, so another user continues to see the canonical or built-in default and never receives the first user's variables or body text.
+
 ## Email Protocol Example
 
 An email protocol can carry variables such as:

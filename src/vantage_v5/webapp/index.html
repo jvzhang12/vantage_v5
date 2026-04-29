@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vantage</title>
     <link rel="stylesheet" href="/static/vendor/highlight-github.min.css?v=20260421-math-render-code" />
-    <link rel="stylesheet" href="/static/styles.css?v=20260429-context-budget" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260429-protocol-guidance" />
   </head>
   <body>
     <div class="notice-rail" id="noticeRail" aria-live="polite"></div>
@@ -193,6 +193,26 @@
                 <div class="turn-notice" id="turnNotice">Why this answer happened, what supported it, and what changed after the turn.</div>
                 <div class="turn-summary-facts" id="turnSummaryFacts"></div>
                 <div class="inspect-buckets" id="turnInspectBuckets"></div>
+                <section class="protocol-guidance" id="protocolGuidanceSection" aria-labelledby="protocolGuidanceTitle">
+                  <div class="protocol-guidance__head">
+                    <div>
+                      <div class="section-label" id="protocolGuidanceTitle">Protocols</div>
+                      <p class="subtle protocol-guidance__copy">Reusable guidance for how to work; not factual evidence for the answer.</p>
+                    </div>
+                  </div>
+                  <div class="protocol-guidance__group">
+                    <div class="section-label section-label--subtle">Applied first</div>
+                    <div class="protocol-guidance__list" id="appliedProtocolGuidanceList"></div>
+                  </div>
+                  <details class="protocol-guidance__available" id="availableProtocolGuidanceDetails">
+                    <summary class="protocol-guidance__available-summary">
+                      <span class="section-label section-label--subtle">Available guidance</span>
+                      <span class="subtle protocol-guidance__available-meta" id="availableProtocolGuidanceSummaryMeta">Collapsed</span>
+                    </summary>
+                    <div class="protocol-guidance__list" id="availableProtocolGuidanceList"></div>
+                  </details>
+                  <div class="protocol-guidance__editor" id="protocolGuidanceEditor"></div>
+                </section>
               </section>
               <section class="turn-support-group turn-support-group--working-memory">
                 <div class="section-head">
@@ -407,6 +427,6 @@
 
     <script src="/static/vendor/katex.min.js?v=20260421-math-render-code"></script>
     <script src="/static/vendor/highlight.min.js?v=20260421-math-render-code"></script>
-    <script type="module" src="/static/app.js?v=20260429-context-budget"></script>
+    <script type="module" src="/static/app.js?v=20260429-protocol-guidance"></script>
   </body>
 </html>

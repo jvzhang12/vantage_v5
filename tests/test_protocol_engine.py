@@ -112,6 +112,31 @@ def test_protocol_engine_ignores_missing_control_panel(tmp_path: Path) -> None:
     assert resolved.to_dict() == {"applied_protocol_kinds": [], "actions": [], "warnings": []}
 
 
+def test_protocol_engine_loads_email_protocol_from_task_surface(tmp_path: Path) -> None:
+    request = _request()
+    request.message = "Draft an email to Priya thanking her for the feedback."
+
+    resolved = ProtocolEngine().resolve_for_turn(
+        navigation=NavigationDecision(mode="chat", confidence=0.7, reason="No explicit protocol action."),
+        request=request,
+        context=_context(tmp_path),
+    )
+
+    assert resolved.applied_protocol_kinds == ["email"]
+    assert resolved.actions[0].source == "task_surface"
+
+
+def test_protocol_engine_loads_scenario_protocol_for_explicit_scenario_lab(tmp_path: Path) -> None:
+    resolved = ProtocolEngine().resolve_for_turn(
+        navigation=NavigationDecision(mode="scenario_lab", confidence=0.9, reason="Explicit Scenario Lab request."),
+        request=_request(),
+        context=_context(tmp_path),
+    )
+
+    assert resolved.applied_protocol_kinds == ["scenario_lab"]
+    assert resolved.actions[0].source == "task_surface"
+
+
 def test_protocol_engine_builds_guidance_from_persisted_protocol_override(tmp_path: Path) -> None:
     protocol_record = MarkdownRecord(
         id="scenario-lab-protocol",
@@ -291,6 +316,40 @@ def test_protocol_engine_interprets_and_applies_protocol_update(tmp_path: Path) 
     assert result.recall_protocol_kinds == ("email",)
     assert [record.id for record in result.concept_records] == ["email-drafting-protocol"]
     assert (tmp_path / "concepts" / "email-drafting-protocol.md").exists()
+
+
+def test_protocol_engine_suppresses_one_off_draft_protocol_update(tmp_path: Path) -> None:
+    concept_store = ConceptStore(tmp_path / "concepts")
+    engine = ProtocolEngine()
+
+    class _Interpreter:
+        def interpret(self, **kwargs):
+            return ProtocolInterpretation(
+                protocol_write=build_protocol_write_from_interpretation(
+                    protocol_kind="email",
+                    variables={"tone": "warm"},
+                    applies_to=["email"],
+                    source_instruction=kwargs["message"],
+                    existing_protocols=kwargs["existing_protocols"],
+                ),
+                recall_protocol_kinds=["email"],
+                rationale="The protocol should guide this email draft.",
+            )
+
+    engine.protocol_interpreter = _Interpreter()
+
+    result = engine.interpret_and_apply(
+        message="Draft an email inviting a trusted beta tester next week.",
+        history=[],
+        concept_records=[],
+        concept_store=concept_store,
+    )
+
+    assert result.protocol_action is None
+    assert result.protocol_record is None
+    assert result.recall_protocol_kinds == ("email",)
+    assert result.concept_records == ()
+    assert not (tmp_path / "concepts" / "email-drafting-protocol.md").exists()
 
 
 def test_protocol_engine_interpret_without_update_preserves_concepts(tmp_path: Path) -> None:

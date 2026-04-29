@@ -56,7 +56,12 @@ export function isWhiteboardFocused(surface = {}) {
 }
 
 export function hasWhiteboardActiveContext(surface = {}) {
-  return isWhiteboardFocused(surface);
+  const normalized = normalizeSurfaceState(surface);
+  return normalized.current === SURFACE_WHITEBOARD
+    || (
+      normalized.current === SURFACE_VANTAGE
+      && normalized.returnSurface === SURFACE_WHITEBOARD
+    );
 }
 
 export function revealWhiteboardSurface(surface = {}) {
@@ -166,18 +171,24 @@ export function buildTurnSnapshotKey({
   scope = "durable",
   experimentSessionId = "",
   workspaceId = "",
+  userId = "",
 } = {}) {
   const normalizedScope = String(scope || "").trim().toLowerCase() || "durable";
   const normalizedSession = String(experimentSessionId || "").trim() || "durable";
   const normalizedWorkspace = String(workspaceId || "").trim() || "default";
-  return `vantage-v5-turn-snapshot::${normalizedScope}::${normalizedSession}::${normalizedWorkspace}`;
+  const normalizedUser = String(userId || "").trim().toLowerCase();
+  const userSegment = normalizedUser ? `::user:${normalizedUser}` : "";
+  return `vantage-v5-turn-snapshot::${normalizedScope}::${normalizedSession}::${normalizedWorkspace}${userSegment}`;
 }
 
 export function buildScopedTurnSnapshotKey({
   scope = "durable",
   experimentSessionId = "",
+  userId = "",
 } = {}) {
   const normalizedScope = String(scope || "").trim().toLowerCase() || "durable";
   const normalizedSession = String(experimentSessionId || "").trim() || "durable";
-  return `vantage-v5-turn-snapshot::${normalizedScope}::${normalizedSession}::active`;
+  const normalizedUser = String(userId || "").trim().toLowerCase();
+  const userSegment = normalizedUser ? `::user:${normalizedUser}` : "";
+  return `vantage-v5-turn-snapshot::${normalizedScope}::${normalizedSession}::active${userSegment}`;
 }

@@ -22,6 +22,7 @@ The goal is the same as the Python summaries: let future agents understand the s
 ## State And Helper Modules
 
 - [src/vantage_v5/webapp/chat_request.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/chat_request.mjs.md)
+- [src/vantage_v5/webapp/auth_state.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/auth_state.mjs.md)
 - [src/vantage_v5/webapp/math_render.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/math_render.mjs.md)
 - [src/vantage_v5/webapp/product_identity.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/product_identity.mjs.md)
 - [src/vantage_v5/webapp/surface_state.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/surface_state.mjs.md)
@@ -44,6 +45,8 @@ The goal is the same as the Python summaries: let future agents understand the s
 - `Working Memory` is the broader inspection frame for what was in scope for generation.
 - `Memory Trace` is exposed in Vantage as recent-history contribution and the created turn trace record, not as a fourth top-level product surface or a Library bucket.
 - `Semantic Frame` / `Semantic Policy` payloads are normalized client-side and surfaced as compact `Understood As` / `Next Step` cues rather than a new diagnostics panel.
+- The auth gate can switch between sign-in and create-account modes when account creation is enabled, with the create path posting to `/api/accounts` and then entering the same authenticated shell.
+- The authenticated masthead includes a compact `API key` control that opens the provider-key dialog and mirrors `/api/openai-key` masked status, save, and clear behavior.
 
 ## Webapp Tests
 

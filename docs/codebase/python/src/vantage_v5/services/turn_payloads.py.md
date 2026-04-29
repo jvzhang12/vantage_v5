@@ -28,6 +28,7 @@ Final response payload assembly helpers for chat, local actions, and Scenario La
 - `ScenarioLabFallbackParts`: typed input object for the explicit Scenario Lab failure/fallback payload. It also accepts typed fallback chat body parts instead of a prebuilt public payload dictionary.
 - `assemble_scenario_lab_fallback_payload()`: builds the existing Scenario Lab failure payload after the orchestrator falls back to normal chat.
 - `finalize_turn_payload()`: normalizes the final mutable payload shape before safe state is attached.
+- `turn_stage`, `stage_progress`, and `stage_audit`: optional staging fields accepted by typed turn body/envelope parts and normalized through `turn_staging.py` helpers when present.
 - `attach_safe_turn_state()`: appends `system_state` and `activity`.
 - `safe_system_state_payload()`: creates a redacted system self-description for the turn.
 - `safe_activity_payload()`: creates completed activity steps for Inspect and quiet activity copy.
@@ -41,3 +42,4 @@ Final response payload assembly helpers for chat, local actions, and Scenario La
 - Local, service, and Scenario Lab fallback paths can now pass `TurnInterpretationParts`; the assembler converts it to the public dictionary shape consistently for every turn outcome.
 - `ChatTurn.to_dict()` and `ScenarioLabTurn.to_dict()` remain compatibility methods, but the orchestrator now passes their typed `to_body_parts()` output into `ServiceTurnPayloadParts` / `ScenarioLabFallbackParts`, so those public response assemblers no longer accept raw `turn_payload` dictionaries.
 - Local semantic actions now mirror that pattern: action handlers explicitly produce `LocalTurnBodyParts`, `build_local_turn_parts()` wraps those facts in the prepared local context, and `assemble_local_turn_payload()` owns the public local-action / clarification DTO aliases.
+- Staging payloads are backward-compatible and optional. Existing callers can omit them, while Navigator-as-stager orchestration can pass typed `TurnStage`, `StageProgressEvent`, and `StageAuditResult` objects or already-shaped dictionaries for preservation in the final response.

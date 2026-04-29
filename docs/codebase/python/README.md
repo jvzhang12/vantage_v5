@@ -27,6 +27,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - [src/vantage_v5/services/local_semantic_actions.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/local_semantic_actions.py.md)
 - [src/vantage_v5/services/meta.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/meta.py.md)
 - [src/vantage_v5/services/navigator.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/navigator.py.md)
+- [src/vantage_v5/services/navigator_eval.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/navigator_eval.py.md)
 - [src/vantage_v5/services/protocol_engine.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/protocol_engine.py.md)
 - [src/vantage_v5/services/protocols.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/protocols.py.md)
 - [src/vantage_v5/services/record_cards.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/record_cards.py.md)
@@ -37,13 +38,17 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - [src/vantage_v5/services/semantic_policy.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/semantic_policy.py.md)
 - [src/vantage_v5/services/turn_orchestrator.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_orchestrator.py.md)
 - [src/vantage_v5/services/turn_payloads.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_payloads.py.md)
+- [src/vantage_v5/services/turn_staging.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_staging.py.md)
 - [src/vantage_v5/services/vetting.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/vetting.py.md)
 - [src/vantage_v5/services/whiteboard_routing.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/whiteboard_routing.py.md)
 
 ## Current Backend Flow
 
 - `server.py` owns the HTTP seam, auth/profile runtime selection, experiment/durable store selection, and route registration. The chat-turn lifecycle is delegated to `turn_orchestrator.py`, context preparation is delegated to `context_engine.py`, protocol action resolution is delegated to `protocol_engine.py`, draft/artifact lifecycle operations are delegated to `draft_artifact_lifecycle.py`, and final response compatibility/safe-state shaping is centralized in `turn_payloads.py`.
+- `server.py` owns local account creation when auth/profile mode is enabled: `/api/accounts` writes salted password hashes to `state/accounts.json`, rejects account-name collisions with configured users, seeds the new profile storage root, and signs the account in through the same cookie session used by `/api/login`.
+- `server.py` also owns the current provider-key seam: `/api/openai-key` stores a user-entered OpenAI key in memory for the authenticated profile, masks it in status responses, falls back to `OPENAI_API_KEY` when the user key is absent, and builds model-backed services from that effective key per request.
 - `navigator.py` is the model-backed interpreter. Its `control_panel` is the target path for user-intent decisions; deterministic code should execute validated actions rather than re-sort broad intent from raw text.
+- `navigator_eval.py` reduces Navigator decisions to a compact behavior-summary contract for offline and live routing evals.
 - `protocols.py` owns reusable task guidance and protocol record helpers. Protocols can be learned/recalled by the protocol interpreter or applied by Navigator `apply_protocol` actions before vetting.
 - `protocol_engine.py` validates Navigator `apply_protocol` actions into a typed `ResolvedTurnProtocols` object before Chat or Scenario Lab receive applied protocol kinds, and owns protocol API catalog/update semantics.
 - `draft_artifact_lifecycle.py` owns saved-item reopen, whiteboard snapshot saves, visible-whiteboard publish, workspace save snapshots, promotion of saved or unsaved whiteboard buffers into artifacts, and artifact lifecycle card enrichment.
@@ -55,6 +60,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - `turn_orchestrator.py` coordinates one `/api/chat` turn across prepared context, Navigator, semantic policy, local actions, normal chat, Scenario Lab, and fallback.
 - `local_semantic_actions.py` owns deterministic local save/publish/clarification/experiment action execution once semantic policy has selected that path.
 - `turn_payloads.py` owns final backend payload normalization, `system_state`, and `activity`.
+- `turn_staging.py` owns public-safe staged turn contracts, progress/audit payload sanitization, and pure parsed-output audits for staged whiteboard draft/offer expectations.
 - `chat.py` owns the normal answer path: bounded retrieval, protocol candidate injection, vetting, model/fallback response, conservative meta writes, and Memory Trace creation.
 - `scenario_lab.py` owns comparative branch generation and persists branch workspaces plus a comparison artifact.
 - `semantic_frame.py` and `semantic_policy.py` are transitional read-model/policy layers for product-facing understanding and narrow local actions such as save, publish, and experiment management.
@@ -84,13 +90,17 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - [tests/test_context_support.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_context_support.py.md)
 - [tests/test_draft_artifact_lifecycle.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_draft_artifact_lifecycle.py.md)
 - [tests/test_local_semantic_actions.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_local_semantic_actions.py.md)
+- [tests/test_navigator.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_navigator.py.md)
+- [tests/test_navigator_eval_contract.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_navigator_eval_contract.py.md)
 - [tests/test_protocol_engine.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_protocol_engine.py.md)
 - [tests/test_record_cards.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_record_cards.py.md)
 - [tests/test_search.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_search.py.md)
 - [tests/test_server.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_server.py.md)
 - [tests/test_turn_payloads.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_turn_payloads.py.md)
+- [tests/test_turn_staging.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_turn_staging.py.md)
 - [tests/test_whiteboard_routing.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_whiteboard_routing.py.md)
 
 ## Scripts
 
 - [scripts/check_repo_hygiene.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/scripts/check_repo_hygiene.py.md)
+- [scripts/eval_navigator.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/scripts/eval_navigator.py.md)

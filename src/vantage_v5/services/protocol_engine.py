@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from vantage_v5.services.context_engine import ChatTurnRequestContext
@@ -111,33 +112,40 @@ class ProtocolEngine:
         request: ChatTurnRequestContext,
         context: PreparedTurnContext,
     ) -> ResolvedTurnProtocols:
-        del request, context
         control_panel = navigation.control_panel
-        if not isinstance(control_panel, dict):
-            return ResolvedTurnProtocols()
-        raw_actions = control_panel.get("actions")
-        if not isinstance(raw_actions, list):
-            return ResolvedTurnProtocols()
-
         actions: list[ResolvedProtocolAction] = []
         warnings: list[str] = []
         seen: set[str] = set()
-        for index, raw_action in enumerate(raw_actions):
-            if not isinstance(raw_action, dict):
+
+        if isinstance(control_panel, dict):
+            raw_actions = control_panel.get("actions")
+            if isinstance(raw_actions, list):
+                for index, raw_action in enumerate(raw_actions):
+                    if not isinstance(raw_action, dict):
+                        continue
+                    action_type = str(raw_action.get("type") or "").strip()
+                    if action_type != "apply_protocol":
+                        continue
+                    raw_protocol_kind = raw_action.get("protocol_kind") or raw_action.get("kind")
+                    protocol_kind = normalize_protocol_kind(raw_protocol_kind)
+                    if protocol_kind is None:
+                        warnings.append(f"Ignored unsupported protocol action at index {index}.")
+                        continue
+                    if protocol_kind in seen:
+                        continue
+                    seen.add(protocol_kind)
+                    reason = str(raw_action.get("reason") or "").strip() or None
+                    actions.append(ResolvedProtocolAction(protocol_kind=protocol_kind, reason=reason))
+
+        for action in _task_surface_protocol_actions(
+            navigation=navigation,
+            request=request,
+            context=context,
+        ):
+            if action.protocol_kind in seen:
                 continue
-            action_type = str(raw_action.get("type") or "").strip()
-            if action_type != "apply_protocol":
-                continue
-            raw_protocol_kind = raw_action.get("protocol_kind") or raw_action.get("kind")
-            protocol_kind = normalize_protocol_kind(raw_protocol_kind)
-            if protocol_kind is None:
-                warnings.append(f"Ignored unsupported protocol action at index {index}.")
-                continue
-            if protocol_kind in seen:
-                continue
-            seen.add(protocol_kind)
-            reason = str(raw_action.get("reason") or "").strip() or None
-            actions.append(ResolvedProtocolAction(protocol_kind=protocol_kind, reason=reason))
+            seen.add(action.protocol_kind)
+            actions.append(action)
         return ResolvedTurnProtocols(actions=tuple(actions), warnings=tuple(warnings))
 
     def interpret_and_apply(
@@ -154,6 +162,8 @@ class ProtocolEngine:
             existing_protocols=concept_records,
         )
         protocol_write = protocol_interpretation.protocol_write
+        if protocol_write is not None and not _allows_protocol_write(message):
+            protocol_write = None
         protocol_record = None
         protocol_action = None
         merged_concepts = list(concept_records)
@@ -299,6 +309,86 @@ class ProtocolEngine:
             candidates=tuple(candidates),
             warnings=tuple(warnings),
         )
+
+
+PROTOCOL_WRITE_INTENT_RE = re.compile(
+    r"\b("
+    r"for\s+future|from\s+now\s+on|always|default|preference|prefer|remember\s+that|"
+    r"change\s+my|update\s+(?:my\s+)?(?:email|research|scenario|protocol)|"
+    r"edit\s+(?:my\s+)?(?:email|research|scenario|protocol)"
+    r")\b",
+    re.IGNORECASE,
+)
+EMAIL_TASK_RE = re.compile(r"\b(?:email|mail|message|memo|letter)\b", re.IGNORECASE)
+RESEARCH_PAPER_TASK_RE = re.compile(
+    r"\b(?:research paper|paper introduction|paper intro|academic paper|abstract|literature review)\b",
+    re.IGNORECASE,
+)
+
+
+def _allows_protocol_write(message: str) -> bool:
+    return bool(PROTOCOL_WRITE_INTENT_RE.search(str(message or "")))
+
+
+def _task_surface_protocol_actions(
+    *,
+    navigation: NavigationDecision,
+    request: ChatTurnRequestContext,
+    context: PreparedTurnContext,
+) -> tuple[ResolvedProtocolAction, ...]:
+    actions: list[ResolvedProtocolAction] = []
+    text = _task_surface_text(request=request, context=context)
+    if RESEARCH_PAPER_TASK_RE.search(text):
+        actions.append(
+            ResolvedProtocolAction(
+                protocol_kind="research_paper",
+                reason="Loaded by task surface because this turn appears to involve research-paper work.",
+                source="task_surface",
+            )
+        )
+    if EMAIL_TASK_RE.search(text) or _looks_like_email_surface(text):
+        actions.append(
+            ResolvedProtocolAction(
+                protocol_kind="email",
+                reason="Loaded by task surface because this turn appears to involve email work.",
+                source="task_surface",
+            )
+        )
+    if navigation.mode == "scenario_lab":
+        actions.append(
+            ResolvedProtocolAction(
+                protocol_kind="scenario_lab",
+                reason="Loaded by task surface because this turn explicitly entered Scenario Lab.",
+                source="task_surface",
+            )
+        )
+    return tuple(actions)
+
+
+def _task_surface_text(
+    *,
+    request: ChatTurnRequestContext,
+    context: PreparedTurnContext,
+) -> str:
+    pending = context.pending_workspace_update or {}
+    return " ".join(
+        str(part)
+        for part in [
+            request.message,
+            context.workspace.title,
+            context.workspace.content[:700],
+            pending.get("summary") if isinstance(pending, dict) else "",
+            pending.get("origin_user_message") if isinstance(pending, dict) else "",
+        ]
+        if part
+    )
+
+
+def _looks_like_email_surface(text: str) -> bool:
+    return bool(
+        re.search(r"\b(?:dear|hi|hello)\s+[A-Z][A-Za-z]+\b", text)
+        and re.search(r"\b(?:best|regards|sincerely|warmly|thanks),?\b", text, re.IGNORECASE)
+    )
 
 
 def _merge_records(*record_lists: list[MarkdownRecord]) -> list[MarkdownRecord]:

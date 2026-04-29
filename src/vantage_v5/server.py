@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+from datetime import UTC, datetime
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -10,7 +12,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -54,6 +56,7 @@ from vantage_v5.storage.workspaces import WorkspaceStore
 
 logger = logging.getLogger(__name__)
 SCENARIO_LAB_MIN_CONFIDENCE = 0.68
+ACCOUNT_PASSWORD_ITERATIONS = 310_000
 CONTENT_UNSET = object()
 
 
@@ -114,6 +117,20 @@ class ProtocolUpdateRequest(BaseModel):
     applies_to: list[str] | None = None
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+class CreateAccountRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=80)
+    password: str = Field(min_length=8, max_length=4096)
+
+
+class OpenAIKeyRequest(BaseModel):
+    api_key: str = Field(min_length=1, max_length=4096)
+
+
 def _workspace_payload(
     document: WorkspaceDocument,
     *,
@@ -141,7 +158,14 @@ def _resolve_pinned_context_id(
 def create_app(config: AppConfig | None = None) -> FastAPI:
     cfg = config or AppConfig.from_env()
     repo_root = cfg.repo_root
+    account_store_path = repo_root / "state" / "accounts.json"
+    auth_enabled = bool(cfg.auth_password or cfg.auth_users or account_store_path.exists())
+    account_creation_enabled = auth_enabled
+    user_scoped_storage = auth_enabled
     multi_user_enabled = bool(cfg.auth_users)
+    session_cookie_name = "vantage_session"
+    login_sessions: dict[str, str] = {}
+    user_openai_api_keys: dict[str, str] = {}
     durable_scope_cache: dict[str, dict[str, Any]] = {}
     vault_store = VaultNoteStore(
         vault_root=cfg.nexus_root,
@@ -149,22 +173,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         exclude_paths=cfg.nexus_exclude_paths,
     )
     search_service = ConceptSearchService()
-    vetting_service = ConceptVettingService(
-        model=cfg.model,
-        openai_api_key=cfg.openai_api_key,
-    )
-    meta_service = MetaService(
-        model=cfg.model,
-        openai_api_key=cfg.openai_api_key,
-    )
-    navigator_service = NavigatorService(
-        model=cfg.model,
-        openai_api_key=cfg.openai_api_key,
-    )
-    protocol_engine = ProtocolEngine(
-        model=cfg.model,
-        openai_api_key=cfg.openai_api_key,
-    )
     draft_artifact_lifecycle = DraftArtifactLifecycle()
     local_semantic_actions = LocalSemanticActionEngine(
         draft_artifact_lifecycle=draft_artifact_lifecycle,
@@ -182,22 +190,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.middleware("http")
     async def _basic_auth_middleware(request: Request, call_next):
         request.state.user_id = None
-        auth_enabled = bool(cfg.auth_password or cfg.auth_users)
         if not auth_enabled:
-            if not multi_user_enabled:
+            if not user_scoped_storage:
                 request.state.user_id = cfg.auth_username
             return await call_next(request)
-        authorized_user = _basic_auth_authorized_user(
-            request.headers.get("authorization"),
-            username=cfg.auth_username,
-            password=cfg.auth_password,
-            users=cfg.auth_users,
+
+        authorized_user = _request_authorized_user(request)
+        public_path = (
+            request.url.path == "/"
+            or request.url.path == "/api/health"
+            or request.url.path == "/api/login"
+            or request.url.path == "/api/accounts"
+            or request.url.path == "/api/logout"
+            or request.url.path.startswith("/static/")
         )
-        if request.url.path == "/api/health":
-            request.state.user_id = authorized_user
-            return await call_next(request)
         if authorized_user:
             request.state.user_id = authorized_user
+            return await call_next(request)
+        if public_path:
             return await call_next(request)
         return Response(
             "Authentication required.",
@@ -205,8 +215,83 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             headers={"WWW-Authenticate": 'Basic realm="Vantage"'},
         )
 
+    def _request_authorized_user(request: Request) -> str | None:
+        basic_user = _basic_auth_authorized_user(
+            request.headers.get("authorization"),
+            username=cfg.auth_username,
+            password=cfg.auth_password,
+            users=cfg.auth_users,
+        )
+        if basic_user:
+            return basic_user
+        token = str(request.cookies.get(session_cookie_name) or "")
+        return login_sessions.get(token)
+
+    def _login_authorized_user(username: str, password: str) -> str | None:
+        configured_user = _credentials_authorized_user(
+            username,
+            password,
+            username=cfg.auth_username,
+            password=cfg.auth_password,
+            users=cfg.auth_users,
+        )
+        if configured_user:
+            return configured_user
+        try:
+            account_key = _safe_user_storage_id(username)
+        except HTTPException:
+            return None
+        account = _load_account_registry(account_store_path).get(account_key)
+        if not account:
+            return None
+        password_record = account.get("password")
+        if not isinstance(password_record, dict):
+            return None
+        if not _verify_password_record(password, password_record):
+            return None
+        account_username = str(account.get("username") or "").strip()
+        return account_username or account_key
+
+    def _login_response_for_user(user_id: str, *, created: bool = False) -> JSONResponse:
+        token = secrets.token_urlsafe(32)
+        login_sessions[token] = user_id
+        response = JSONResponse(
+            {
+                "authenticated": True,
+                "auth_required": True,
+                "multi_user": multi_user_enabled,
+                "account_creation_enabled": account_creation_enabled,
+                "created": created,
+                "user": {"id": user_id},
+            },
+            status_code=201 if created else 200,
+        )
+        response.set_cookie(
+            session_cookie_name,
+            token,
+            httponly=True,
+            samesite="lax",
+            secure=False,
+            max_age=60 * 60 * 24 * 14,
+        )
+        return response
+
+    def _account_key_exists(account_key: str) -> bool:
+        if account_key in _load_account_registry(account_store_path):
+            return True
+        configured_usernames = list(cfg.auth_users.keys())
+        if cfg.auth_password:
+            configured_usernames.append(cfg.auth_username)
+        for username in configured_usernames:
+            try:
+                if _safe_user_storage_id(username) == account_key:
+                    return True
+            except HTTPException:
+                continue
+        return False
+
     def _scope_key_for_request(request: Request | None) -> str:
-        if not multi_user_enabled:
+        if not user_scoped_storage:
             return "__single_user__"
         user_id = str(getattr(getattr(request, "state", None), "user_id", "") or "").strip()
         if not user_id:
@@ -221,6 +306,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def _ensure_storage_root(root: Path) -> None:
         for folder in ["concepts", "memories", "memory_trace", "artifacts", "workspaces", "state", "traces"]:
             (root / folder).mkdir(parents=True, exist_ok=True)
+        _seed_default_protocol_concepts(root)
         workspace_path = root / "workspaces" / f"{cfg.active_workspace}.md"
         if not workspace_path.exists():
             workspace_path.write_text(
@@ -242,13 +328,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 encoding="utf-8",
             )
 
+    def _seed_default_protocol_concepts(root: Path) -> None:
+        if root == repo_root:
+            return
+        source_dir = repo_root / "concepts"
+        target_dir = root / "concepts"
+        if not source_dir.exists():
+            return
+        for protocol in ConceptStore(source_dir).list_concepts():
+            if protocol.type != "protocol":
+                continue
+            target_path = target_dir / protocol.path.name
+            if target_path.exists():
+                continue
+            target_path.write_text(protocol.path.read_text(encoding="utf-8"), encoding="utf-8")
+
     def _durable_scope(request: Request | None = None) -> dict[str, Any]:
         scope_key = _scope_key_for_request(request)
         cached = durable_scope_cache.get(scope_key)
         if cached is not None:
             return cached
         root = _user_root_for_key(scope_key)
-        if multi_user_enabled:
+        if user_scoped_storage:
             _ensure_storage_root(root)
         scope = {
             "user_id": None if scope_key == "__single_user__" else scope_key,
@@ -277,6 +378,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ),
         }
 
+    def _scope_key_from_durable_scope(durable_scope: dict[str, Any]) -> str:
+        return str(durable_scope.get("user_id") or "__single_user__")
+
+    def _effective_openai_api_key(durable_scope: dict[str, Any]) -> str | None:
+        scope_key = _scope_key_from_durable_scope(durable_scope)
+        return user_openai_api_keys.get(scope_key) or cfg.openai_api_key
+
+    def _openai_key_status(scope_key: str | None) -> dict[str, Any]:
+        user_key = user_openai_api_keys.get(scope_key or "") if scope_key else None
+        if user_key:
+            return {
+                "configured": True,
+                "source": "user",
+                "masked_key": _mask_openai_api_key(user_key),
+                "environment_configured": bool(cfg.openai_api_key),
+            }
+        if cfg.openai_api_key:
+            return {
+                "configured": True,
+                "source": "environment",
+                "masked_key": _mask_openai_api_key(cfg.openai_api_key),
+                "environment_configured": True,
+            }
+        return {
+            "configured": False,
+            "source": "none",
+            "masked_key": "",
+            "environment_configured": False,
+        }
+
+    def _openai_key_status_for_request(request: Request) -> dict[str, Any]:
+        user_id = str(getattr(request.state, "user_id", "") or "")
+        if user_scoped_storage and not user_id:
+            return _openai_key_status(None)
+        return _openai_key_status(_scope_key_for_request(request))
+
+    def _protocol_engine_for_scope(durable_scope: dict[str, Any]) -> ProtocolEngine:
+        return ProtocolEngine(
+            model=cfg.model,
+            openai_api_key=_effective_openai_api_key(durable_scope),
+        )
+
     def _runtime(durable_scope: dict[str, Any], session: ExperimentSession | None) -> dict[str, Any]:
         if session is None:
             concept_store = durable_scope["concept_store"]
@@ -304,6 +447,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             reference_artifact_store = durable_scope["artifact_store"]
             traces_dir = session.traces_dir
             scope = "experiment"
+        openai_api_key = _effective_openai_api_key(durable_scope)
+        vetting_service = ConceptVettingService(
+            model=cfg.model,
+            openai_api_key=openai_api_key,
+        )
+        meta_service = MetaService(
+            model=cfg.model,
+            openai_api_key=openai_api_key,
+        )
+        protocol_engine = ProtocolEngine(
+            model=cfg.model,
+            openai_api_key=openai_api_key,
+        )
         executor = GraphActionExecutor(
             concept_store=concept_store,
             memory_store=memory_store,
@@ -316,7 +472,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         chat_service = ChatService(
             model=cfg.model,
-            openai_api_key=cfg.openai_api_key,
+            openai_api_key=openai_api_key,
             concept_store=concept_store,
             reference_concept_store=reference_concept_store,
             memory_store=memory_store,
@@ -336,7 +492,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         scenario_lab_service = ScenarioLabService(
             model=cfg.model,
-            openai_api_key=cfg.openai_api_key,
+            openai_api_key=openai_api_key,
             concept_store=concept_store,
             reference_concept_store=reference_concept_store,
             memory_store=memory_store,
@@ -416,16 +572,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             navigator_continuity_context=context_sources.navigator_continuity_context,
         ),
     )
-    turn_orchestrator = TurnOrchestrator(
-        navigator_service=navigator_service,
-        context_engine=context_engine,
-        protocol_engine=protocol_engine,
-        local_semantic_actions=local_semantic_actions,
-        whiteboard_routing=whiteboard_routing,
-        hooks=TurnOrchestratorHooks(
-            should_enter_scenario_lab=_should_enter_scenario_lab,
-        ),
-    )
 
     def _chat_turn_response(
         *,
@@ -442,6 +588,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         navigation: NavigationDecision | None = None,
         force_pending_workspace_update: bool = False,
     ) -> dict[str, Any]:
+        openai_api_key = _effective_openai_api_key(durable_scope)
+        turn_orchestrator = TurnOrchestrator(
+            navigator_service=NavigatorService(
+                model=cfg.model,
+                openai_api_key=openai_api_key,
+            ),
+            context_engine=context_engine,
+            protocol_engine=ProtocolEngine(
+                model=cfg.model,
+                openai_api_key=openai_api_key,
+            ),
+            local_semantic_actions=local_semantic_actions,
+            whiteboard_routing=whiteboard_routing,
+            hooks=TurnOrchestratorHooks(
+                should_enter_scenario_lab=_should_enter_scenario_lab,
+            ),
+        )
         return turn_orchestrator.run(
             ChatTurnRequestContext(
                 durable_scope=durable_scope,
@@ -462,7 +625,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/health")
     def health(request: Request) -> dict[str, Any]:
         user_id = str(getattr(request.state, "user_id", "") or "")
-        if multi_user_enabled:
+        openai_key_status = _openai_key_status_for_request(request)
+        if user_scoped_storage:
             workspace_id = None
             experiment = {"active": False, "session_id": None, "saved_note_count": 0}
             if user_id:
@@ -479,12 +643,92 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             experiment = _session_info(session)
         return {
             "status": "ok",
-            "mode": "openai" if cfg.openai_api_key else "fallback",
+            "mode": "openai" if openai_key_status["configured"] else "fallback",
+            "openai_key": openai_key_status,
             "workspace_id": workspace_id,
             "nexus_enabled": vault_store.is_enabled(),
             "experiment": experiment,
             "multi_user": multi_user_enabled,
+            "auth_required": auth_enabled,
+            "authenticated": bool(user_id) or not auth_enabled,
+            "account_creation_enabled": account_creation_enabled,
             "user": {"id": user_id} if user_id else None,
+        }
+
+    @app.post("/api/login")
+    def login(request: LoginRequest) -> JSONResponse:
+        if not auth_enabled:
+            return JSONResponse(
+                {
+                    "authenticated": True,
+                    "auth_required": False,
+                    "multi_user": multi_user_enabled,
+                    "account_creation_enabled": False,
+                    "user": {"id": cfg.auth_username},
+                }
+            )
+        authorized_user = _login_authorized_user(request.username, request.password)
+        if not authorized_user:
+            raise HTTPException(status_code=401, detail="Invalid username or password.")
+        return _login_response_for_user(authorized_user)
+
+    @app.post("/api/accounts")
+    def create_account(request: CreateAccountRequest) -> JSONResponse:
+        if not account_creation_enabled:
+            raise HTTPException(status_code=404, detail="Account creation is not enabled.")
+        username = _normalize_account_username(request.username)
+        account_key = _safe_user_storage_id(username)
+        if _account_key_exists(account_key):
+            raise HTTPException(status_code=409, detail="An account with that username already exists.")
+        accounts = _load_account_registry(account_store_path)
+        accounts[account_key] = {
+            "username": username,
+            "created_at": datetime.now(UTC).isoformat(),
+            "password": _make_password_record(request.password),
+        }
+        _write_account_registry(account_store_path, accounts)
+        _ensure_storage_root(_user_root_for_key(account_key))
+        durable_scope_cache.pop(account_key, None)
+        return _login_response_for_user(username, created=True)
+
+    @app.post("/api/logout")
+    def logout(request: Request) -> JSONResponse:
+        token = str(request.cookies.get(session_cookie_name) or "")
+        if token:
+            login_sessions.pop(token, None)
+        response = JSONResponse({"authenticated": False})
+        response.delete_cookie(session_cookie_name)
+        return response
+
+    @app.get("/api/openai-key")
+    def get_openai_key_status(request: Request) -> dict[str, Any]:
+        status = _openai_key_status(_scope_key_for_request(request))
+        return {
+            "mode": "openai" if status["configured"] else "fallback",
+            "openai_key": status,
+        }
+
+    @app.put("/api/openai-key")
+    def put_openai_key(request: OpenAIKeyRequest, http_request: Request) -> dict[str, Any]:
+        api_key = request.api_key.strip()
+        if not api_key:
+            raise HTTPException(status_code=400, detail="OpenAI API key is required.")
+        scope_key = _scope_key_for_request(http_request)
+        user_openai_api_keys[scope_key] = api_key
+        status = _openai_key_status(scope_key)
+        return {
+            "mode": "openai",
+            "openai_key": status,
+        }
+
+    @app.delete("/api/openai-key")
+    def delete_openai_key(request: Request) -> dict[str, Any]:
+        scope_key = _scope_key_for_request(request)
+        user_openai_api_keys.pop(scope_key, None)
+        status = _openai_key_status(scope_key)
+        return {
+            "mode": "openai" if status["configured"] else "fallback",
+            "openai_key": status,
         }
 
     @app.post("/api/experiment/start")
@@ -574,6 +818,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def get_protocols(request: Request, include_builtins: bool = False) -> dict[str, Any]:
         durable_scope = _durable_scope(request)
         session = durable_scope["experiment_manager"].get_active_session()
+        protocol_engine = _protocol_engine_for_scope(durable_scope)
         catalog = protocol_engine.list_catalog(
             concept_records=_concept_records(durable_scope, session),
             include_builtins=include_builtins,
@@ -589,6 +834,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def get_protocol(protocol_kind_or_id: str, request: Request) -> dict[str, Any]:
         durable_scope = _durable_scope(request)
         session = durable_scope["experiment_manager"].get_active_session()
+        protocol_engine = _protocol_engine_for_scope(durable_scope)
         entry = protocol_engine.lookup_catalog_entry(
             concept_records=_concept_records(durable_scope, session),
             protocol_kind_or_id=protocol_kind_or_id,
@@ -602,6 +848,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         durable_scope = _durable_scope(http_request)
         session = durable_scope["experiment_manager"].get_active_session()
         runtime = _runtime(durable_scope, session)
+        protocol_engine = _protocol_engine_for_scope(durable_scope)
         try:
             protocol = protocol_engine.update_from_api(
                 protocol_kind=protocol_kind,
@@ -749,6 +996,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         payload = _workspace_payload(result.workspace, scope=result.scope)
         payload["graph_action"] = result.graph_action
         return payload
@@ -851,6 +1100,23 @@ def _basic_auth_authorized_user(
     supplied_username, separator, supplied_password = decoded.partition(":")
     if not separator:
         return None
+    return _credentials_authorized_user(
+        supplied_username,
+        supplied_password,
+        username=username,
+        password=password,
+        users=users,
+    )
+
+
+def _credentials_authorized_user(
+    supplied_username: str,
+    supplied_password: str,
+    *,
+    username: str,
+    password: str | None,
+    users: dict[str, str] | None = None,
+) -> str | None:
     for expected_username, expected_password in (users or {}).items():
         if secrets.compare_digest(supplied_username, expected_username) and secrets.compare_digest(
             supplied_password,
@@ -870,6 +1136,90 @@ def _safe_user_storage_id(username: str) -> str:
     if not normalized:
         raise HTTPException(status_code=401, detail="Authentication required.")
     return normalized[:80]
+
+
+def _normalize_account_username(username: str) -> str:
+    normalized = username.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,80}", normalized):
+        raise HTTPException(
+            status_code=400,
+            detail="Username must be 3-80 characters and use only letters, numbers, dots, underscores, or hyphens.",
+        )
+    return normalized
+
+
+def _load_account_registry(path: Path) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        logger.exception("Could not read Vantage account registry.")
+        return {}
+    accounts = payload.get("accounts") if isinstance(payload, dict) else None
+    if not isinstance(accounts, dict):
+        return {}
+    return {
+        str(account_key): account
+        for account_key, account in accounts.items()
+        if isinstance(account, dict)
+    }
+
+
+def _write_account_registry(path: Path, accounts: dict[str, dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": 1,
+        "accounts": accounts,
+    }
+    temporary_path = path.with_suffix(".json.tmp")
+    temporary_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    temporary_path.replace(path)
+
+
+def _make_password_record(password: str) -> dict[str, Any]:
+    salt = secrets.token_hex(16)
+    password_hash = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("ascii"),
+        ACCOUNT_PASSWORD_ITERATIONS,
+    ).hex()
+    return {
+        "algorithm": "pbkdf2_sha256",
+        "iterations": ACCOUNT_PASSWORD_ITERATIONS,
+        "salt": salt,
+        "hash": password_hash,
+    }
+
+
+def _verify_password_record(password: str, record: dict[str, Any]) -> bool:
+    if record.get("algorithm") != "pbkdf2_sha256":
+        return False
+    try:
+        iterations = int(record.get("iterations") or 0)
+        salt = str(record.get("salt") or "")
+        expected_hash = str(record.get("hash") or "")
+    except (TypeError, ValueError):
+        return False
+    if iterations <= 0 or not salt or not expected_hash:
+        return False
+    supplied_hash = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("ascii"),
+        iterations,
+    ).hex()
+    return secrets.compare_digest(supplied_hash, expected_hash)
+
+
+def _mask_openai_api_key(api_key: str) -> str:
+    normalized = api_key.strip()
+    if not normalized:
+        return ""
+    if len(normalized) <= 8:
+        return "***"
+    return f"{normalized[:4]}...{normalized[-4:]}"
 
 
 def _should_enter_scenario_lab(decision: NavigationDecision) -> bool:

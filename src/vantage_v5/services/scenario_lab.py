@@ -124,6 +124,9 @@ class ScenarioLabTurn:
     branches: list[dict[str, Any]]
     comparison_artifact: dict[str, Any]
     created_record: dict[str, Any]
+    turn_stage: dict[str, Any] | None = None
+    stage_progress: list[dict[str, Any]] | None = None
+    stage_audit: dict[str, Any] | None = None
 
     def to_body_parts(self) -> ScenarioLabTurnBodyParts:
         return ScenarioLabTurnBodyParts(
@@ -149,6 +152,9 @@ class ScenarioLabTurn:
             branches=self.branches,
             comparison_artifact=self.comparison_artifact,
             created_record=self.created_record,
+            turn_stage=self.turn_stage,
+            stage_progress=self.stage_progress,
+            stage_audit=self.stage_audit,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -347,12 +353,13 @@ class ScenarioLabService:
             )
             persisted_paths.append(comparison_artifact.path)
             created_record = _record_payload(comparison_artifact)
+            assistant_message = _scenario_chat_brief(
+                scenario_plan,
+                saved_branches=saved_branches,
+            )
             memory_trace_record = self.memory_trace_store.create_turn_trace(
                 user_message=message,
-                assistant_message=(
-                    f"I created {len(saved_branches)} scenario branches and a comparison artifact. "
-                    f"{scenario_plan.comparison.summary.strip()}"
-                ).strip(),
+                assistant_message=assistant_message,
                 working_memory=recall_details,
                 history=history,
                 workspace_id=workspace.workspace_id,
@@ -370,10 +377,6 @@ class ScenarioLabService:
                     selected_record=selected_record,
                 ),
             )
-            assistant_message = (
-                f"I created {len(saved_branches)} scenario branches and a comparison artifact. "
-                f"{scenario_plan.comparison.summary.strip()}"
-            ).strip()
             assistant_message = finalize_assistant_message(
                 assistant_message,
                 response_mode=response_mode,
@@ -860,6 +863,51 @@ def _normalize_branch_plans(branches: list[ScenarioBranchPlan], *, requested_cou
             )
         )
     return cleaned
+
+
+def _scenario_chat_brief(
+    scenario_plan: ScenarioPlan,
+    *,
+    saved_branches: list[dict[str, Any]],
+) -> str:
+    recommendation = _clean_sentence(
+        scenario_plan.comparison.recommendation,
+        fallback=scenario_plan.comparison.summary,
+    )
+    summary = _clean_sentence(
+        scenario_plan.comparison.summary,
+        fallback=scenario_plan.comparison_question,
+    )
+    tradeoffs = [_clean_sentence(item) for item in scenario_plan.comparison.tradeoffs[:3]]
+    tradeoffs = [item for item in tradeoffs if item]
+    branch_titles = [
+        _clean_sentence(str(branch.get("title") or branch.get("label") or ""))
+        for branch in saved_branches[:3]
+    ]
+    branch_titles = [title for title in branch_titles if title]
+    sections = [
+        f"Recommendation: {_sentence_with_period(recommendation)}",
+        f"Why: {_sentence_with_period(summary)}",
+    ]
+    if tradeoffs:
+        sections.append(f"Tradeoffs: {_sentence_with_period('; '.join(tradeoffs))}")
+    saved = f"Saved the full Scenario Lab comparison with {len(saved_branches)} branches"
+    if branch_titles:
+        saved = f"{saved}: {', '.join(branch_titles)}"
+    sections.append(f"{saved}.")
+    return "\n\n".join(sections)
+
+
+def _clean_sentence(text: str, fallback: str = "") -> str:
+    cleaned = " ".join(str(text or "").strip().split())
+    if not cleaned:
+        cleaned = " ".join(str(fallback or "").strip().split())
+    return cleaned.rstrip(".")
+
+
+def _sentence_with_period(text: str) -> str:
+    cleaned = _clean_sentence(text)
+    return f"{cleaned}." if cleaned else ""
 
 
 def _render_branch_workspace(

@@ -72,6 +72,77 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+.auth-screen {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.auth-panel {
+  width: min(420px, 100%);
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow-soft);
+}
+
+.auth-panel h1 {
+  margin: 4px 0 8px;
+  font-size: 28px;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.auth-form input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.auth-form input:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: rgba(0, 113, 227, 0.42);
+}
+
+.auth-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--warning-soft);
+  color: #7a3f00;
+  font-size: 13px;
+}
+
+.auth-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-actions .button--secondary {
+  width: 100%;
+}
+
 .shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2792,7 +2863,8 @@ button:focus-visible {
   line-height: 1.45;
 }
 
-.confirm-overlay {
+.confirm-overlay,
+.api-key-overlay {
   position: fixed;
   inset: 0;
   z-index: 80;
@@ -2805,11 +2877,13 @@ button:focus-visible {
   backdrop-filter: blur(14px) saturate(1.04);
 }
 
-.confirm-overlay[hidden] {
+.confirm-overlay[hidden],
+.api-key-overlay[hidden] {
   display: none !important;
 }
 
-.confirm-dialog {
+.confirm-dialog,
+.api-key-dialog {
   width: min(420px, 100%);
   padding: 26px;
   border: 1px solid rgba(22, 29, 38, 0.105);
@@ -2829,6 +2903,53 @@ button:focus-visible {
   margin-top: 12px;
   color: rgba(45, 51, 61, 0.86);
   line-height: 1.6;
+}
+
+.api-key-status {
+  margin-top: 10px;
+  color: rgba(45, 51, 61, 0.86);
+  line-height: 1.5;
+}
+
+.api-key-warning {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(181, 106, 0, 0.13);
+  border-radius: 8px;
+  background: rgba(181, 106, 0, 0.075);
+  color: rgba(101, 59, 0, 0.9);
+  font-size: 0.82rem;
+  line-height: 1.48;
+}
+
+.api-key-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.api-key-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.api-key-form input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+  padding: 10px 12px;
+}
+
+.api-key-form input:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: rgba(0, 113, 227, 0.42);
 }
 
 .confirm-actions {

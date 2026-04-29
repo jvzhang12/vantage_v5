@@ -12,8 +12,9 @@ Focused unit tests for the backend Protocol Engine.
 - Supported `apply_protocol` actions resolve into ordered protocol kinds and action reasons.
 - Duplicate protocol kinds are deduplicated.
 - Unsupported protocol kinds are ignored with warnings.
-- Missing control panels return an empty protocol result.
-- Interpreter-driven protocol updates write a stable protocol record, return an `upsert_protocol` action, and merge the updated record into the turn's concept records.
+- Missing control panels can still produce task-surface protocol guidance for recognizable work types such as email or explicit Scenario Lab, while unrelated turns return an empty protocol result.
+- Interpreter-driven protocol updates write a stable protocol record, return an `upsert_protocol` action, and merge the updated record into the turn's concept records when the user explicitly expresses reusable future behavior.
+- One-off draft requests can recall a protocol without writing or updating that protocol, even if the interpreter over-eagerly proposes an update.
 - Interpreter decisions that only recall a protocol preserve existing concept records without writing.
 - Guidance construction prefers persisted protocol overrides over built-ins.
 - Guidance construction falls back to built-in protocols, such as Scenario Lab, when no persisted protocol exists.

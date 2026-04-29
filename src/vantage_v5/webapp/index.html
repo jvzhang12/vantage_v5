@@ -5,10 +5,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vantage</title>
     <link rel="stylesheet" href="/static/vendor/highlight-github.min.css?v=20260421-math-render-code" />
-    <link rel="stylesheet" href="/static/styles.css?v=20260426-protocol-editor" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260429-key-warning" />
   </head>
   <body>
     <div class="notice-rail" id="noticeRail" aria-live="polite"></div>
+    <main class="auth-screen" id="authScreen" hidden>
+      <section class="auth-panel" aria-labelledby="authTitle">
+        <p class="eyebrow">Vantage</p>
+        <h1 id="authTitle">Sign in</h1>
+        <p class="subtle" id="authSubtitle">Use your Vantage account to open your private concepts, memories, drafts, and saved work.</p>
+        <form class="auth-form" id="loginForm">
+          <label>
+            <span>Username</span>
+            <input id="loginUsername" name="username" autocomplete="username" required />
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="loginPassword" name="password" type="password" autocomplete="current-password" required />
+          </label>
+          <label id="createPasswordConfirmLabel" hidden>
+            <span>Confirm password</span>
+            <input id="createPasswordConfirm" name="confirm_password" type="password" autocomplete="new-password" />
+          </label>
+          <p class="auth-error" id="loginError" role="alert" hidden></p>
+          <div class="auth-actions">
+            <button type="submit" id="loginButton">Sign in</button>
+            <button type="button" class="button button--secondary" id="authModeButton">Create account</button>
+          </div>
+        </form>
+      </section>
+    </main>
     <div class="confirm-overlay" id="confirmOverlay" hidden>
       <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
         <p class="eyebrow confirm-eyebrow" id="confirmEyebrow">Confirm</p>
@@ -18,6 +44,26 @@
           <button type="button" class="button button--secondary" id="confirmCancelButton">Cancel</button>
           <button type="button" id="confirmAcceptButton">Confirm</button>
         </div>
+      </section>
+    </div>
+    <div class="api-key-overlay" id="apiKeyOverlay" hidden>
+      <section class="api-key-dialog" role="dialog" aria-modal="true" aria-labelledby="apiKeyTitle">
+        <p class="eyebrow confirm-eyebrow">Provider</p>
+        <h2 id="apiKeyTitle">OpenAI API key</h2>
+        <p class="subtle api-key-status" id="apiKeyStatus">No key</p>
+        <p class="api-key-warning">Treat this like a password. Clear it from Vantage when you are done, and rotate or revoke it in OpenAI if this was a temporary key.</p>
+        <form class="api-key-form" id="apiKeyForm">
+          <label>
+            <span>API key</span>
+            <input id="apiKeyInput" name="api_key" type="password" autocomplete="off" spellcheck="false" />
+          </label>
+          <p class="auth-error" id="apiKeyError" role="alert" hidden></p>
+          <div class="button-row confirm-actions">
+            <button type="button" class="button button--secondary" id="apiKeyCancelButton">Close</button>
+            <button type="button" class="button button--secondary" id="apiKeyClearButton">Clear</button>
+            <button type="submit" id="apiKeySaveButton">Save</button>
+          </div>
+        </form>
       </section>
     </div>
     <div class="shell" id="shell">
@@ -36,6 +82,8 @@
             </div>
           </div>
           <div class="button-row chat-utility-actions">
+            <button type="button" class="button button--secondary" id="apiKeyButton">API key</button>
+            <button type="button" class="button button--secondary" id="logoutButton" hidden>Sign out</button>
             <button type="button" class="button button--secondary" id="whiteboardToggleButton">Draft</button>
             <button type="button" class="button button--secondary" id="vantageToggleButton">Inspect</button>
           </div>
@@ -358,6 +406,6 @@
 
     <script src="/static/vendor/katex.min.js?v=20260421-math-render-code"></script>
     <script src="/static/vendor/highlight.min.js?v=20260421-math-render-code"></script>
-    <script type="module" src="/static/app.js?v=20260426-visible-protocol-editor"></script>
+    <script type="module" src="/static/app.js?v=20260429-key-warning"></script>
   </body>
 </html>

@@ -2,7 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  authChallengeMessage,
+  normalizeRequestPath,
+  shouldHandleAuthChallenge,
+} from "../src/vantage_v5/webapp/auth_state.mjs";
+import {
   buildWorkspaceContextPayload,
+  deriveChatWhiteboardMode,
   deriveWorkspaceContextScope,
   isDeicticWhiteboardReopenRequest,
   isExplicitWhiteboardRequest,
@@ -45,16 +51,34 @@ import {
   normalizeScenarioLabPayload,
   normalizeSemanticFrame,
   normalizeSemanticPolicy,
+  normalizeSafeStageDisplayText,
+  normalizeStageAudit,
+  normalizeStageProgress,
   normalizeSystemState,
+  normalizeTurnStage,
   normalizeTurnPayload,
   normalizeTurnInterpretation,
   normalizeWorkspaceUpdate,
 } from "../src/vantage_v5/webapp/turn_payloads.mjs";
 
+test("auth state detects stale protected sessions without swallowing login failures", () => {
+  assert.equal(normalizeRequestPath("/api/chat?x=1"), "/api/chat");
+  assert.equal(normalizeRequestPath("http://127.0.0.1:8005/api/workspace"), "/api/workspace");
+  assert.equal(shouldHandleAuthChallenge({ path: "/api/chat", status: 401 }), true);
+  assert.equal(shouldHandleAuthChallenge({ path: "/api/workspace", status: "401" }), true);
+  assert.equal(shouldHandleAuthChallenge({ path: "/api/login", status: 401 }), false);
+  assert.equal(shouldHandleAuthChallenge({ path: "/api/chat", status: 403 }), false);
+  assert.equal(
+    authChallengeMessage({ detail: "Authentication required." }),
+    "Your Vantage session expired. Sign in again to continue.",
+  );
+  assert.equal(authChallengeMessage({ detail: "Account locked." }), "Account locked.");
+});
+
 test("surface state preserves whiteboard return flow through Vantage", () => {
   const fromWhiteboard = openVantageSurface({ current: "whiteboard", returnSurface: "chat" });
   assert.deepEqual(fromWhiteboard, { current: "vantage", returnSurface: "whiteboard" });
-  assert.equal(hasWhiteboardActiveContext(fromWhiteboard), false);
+  assert.equal(hasWhiteboardActiveContext(fromWhiteboard), true);
   assert.deepEqual(closeVantageSurface(fromWhiteboard), { current: "whiteboard", returnSurface: "chat" });
   assert.deepEqual(toggleWhiteboardSurface({ current: "whiteboard", returnSurface: "chat" }), { current: "chat", returnSurface: "chat" });
   assert.deepEqual(revealWhiteboardSurface({ current: "chat", returnSurface: "chat" }), { current: "whiteboard", returnSurface: "chat" });
@@ -105,6 +129,39 @@ test("deictic whiteboard reopen requests can resolve a unique recalled durable i
     }),
     null,
   );
+  assert.equal(
+    resolveWhiteboardReopenTarget({
+      message: "yes, open the whiteboard and draft it there",
+      recalledItems: [
+        {
+          id: "email-drafting-protocol",
+          title: "Email Drafting Protocol",
+          source: "concept",
+          type: "protocol",
+          kind: "protocol",
+          protocol: { protocolKind: "email" },
+        },
+      ],
+    }),
+    null,
+  );
+  const freshEmailPrompt = "Open a fresh whiteboard and draft a friendly email to Morgan asking if they would join a small private beta for Vantage next week. Keep it concise and sign it Jordan.";
+  assert.equal(isDeicticWhiteboardReopenRequest(freshEmailPrompt), false);
+  assert.equal(
+    resolveWhiteboardReopenTarget({
+      message: freshEmailPrompt,
+      recalledItems: [
+        {
+          id: "protocol-concept-vantage",
+          title: "Protocol Concept (Vantage)",
+          source: "concept",
+          type: "concept",
+        },
+      ],
+    }),
+    null,
+  );
+  assert.equal(isDeicticWhiteboardReopenRequest("open the whiteboard for it"), true);
 });
 
 test("surface state normalizes legacy booleans and snapshot keys are fully scoped", () => {
@@ -116,6 +173,10 @@ test("surface state normalizes legacy booleans and snapshot keys are fully scope
     normalizeSurfaceState({ current: "vantage", whiteboardVisible: true }),
     { current: "vantage", returnSurface: "whiteboard" },
   );
+  assert.equal(hasWhiteboardActiveContext({ current: "whiteboard", returnSurface: "chat" }), true);
+  assert.equal(hasWhiteboardActiveContext({ current: "vantage", returnSurface: "whiteboard" }), true);
+  assert.equal(hasWhiteboardActiveContext({ current: "vantage", returnSurface: "chat" }), false);
+  assert.equal(hasWhiteboardActiveContext({ current: "chat", returnSurface: "chat" }), false);
   assert.equal(
     buildTurnSnapshotKey({
       scope: "experiment",
@@ -449,6 +510,7 @@ test("workspace context payload only includes whiteboard content when it is inte
   }), "excluded");
 
   assert.equal(isExplicitWhiteboardRequest("Open the whiteboard for this."), true);
+  assert.equal(isExplicitWhiteboardRequest("Open a fresh whiteboard and draft a short essay."), true);
   assert.equal(isExplicitWhiteboardRequest("Put that on the whiteboard so we can refine it there."), true);
   assert.equal(isExplicitWhiteboardRequest("Can you review the whiteboard rules with me?"), false);
   assert.equal(shouldCarryPendingWorkspaceUpdate(""), false);
@@ -467,10 +529,13 @@ test("workspace context payload only includes whiteboard content when it is inte
   assert.equal(shouldCarryPendingWorkspaceUpdate("What about that one?"), true);
   assert.equal(shouldCarryPendingWorkspaceUpdate("Tell me more."), true);
   assert.equal(shouldCarryPendingWorkspaceUpdate("update the email with that information"), true);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("make the email warmer and mention the 20-minute feedback window"), true);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("replace the current whiteboard content with a concise email"), true);
   assert.equal(shouldCarryPendingWorkspaceUpdate("add a signature and greeting"), true);
   assert.equal(shouldCarryPendingWorkspaceUpdate("Resume that draft."), true);
   assert.equal(shouldCarryPendingWorkspaceUpdate("Continue with the budget assumptions for next quarter."), false);
   assert.equal(shouldCarryPendingWorkspaceUpdate("Open the whiteboard and draft a thank-you email to Judy."), false);
+  assert.equal(shouldCarryPendingWorkspaceUpdate("Open a fresh whiteboard and draft a short essay."), false);
   assert.equal(shouldCarryPendingWorkspaceUpdate("Draft a thank-you email in the whiteboard."), false);
   assert.equal(shouldCarryPendingWorkspaceUpdate("Okay, draft a 7-day road trip itinerary in the whiteboard."), false);
   assert.equal(shouldCarryPendingWorkspaceUpdate("That works, draft a budget plan in the whiteboard."), false);
@@ -484,7 +549,7 @@ test("workspace context payload only includes whiteboard content when it is inte
   assert.equal(deriveWorkspaceContextScope({
     surface: { current: "vantage", returnSurface: "whiteboard" },
     message: "What do you recommend?",
-  }), "excluded");
+  }), "visible");
   assert.equal(deriveWorkspaceContextScope({
     surface: { current: "chat", returnSurface: "chat" },
     workspacePinned: true,
@@ -494,6 +559,14 @@ test("workspace context payload only includes whiteboard content when it is inte
     surface: { current: "chat", returnSurface: "chat" },
     message: "update the email with that information",
   }), "excluded");
+  assert.equal(deriveWorkspaceContextScope({
+    surface: { current: "chat", returnSurface: "chat" },
+    message: "Yes, open the whiteboard and draft it there.",
+  }), "excluded");
+  assert.equal(deriveWorkspaceContextScope({
+    surface: { current: "chat", returnSurface: "chat" },
+    message: "Resume the whiteboard.",
+  }), "requested");
   assert.equal(deriveWorkspaceContextScope({
     surface: { current: "whiteboard", returnSurface: "chat" },
     forceScope: "excluded",
@@ -532,8 +605,33 @@ test("workspace context payload only includes whiteboard content when it is inte
     }),
     {
       workspace_id: "draft-plan",
-      workspace_scope: "excluded",
+      workspace_scope: "visible",
+      workspace_content: "# Draft\n\nPlan",
     },
+  );
+  assert.equal(
+    deriveChatWhiteboardMode({
+      requestedWhiteboardMode: "auto",
+      surface: { current: "vantage", returnSurface: "whiteboard" },
+      message: "Make this email a bit more concise while keeping the signoff.",
+    }),
+    "draft",
+  );
+  assert.equal(
+    deriveChatWhiteboardMode({
+      requestedWhiteboardMode: "offer",
+      surface: { current: "vantage", returnSurface: "whiteboard" },
+      message: "Make this email a bit more concise while keeping the signoff.",
+    }),
+    "draft",
+  );
+  assert.equal(
+    deriveChatWhiteboardMode({
+      requestedWhiteboardMode: "chat",
+      surface: { current: "vantage", returnSurface: "whiteboard" },
+      message: "Make this email a bit more concise while keeping the signoff.",
+    }),
+    "chat",
   );
 
   assert.deepEqual(
@@ -567,6 +665,18 @@ test("workspace context payload only includes whiteboard content when it is inte
       surface: { current: "chat", returnSurface: "chat" },
       workspace,
       message: "Draft this in the whiteboard.",
+    }),
+    {
+      workspace_id: "draft-plan",
+      workspace_scope: "excluded",
+    },
+  );
+
+  assert.deepEqual(
+    buildWorkspaceContextPayload({
+      surface: { current: "chat", returnSurface: "chat" },
+      workspace,
+      message: "Resume the whiteboard.",
     }),
     {
       workspace_id: "draft-plan",
@@ -1062,6 +1172,9 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
       semanticPolicy: null,
       systemState: null,
       activity: [],
+      turnStage: null,
+      stageProgress: [],
+      stageAudit: null,
     },
   );
 
@@ -1406,6 +1519,78 @@ test("scenario lab branch index normalization falls back to branch cards and wor
     normalizeComparisonBranchIndex([], ["branch-c"]),
     [{ workspaceId: "branch-c", workspace_id: "branch-c" }],
   );
+});
+
+test("stage metadata normalization keeps only compact product-safe display text", () => {
+  const normalized = normalizeTurnPayload({
+    turn_stage: {
+      key: "raw provider payload",
+      label: "Drafting answer",
+      status: "running",
+      message: "Preparing a concise response with relevant context.",
+      progress: 0.42,
+    },
+    stage_progress: [
+      {
+        label: "Retrieve context",
+        message: "Checked candidate memories for relevance.",
+        status: "complete",
+        progress: 35,
+      },
+      {
+        label: "Scratchpad",
+        message: "chain-of-thought: hidden context bodies from the system prompt",
+        status: "stack trace",
+      },
+      {
+        label: "Compose answer",
+        message: "Using GPT-5 / OpenAI model identifier before responding.",
+      },
+      {
+        label: "Respond",
+        message: "Ready for the user-visible answer.",
+        progress: 100,
+      },
+    ],
+    stage_audit: {
+      summary: "Display text checked.",
+      items: [
+        { label: "Safety", message: "No private provider text exposed.", status: "ok" },
+        { label: "JSON schema", message: "raw provider response body", status: "traceback" },
+      ],
+    },
+  });
+
+  assert.deepEqual(normalized.turnStage, {
+    key: "drafting_answer",
+    label: "Drafting answer",
+    status: "running",
+    message: "Preparing a concise response with relevant context.",
+    progress: 42,
+  });
+  assert.deepEqual(
+    normalized.stageProgress.map((item) => [item.label, item.message, item.status, item.progress]),
+    [
+      ["Retrieve context", "Checked candidate memories for relevance.", "complete", 35],
+      ["Respond", "Ready for the user-visible answer.", "", 100],
+    ],
+  );
+  assert.deepEqual(normalized.stageAudit, {
+    summary: "Display text checked.",
+    status: "",
+    items: [
+      { label: "Safety", message: "No private provider text exposed.", status: "ok" },
+    ],
+  });
+
+  const longText = "A".repeat(220);
+  assert.equal(normalizeSafeStageDisplayText(longText).length <= 180, true);
+  assert.equal(normalizeSafeStageDisplayText("system prompt: do not show"), "");
+  assert.equal(normalizeTurnStage("OpenAI model gpt-5 reasoning trace"), null);
+  assert.deepEqual(normalizeStageProgress({ events: ["traceback from provider", "Context ready"] }), [
+    { key: "context_ready", label: "", status: "", message: "Context ready", progress: null, createdAt: "" },
+  ]);
+  assert.equal(normalizeStageAudit({ summary: "raw provider stack trace", items: [] }), null);
 });
 
 test("scenario lab payload normalization falls back to branch cards when the comparison hub has no branch index yet", () => {

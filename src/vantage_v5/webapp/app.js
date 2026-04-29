@@ -1,10 +1,15 @@
 import {
+  authChallengeMessage,
+  shouldHandleAuthChallenge,
+} from "./auth_state.mjs?v=20260429-auth-expiry";
+import {
+  deriveAppliedWorkspaceDraftNote,
   deriveWhiteboardDecisionPresentation,
   hasPendingWorkspaceDecision,
   isWhiteboardFocused,
   shouldHideChatWorkspaceUpdate,
   workspaceUpdateHasDraft,
-} from "./whiteboard_decisions.mjs?v=20260421-scenario-fix";
+} from "./whiteboard_decisions.mjs?v=20260428-whiteboard-hardening";
 import {
   buildInspectBuckets,
   buildMemoryTraceSummary,
@@ -26,9 +31,10 @@ import {
 } from "./product_identity.mjs?v=20260426-protocol-editor";
 import {
   buildWorkspaceContextPayload,
+  deriveChatWhiteboardMode,
   resolveWhiteboardReopenTarget,
   shouldCarryPendingWorkspaceUpdate,
-} from "./chat_request.mjs?v=20260421-deictic-reopen-fix";
+} from "./chat_request.mjs?v=20260428-active-whiteboard-context";
 import {
   buildScopedTurnSnapshotKey,
   buildTurnSnapshotKey,
@@ -40,7 +46,7 @@ import {
   openVantageSurface,
   revealWhiteboardSurface,
   toggleWhiteboardSurface,
-} from "./surface_state.mjs?v=20260421-scenario-fix";
+} from "./surface_state.mjs?v=20260428-active-whiteboard-context";
 import {
   buildWorkspaceSnapshot,
   reconcileRestoredWorkspaceAfterLoad,
@@ -57,7 +63,10 @@ import {
   normalizeResponseMode,
   normalizeScenarioLabPayload,
   normalizeSemanticFrame,
+  normalizeStageAudit,
+  normalizeStageProgress,
   normalizeTurnPayload,
+  normalizeTurnStage,
   normalizeTurnInterpretation,
   normalizeSemanticPolicy,
   normalizeWorkspaceUpdate,
@@ -68,6 +77,17 @@ import {
 } from "./math_render.mjs?v=20260421-calm-state-pass";
 
 const shellEl = document.getElementById("shell");
+const authScreenEl = document.getElementById("authScreen");
+const authTitleEl = document.getElementById("authTitle");
+const authSubtitleEl = document.getElementById("authSubtitle");
+const loginFormEl = document.getElementById("loginForm");
+const loginUsernameEl = document.getElementById("loginUsername");
+const loginPasswordEl = document.getElementById("loginPassword");
+const createPasswordConfirmLabelEl = document.getElementById("createPasswordConfirmLabel");
+const createPasswordConfirmEl = document.getElementById("createPasswordConfirm");
+const loginButtonEl = document.getElementById("loginButton");
+const authModeButtonEl = document.getElementById("authModeButton");
+const loginErrorEl = document.getElementById("loginError");
 const transcriptEl = document.getElementById("transcript");
 const composerEl = document.getElementById("composer");
 const messageInputEl = document.getElementById("messageInput");
@@ -77,6 +97,16 @@ const sendButtonEl = document.getElementById("sendButton");
 const seedPromptEl = document.getElementById("seedPrompt");
 const experimentToggleButtonEl = document.getElementById("experimentToggleButton");
 const experimentBadgeEl = document.getElementById("experimentBadge");
+const apiKeyButtonEl = document.getElementById("apiKeyButton");
+const apiKeyOverlayEl = document.getElementById("apiKeyOverlay");
+const apiKeyFormEl = document.getElementById("apiKeyForm");
+const apiKeyInputEl = document.getElementById("apiKeyInput");
+const apiKeyStatusEl = document.getElementById("apiKeyStatus");
+const apiKeyErrorEl = document.getElementById("apiKeyError");
+const apiKeyCancelButtonEl = document.getElementById("apiKeyCancelButton");
+const apiKeyClearButtonEl = document.getElementById("apiKeyClearButton");
+const apiKeySaveButtonEl = document.getElementById("apiKeySaveButton");
+const logoutButtonEl = document.getElementById("logoutButton");
 const whiteboardToggleButtonEl = document.getElementById("whiteboardToggleButton");
 const vantageToggleButtonEl = document.getElementById("vantageToggleButton");
 const vantagePanelEl = document.getElementById("vantagePanel");
@@ -194,10 +224,26 @@ function createEmptyLearnedCorrectionState() {
   };
 }
 
+function createEmptyOpenAIKeyState() {
+  return {
+    configured: false,
+    source: "none",
+    maskedKey: "",
+    environmentConfigured: false,
+  };
+}
+
 const state = {
   busy: false,
   mode: "fallback",
   nexusEnabled: false,
+  openaiKey: createEmptyOpenAIKeyState(),
+  auth: {
+    required: false,
+    authenticated: true,
+    mode: "login",
+    accountCreationEnabled: false,
+  },
   user: {
     id: "",
   },
@@ -290,6 +336,9 @@ const state = {
     semanticPolicy: null,
     systemState: null,
     activity: [],
+    turnStage: null,
+    stageProgress: [],
+    stageAudit: null,
     interpretation: null,
   },
 };
@@ -319,6 +368,9 @@ function createIdleTurnState() {
     semanticPolicy: null,
     systemState: null,
     activity: [],
+    turnStage: null,
+    stageProgress: [],
+    stageAudit: null,
     interpretation: null,
   };
 }
@@ -360,6 +412,7 @@ function currentTurnSnapshotKey() {
     scope: state.workspace.scope,
     experimentSessionId: state.experiment.sessionId || "",
     workspaceId: state.workspace.workspaceId,
+    userId: state.user.id || "",
   });
 }
 
@@ -367,6 +420,7 @@ function currentScopedTurnSnapshotKey() {
   return buildScopedTurnSnapshotKey({
     scope: state.workspace.scope,
     experimentSessionId: state.experiment.sessionId || "",
+    userId: state.user.id || "",
   });
 }
 
@@ -388,6 +442,7 @@ function persistTurnSnapshot() {
         version: TURN_SNAPSHOT_VERSION,
         scope: state.workspace.scope,
         workspaceId: state.workspace.workspaceId,
+        userId: state.user.id || "",
         experimentSessionId: state.experiment.sessionId || "",
         experimentActive: state.experiment.active === true,
         surface: state.surface,
@@ -419,6 +474,7 @@ function persistTurnSnapshot() {
         version: TURN_SNAPSHOT_VERSION,
         scope: state.workspace.scope,
         workspaceId: state.workspace.workspaceId,
+        userId: state.user.id || "",
         experimentSessionId: state.experiment.sessionId || "",
         experimentActive: state.experiment.active === true,
         surface: state.surface,
@@ -455,7 +511,7 @@ function restoreTurnSnapshot() {
     const rawScopeScoped = sessionStorage.getItem(currentScopedTurnSnapshotKey());
     const raw = rawWorkspaceScoped
       || rawScopeScoped
-      || sessionStorage.getItem(LEGACY_TURN_SNAPSHOT_KEY);
+      || (state.auth.required ? null : sessionStorage.getItem(LEGACY_TURN_SNAPSHOT_KEY));
     if (!raw) {
       return;
     }
@@ -469,6 +525,7 @@ function restoreTurnSnapshot() {
     if (
       !snapshot
       || (snapshot.scope || state.workspace.scope) !== state.workspace.scope
+      || (state.auth.required && (snapshot.userId || "") !== (state.user.id || ""))
       || (!restoredFromScopeScopedKey && snapshot.workspaceId !== state.workspace.workspaceId)
       || (snapshot.experimentSessionId || "") !== currentExperimentSessionId
       || (snapshot.experimentActive === true) !== currentExperimentActive
@@ -513,6 +570,9 @@ function restoreTurnSnapshot() {
       semanticPolicy: normalizeSemanticPolicy(snapshot.turn?.semanticPolicy || null, normalizeSemanticFrame(snapshot.turn?.semanticFrame || null)),
       systemState: snapshot.turn?.systemState || null,
       activity: Array.isArray(snapshot.turn?.activity) ? snapshot.turn.activity : [],
+      turnStage: normalizeTurnStage(snapshot.turn?.turnStage || snapshot.turn?.turn_stage || null),
+      stageProgress: normalizeStageProgress(snapshot.turn?.stageProgress || snapshot.turn?.stage_progress || []),
+      stageAudit: normalizeStageAudit(snapshot.turn?.stageAudit || snapshot.turn?.stage_audit || null),
       scenarioBranchInspectionWorkspaceId: restoredFromScopeScopedKey
         ? ""
         : snapshot.turn?.scenarioBranchInspectionWorkspaceId || "",
@@ -568,6 +628,19 @@ seedPromptEl.addEventListener("click", () => {
   messageInputEl.focus();
 });
 
+loginFormEl?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await submitAuth();
+});
+
+authModeButtonEl?.addEventListener("click", () => {
+  setAuthMode(state.auth.mode === "create" ? "login" : "create");
+});
+
+logoutButtonEl?.addEventListener("click", async () => {
+  await logout();
+});
+
 vantageToggleButtonEl.addEventListener("click", () => {
   if (normalizeSurfaceState(state.surface).current === "vantage") {
     closeVantage();
@@ -620,6 +693,23 @@ experimentToggleButtonEl.addEventListener("click", async () => {
   await startExperiment();
 });
 
+apiKeyButtonEl?.addEventListener("click", () => {
+  void openOpenAIKeyDialog();
+});
+
+apiKeyFormEl?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await saveOpenAIKey();
+});
+
+apiKeyCancelButtonEl?.addEventListener("click", () => {
+  closeOpenAIKeyDialog();
+});
+
+apiKeyClearButtonEl?.addEventListener("click", () => {
+  void clearOpenAIKey();
+});
+
 confirmCancelButtonEl?.addEventListener("click", () => {
   resolveConfirmation(false);
 });
@@ -631,6 +721,8 @@ confirmAcceptButtonEl?.addEventListener("click", () => {
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && confirmOverlayEl && !confirmOverlayEl.hidden) {
     resolveConfirmation(false);
+  } else if (event.key === "Escape" && apiKeyOverlayEl && !apiKeyOverlayEl.hidden) {
+    closeOpenAIKeyDialog();
   }
 });
 
@@ -729,8 +821,381 @@ function buildDefaultSystemMessage() {
   ].join("\n\n");
 }
 
+function renderAuthGate() {
+  const needsLogin = state.auth.required && !state.auth.authenticated;
+  if (authScreenEl) {
+    authScreenEl.hidden = !needsLogin;
+  }
+  if (shellEl) {
+    shellEl.hidden = needsLogin;
+  }
+  if (logoutButtonEl) {
+    logoutButtonEl.hidden = !(state.auth.required && state.auth.authenticated);
+  }
+  if (apiKeyButtonEl) {
+    apiKeyButtonEl.hidden = needsLogin;
+  }
+  renderAuthMode();
+  if (needsLogin) {
+    loginUsernameEl?.focus();
+  }
+}
+
+function renderAuthMode() {
+  const createMode = state.auth.mode === "create";
+  const canCreate = state.auth.accountCreationEnabled === true;
+  if (!canCreate && createMode) {
+    state.auth.mode = "login";
+  }
+  const effectiveCreateMode = state.auth.mode === "create" && canCreate;
+  if (authTitleEl) {
+    authTitleEl.textContent = effectiveCreateMode ? "Create account" : "Sign in";
+  }
+  if (authSubtitleEl) {
+    authSubtitleEl.textContent = effectiveCreateMode
+      ? "Create a private Vantage account for your concepts, memories, drafts, and saved work."
+      : "Use your Vantage account to open your private concepts, memories, drafts, and saved work.";
+  }
+  if (loginPasswordEl) {
+    loginPasswordEl.autocomplete = effectiveCreateMode ? "new-password" : "current-password";
+  }
+  if (createPasswordConfirmLabelEl) {
+    createPasswordConfirmLabelEl.hidden = !effectiveCreateMode;
+  }
+  if (createPasswordConfirmEl) {
+    createPasswordConfirmEl.required = effectiveCreateMode;
+    createPasswordConfirmEl.disabled = !effectiveCreateMode;
+    if (!effectiveCreateMode) {
+      createPasswordConfirmEl.value = "";
+    }
+  }
+  if (loginButtonEl) {
+    loginButtonEl.textContent = effectiveCreateMode ? "Create account" : "Sign in";
+  }
+  if (authModeButtonEl) {
+    authModeButtonEl.hidden = !canCreate;
+    authModeButtonEl.textContent = effectiveCreateMode ? "Sign in instead" : "Create account";
+  }
+}
+
+function setAuthMode(mode) {
+  state.auth.mode = mode === "create" && state.auth.accountCreationEnabled ? "create" : "login";
+  if (loginErrorEl) {
+    loginErrorEl.hidden = true;
+    loginErrorEl.textContent = "";
+  }
+  renderAuthMode();
+  loginUsernameEl?.focus();
+}
+
+function authGateIsActive() {
+  return state.auth.required && !state.auth.authenticated;
+}
+
+function resetAuthenticatedUiState() {
+  transcriptEl.innerHTML = "";
+  resetTransientExperimentUiState();
+  state.openaiKey = createEmptyOpenAIKeyState();
+  state.surface = { current: "chat", returnSurface: "chat" };
+  state.history = [];
+  state.workspace.content = "";
+  state.workspace.savedContent = "";
+  state.workspace.dirty = false;
+  state.turn = createIdleTurnState();
+}
+
+function handleAuthChallenge(message) {
+  clearTurnSnapshot();
+  const hadAuthenticatedUi = state.auth.authenticated || Boolean(state.user.id);
+  state.auth.required = true;
+  state.auth.authenticated = false;
+  state.auth.mode = "login";
+  state.user.id = "";
+  resetAuthenticatedUiState();
+  closeOpenAIKeyDialog();
+  renderAuthGate();
+  if (loginErrorEl) {
+    loginErrorEl.textContent = message;
+    loginErrorEl.hidden = false;
+  }
+  if (hadAuthenticatedUi) {
+    pushNotice("Session expired", message, "warning");
+  }
+}
+
+async function submitAuth() {
+  const username = String(loginUsernameEl?.value || "").trim();
+  const password = String(loginPasswordEl?.value || "");
+  const confirmPassword = String(createPasswordConfirmEl?.value || "");
+  if (!username || !password) {
+    return;
+  }
+  const createMode = state.auth.mode === "create" && state.auth.accountCreationEnabled;
+  if (createMode && !/^[A-Za-z0-9_.-]{3,80}$/.test(username)) {
+    if (loginErrorEl) {
+      loginErrorEl.textContent = "Username must be 3-80 characters and use only letters, numbers, dots, underscores, or hyphens.";
+      loginErrorEl.hidden = false;
+    }
+    return;
+  }
+  if (createMode && password.length < 8) {
+    if (loginErrorEl) {
+      loginErrorEl.textContent = "Password must be at least 8 characters.";
+      loginErrorEl.hidden = false;
+    }
+    return;
+  }
+  if (createMode && password !== confirmPassword) {
+    if (loginErrorEl) {
+      loginErrorEl.textContent = "Passwords do not match.";
+      loginErrorEl.hidden = false;
+    }
+    return;
+  }
+  if (loginErrorEl) {
+    loginErrorEl.hidden = true;
+    loginErrorEl.textContent = "";
+  }
+  if (loginButtonEl) {
+    loginButtonEl.disabled = true;
+    loginButtonEl.textContent = createMode ? "Creating account" : "Signing in";
+  }
+  if (authModeButtonEl) {
+    authModeButtonEl.disabled = true;
+  }
+  try {
+    const { payload, response } = await fetchJson(createMode ? "/api/accounts" : "/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!response.ok) {
+      throw new Error(payload?.detail || (createMode ? "Account creation failed." : "Invalid username or password."));
+    }
+    state.auth.required = payload?.auth_required === true;
+    state.auth.authenticated = payload?.authenticated !== false;
+    state.auth.accountCreationEnabled = payload?.account_creation_enabled === true;
+    state.auth.mode = "login";
+    state.user.id = payload?.user?.id || username;
+    loginPasswordEl.value = "";
+    if (createPasswordConfirmEl) {
+      createPasswordConfirmEl.value = "";
+    }
+    resetAuthenticatedUiState();
+    renderAuthGate();
+    await boot();
+  } catch (error) {
+    if (loginErrorEl) {
+      loginErrorEl.textContent = error instanceof Error
+        ? error.message
+        : (createMode ? "Account creation failed." : "Sign in failed.");
+      loginErrorEl.hidden = false;
+    }
+  } finally {
+    if (loginButtonEl) {
+      loginButtonEl.disabled = false;
+      renderAuthMode();
+    }
+    if (authModeButtonEl) {
+      authModeButtonEl.disabled = false;
+    }
+  }
+}
+
+async function logout() {
+  await fetchJson("/api/logout", { method: "POST" });
+  clearTurnSnapshot();
+  state.auth.required = true;
+  state.auth.authenticated = false;
+  state.auth.mode = "login";
+  state.user.id = "";
+  resetAuthenticatedUiState();
+  closeOpenAIKeyDialog();
+  renderAuthGate();
+}
+
+function normalizeOpenAIKeyStatus(value) {
+  const source = String(value?.source || "none").trim().toLowerCase();
+  return {
+    configured: value?.configured === true,
+    source: ["user", "environment", "none"].includes(source) ? source : "none",
+    maskedKey: String(value?.masked_key || value?.maskedKey || "").trim(),
+    environmentConfigured: value?.environment_configured === true || value?.environmentConfigured === true,
+  };
+}
+
+function applyOpenAIKeyPayload(payload) {
+  state.openaiKey = normalizeOpenAIKeyStatus(payload?.openai_key || payload);
+  if (payload?.mode === "openai" || payload?.mode === "fallback") {
+    state.mode = payload.mode;
+  } else {
+    state.mode = state.openaiKey.configured ? "openai" : "fallback";
+  }
+  renderOpenAIKeyStatus();
+  renderExperimentStatus({ nexusEnabled: state.nexusEnabled });
+}
+
+function openAIKeyStatusCopy() {
+  const status = state.openaiKey || createEmptyOpenAIKeyState();
+  if (status.source === "user") {
+    return status.maskedKey ? `Using your key (${status.maskedKey})` : "Using your key";
+  }
+  if (status.source === "environment") {
+    return status.maskedKey ? `Using environment key (${status.maskedKey})` : "Using environment key";
+  }
+  return "No API key";
+}
+
+function renderOpenAIKeyStatus() {
+  const status = state.openaiKey || createEmptyOpenAIKeyState();
+  if (apiKeyButtonEl) {
+    apiKeyButtonEl.textContent = status.source === "user" ? "API key set" : "API key";
+    apiKeyButtonEl.title = openAIKeyStatusCopy();
+  }
+  if (apiKeyStatusEl) {
+    apiKeyStatusEl.textContent = openAIKeyStatusCopy();
+  }
+  if (apiKeyClearButtonEl) {
+    apiKeyClearButtonEl.disabled = state.busy || status.source !== "user";
+  }
+}
+
+function setOpenAIKeyDialogBusy(value) {
+  if (apiKeySaveButtonEl) {
+    apiKeySaveButtonEl.disabled = value;
+    apiKeySaveButtonEl.textContent = value ? "Saving" : "Save";
+  }
+  if (apiKeyClearButtonEl) {
+    apiKeyClearButtonEl.disabled = value || state.openaiKey.source !== "user";
+  }
+  if (apiKeyCancelButtonEl) {
+    apiKeyCancelButtonEl.disabled = value;
+  }
+}
+
+async function refreshOpenAIKeyStatus() {
+  const { payload, response } = await fetchJson("/api/openai-key");
+  if (!response.ok) {
+    throw new Error(payload?.detail || `API key status failed with status ${response.status}`);
+  }
+  applyOpenAIKeyPayload(payload);
+}
+
+async function openOpenAIKeyDialog() {
+  if (authGateIsActive()) {
+    return;
+  }
+  if (apiKeyErrorEl) {
+    apiKeyErrorEl.hidden = true;
+    apiKeyErrorEl.textContent = "";
+  }
+  if (apiKeyInputEl) {
+    apiKeyInputEl.value = "";
+  }
+  try {
+    await refreshOpenAIKeyStatus();
+  } catch (error) {
+    if (authGateIsActive()) {
+      return;
+    }
+    const message = error instanceof Error ? error.message : "Could not load API key status.";
+    pushNotice("API key unavailable", message, "warning");
+  }
+  if (apiKeyOverlayEl) {
+    apiKeyOverlayEl.hidden = false;
+  }
+  renderOpenAIKeyStatus();
+  window.requestAnimationFrame(() => apiKeyInputEl?.focus());
+}
+
+function closeOpenAIKeyDialog() {
+  if (apiKeyOverlayEl) {
+    apiKeyOverlayEl.hidden = true;
+  }
+  if (apiKeyInputEl) {
+    apiKeyInputEl.value = "";
+  }
+  if (apiKeyErrorEl) {
+    apiKeyErrorEl.hidden = true;
+    apiKeyErrorEl.textContent = "";
+  }
+}
+
+async function saveOpenAIKey() {
+  const apiKey = String(apiKeyInputEl?.value || "").trim();
+  if (!apiKey) {
+    if (apiKeyErrorEl) {
+      apiKeyErrorEl.textContent = "Enter an API key.";
+      apiKeyErrorEl.hidden = false;
+    }
+    return;
+  }
+  setOpenAIKeyDialogBusy(true);
+  try {
+    const { payload, response } = await fetchJson("/api/openai-key", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+    if (!response.ok) {
+      throw new Error(payload?.detail || `API key save failed with status ${response.status}`);
+    }
+    if (apiKeyInputEl) {
+      apiKeyInputEl.value = "";
+    }
+    if (apiKeyErrorEl) {
+      apiKeyErrorEl.hidden = true;
+      apiKeyErrorEl.textContent = "";
+    }
+    applyOpenAIKeyPayload(payload);
+    pushNotice("API key saved", "Vantage will use your key for model calls in this session.", "success");
+  } catch (error) {
+    if (authGateIsActive()) {
+      return;
+    }
+    if (apiKeyErrorEl) {
+      apiKeyErrorEl.textContent = error instanceof Error ? error.message : "API key save failed.";
+      apiKeyErrorEl.hidden = false;
+    }
+  } finally {
+    setOpenAIKeyDialogBusy(false);
+  }
+}
+
+async function clearOpenAIKey() {
+  if (state.openaiKey.source !== "user") {
+    return;
+  }
+  setOpenAIKeyDialogBusy(true);
+  try {
+    const { payload, response } = await fetchJson("/api/openai-key", { method: "DELETE" });
+    if (!response.ok) {
+      throw new Error(payload?.detail || `API key clear failed with status ${response.status}`);
+    }
+    if (apiKeyInputEl) {
+      apiKeyInputEl.value = "";
+    }
+    applyOpenAIKeyPayload(payload);
+    pushNotice("API key cleared", "Vantage returned to the configured fallback for model calls.", "info");
+  } catch (error) {
+    if (authGateIsActive()) {
+      return;
+    }
+    if (apiKeyErrorEl) {
+      apiKeyErrorEl.textContent = error instanceof Error ? error.message : "API key clear failed.";
+      apiKeyErrorEl.hidden = false;
+    }
+  } finally {
+    setOpenAIKeyDialogBusy(false);
+  }
+}
+
 async function boot() {
   await loadHealth();
+  renderAuthGate();
+  if (state.auth.required && !state.auth.authenticated) {
+    return;
+  }
   restoreTurnSnapshot();
   await loadWorkspace({ preserveDirty: true });
   await loadConceptCatalog({ silent: true });
@@ -750,7 +1215,11 @@ async function loadHealth() {
     const previousExperimentSessionId = state.experiment.sessionId || "";
     const { payload } = await fetchJson("/api/health");
     state.mode = payload?.mode === "openai" ? "openai" : "fallback";
+    state.openaiKey = normalizeOpenAIKeyStatus(payload?.openai_key);
     state.nexusEnabled = payload?.nexus_enabled === true;
+    state.auth.required = payload?.auth_required === true;
+    state.auth.authenticated = payload?.authenticated !== false;
+    state.auth.accountCreationEnabled = payload?.account_creation_enabled === true;
     state.user.id = payload?.user?.id || "";
     state.experiment.active = payload?.experiment?.active === true;
     state.experiment.sessionId = payload?.experiment?.session_id || "";
@@ -765,10 +1234,15 @@ async function loadHealth() {
       resetTransientExperimentUiState();
       clearTurnSnapshot();
     }
+    renderOpenAIKeyStatus();
     renderExperimentStatus({ nexusEnabled: state.nexusEnabled });
   } catch {
     state.mode = "offline";
     state.nexusEnabled = false;
+    state.openaiKey = createEmptyOpenAIKeyState();
+    state.auth.authenticated = false;
+    state.auth.accountCreationEnabled = false;
+    renderOpenAIKeyStatus();
     statusPillEl.textContent = "Offline";
     pushNotice("Backend offline", "The app could not reach the health endpoint.", "warning");
   }
@@ -812,7 +1286,10 @@ async function loadWorkspace({ preserveDirty = false } = {}) {
     return;
   }
   try {
-    const { payload } = await fetchJson("/api/workspace");
+    const { payload, response } = await fetchJson("/api/workspace");
+    if (!response.ok) {
+      throw new Error(payload?.detail || `Draft failed to load with status ${response.status}`);
+    }
     const reconciliation = bootRestore
       ? reconcileRestoredWorkspaceAfterLoad({
           currentWorkspace: state.workspace,
@@ -839,6 +1316,9 @@ async function loadWorkspace({ preserveDirty = false } = {}) {
       : "Kept the unsaved whiteboard draft in place instead of replacing it with the last saved whiteboard.";
     persistTurnSnapshot();
   } catch (error) {
+    if (authGateIsActive()) {
+      return;
+    }
     state.workspace.note = error instanceof Error ? error.message : "Draft unavailable.";
     workspaceMetaEl.textContent = state.workspace.note;
     pushNotice("Draft unavailable", state.workspace.note, "warning");
@@ -1237,10 +1717,18 @@ function applyWorkspacePayload(payload, { preserveDirty = false } = {}) {
 
 async function loadConceptCatalog({ silent = false } = {}) {
   try {
-    const [{ payload: memoryPayload }, { payload: conceptPayload }] = await Promise.all([
+    const [memoryResult, conceptResult] = await Promise.all([
       fetchJson("/api/memory"),
       fetchJson("/api/concepts"),
     ]);
+    if (!memoryResult.response.ok) {
+      throw new Error(memoryResult.payload?.detail || `Memory failed to load with status ${memoryResult.response.status}`);
+    }
+    if (!conceptResult.response.ok) {
+      throw new Error(conceptResult.payload?.detail || `Concepts failed to load with status ${conceptResult.response.status}`);
+    }
+    const memoryPayload = memoryResult.payload;
+    const conceptPayload = conceptResult.payload;
     const normalizedMemory = normalizeMemoryPayload(memoryPayload, "catalog");
     state.catalogConcepts = normalizeConceptList(conceptPayload?.concepts || [], "concept");
     state.catalogSavedNotes = normalizedMemory.savedNotes;
@@ -1266,6 +1754,9 @@ async function loadConceptCatalog({ silent = false } = {}) {
       );
     }
   } catch (error) {
+    if (authGateIsActive()) {
+      return;
+    }
     if (!silent) {
       pushNotice(
         "Notes unavailable",
@@ -1279,17 +1770,21 @@ async function loadConceptCatalog({ silent = false } = {}) {
 async function sendMessage(message) {
   setBusy(true);
   try {
+    if (hasWhiteboardActiveContext(state.surface)) {
+      syncWorkspaceFromEditor();
+    }
     if (await handleLocalExperimentModeMessage(message)) {
       return;
     }
     const pinnedContextId = getPinnedContextIdForChat();
+    const pendingWorkspaceContext = buildPendingWorkspaceContext(message);
     const whiteboardReopenTarget = resolveWhiteboardReopenTarget({
       message,
       pinnedItem: getPinnedMemoryItem(),
       recalledItems: state.turnWorkingMemory,
       learnedItems: state.turnLearned,
     });
-    if (whiteboardReopenTarget) {
+    if (whiteboardReopenTarget && !pendingWorkspaceContext) {
       await handleDeicticWhiteboardReopen({
         target: whiteboardReopenTarget,
         message,
@@ -1302,6 +1797,11 @@ async function sendMessage(message) {
       workspacePinned: state.workspace.pinnedToChat,
       message,
     });
+    const whiteboardMode = deriveChatWhiteboardMode({
+      requestedWhiteboardMode: state.composer.whiteboardMode,
+      surface: state.surface,
+      message,
+    });
     const { payload, response } = await fetchJson("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1309,9 +1809,9 @@ async function sendMessage(message) {
         message,
         history: state.history,
         ...workspaceContext,
-        whiteboard_mode: state.composer.whiteboardMode,
+        whiteboard_mode: whiteboardMode,
         pinned_context_id: pinnedContextId,
-        pending_workspace_update: buildPendingWorkspaceContext(message),
+        pending_workspace_update: pendingWorkspaceContext,
       }),
     });
     if (!response.ok) {
@@ -1329,6 +1829,9 @@ async function sendMessage(message) {
     applyChatPayload(payload || {});
     absorbGraphNotices(payload || {});
   } catch (error) {
+    if (authGateIsActive()) {
+      return;
+    }
     addMessage("system", error instanceof Error ? error.message : String(error));
     pushNotice("Chat failed", error instanceof Error ? error.message : String(error), "warning");
   } finally {
@@ -1598,6 +2101,9 @@ function applyChatPayload(payload) {
     semanticPolicy: normalizedTurnPayload.semanticPolicy,
     systemState: normalizedTurnPayload.systemState,
     activity: normalizedTurnPayload.activity,
+    turnStage: normalizedTurnPayload.turnStage,
+    stageProgress: normalizedTurnPayload.stageProgress,
+    stageAudit: normalizedTurnPayload.stageAudit,
     scenarioBranchInspectionWorkspaceId: "",
     interpretation: normalizeTurnInterpretation(payload.turn_interpretation),
   };
@@ -2100,7 +2606,7 @@ async function applyPendingWorkspaceUpdate(mode, { bypassDirtyCheck = false } = 
 
   if (mode === "replace" && shouldForkWorkspaceForDraft(workspaceUpdate)) {
     startFreshWorkspaceDraft(workspaceUpdate.content, workspaceUpdate.title || state.workspace.title, {
-      note: "Started a new draft from earlier work. Save when you're ready.",
+      note: deriveAppliedWorkspaceDraftNote({ mode, forked: true }),
       markDirty: true,
     });
     revealWhiteboard();
@@ -2117,9 +2623,7 @@ async function applyPendingWorkspaceUpdate(mode, { bypassDirtyCheck = false } = 
     ? appendWorkspaceDraft(state.workspace.content, workspaceUpdate.content)
     : workspaceUpdate.content;
   const nextTitle = mode === "replace" ? (workspaceUpdate.title || state.workspace.title) : state.workspace.title;
-  const note = mode === "append"
-    ? "Updated your draft by appending this turn's changes. Save when you're ready."
-    : "Updated your draft with this turn's changes. Save when you're ready.";
+  const note = deriveAppliedWorkspaceDraftNote({ mode, forked: false });
 
   applyWorkspaceDraft(nextContent, nextTitle, { note, markDirty: true });
   revealWhiteboard();
@@ -2206,6 +2710,9 @@ async function acceptPendingWorkspaceOffer() {
     applyChatPayload(payload || {});
     absorbGraphNotices(payload || {});
   } catch (error) {
+    if (authGateIsActive()) {
+      return;
+    }
     addMessage("system", error instanceof Error ? error.message : String(error));
     pushNotice("Draft accept failed", error instanceof Error ? error.message : String(error), "warning");
   } finally {
@@ -2241,15 +2748,16 @@ function autoApplyWorkspaceDraft(workspaceUpdate) {
   if (!workspaceUpdateHasDraft(workspaceUpdate)) {
     return false;
   }
-  if (shouldForkWorkspaceForDraft(workspaceUpdate)) {
+  const forked = shouldForkWorkspaceForDraft(workspaceUpdate);
+  if (forked) {
     startFreshWorkspaceDraft(workspaceUpdate.content, workspaceUpdate.title || state.workspace.title, {
-      note: "Started a new draft from this turn's earlier work. Save when you're ready.",
+      note: deriveAppliedWorkspaceDraftNote({ mode: "replace", forked: true }),
       markDirty: true,
     });
   } else {
     const nextTitle = workspaceUpdate.title || state.workspace.title;
     applyWorkspaceDraft(workspaceUpdate.content, nextTitle, {
-      note: "Updated your draft with this turn's changes. Save when you're ready.",
+      note: deriveAppliedWorkspaceDraftNote({ mode: "replace", forked: false }),
       markDirty: true,
     });
   }
@@ -2436,7 +2944,17 @@ function renderTurnPanel() {
     graphActionSummary: learnedCount ? "" : describeGraphAction(state.turn.graphAction),
   });
 
-  renderTurnSummaryFacts({ grounding, scenarioLab, scenarioLabFailed, semanticFrame, semanticPolicy, semanticPolicyCopy });
+  renderTurnSummaryFacts({
+    grounding,
+    scenarioLab,
+    scenarioLabFailed,
+    semanticFrame,
+    semanticPolicy,
+    semanticPolicyCopy,
+    turnStage: state.turn.turnStage,
+    stageProgress: state.turn.stageProgress,
+    stageAudit: state.turn.stageAudit,
+  });
   renderInspectBuckets({ grounding, interpretation, workspaceUpdate });
   renderQuietActivityLine({ grounding, scenarioLab, workspaceUpdate, semanticFrame, semanticPolicy });
   renderWorkingMemoryPanel({
@@ -2492,6 +3010,10 @@ function renderQuietActivityLine({
     grounding,
     busy: state.busy,
   });
+  const stageSummary = describeCurrentStageSummary(state.turn.turnStage, state.turn.stageProgress);
+  if (stageSummary && quietActivityLineEl.textContent === "Ready") {
+    quietActivityLineEl.textContent = stageSummary;
+  }
 }
 
 function updateTurnSupportHierarchy({
@@ -2536,6 +3058,9 @@ function renderTurnSummaryFacts({
   semanticFrame = null,
   semanticPolicy = null,
   semanticPolicyCopy = null,
+  turnStage = null,
+  stageProgress = [],
+  stageAudit = null,
 } = {}) {
   if (!turnSummaryFactsEl) {
     return;
@@ -2561,6 +3086,18 @@ function renderTurnSummaryFacts({
   } else if (semanticPolicyCopy?.actionLabel && semanticPolicyCopy.actionLabel !== "Answer directly") {
     turnSummaryFactsEl.append(
       createMiniMeta("Next Step", semanticPolicyCopy.actionLabel),
+    );
+  }
+  const stageSummary = describeCurrentStageSummary(turnStage, stageProgress);
+  if (stageSummary) {
+    turnSummaryFactsEl.append(
+      createMiniMeta("Stage", stageSummary),
+    );
+  }
+  const auditSummary = String(stageAudit?.summary || "").trim();
+  if (auditSummary) {
+    turnSummaryFactsEl.append(
+      createMiniMeta("Stage Check", auditSummary),
     );
   }
 
@@ -2956,10 +3493,59 @@ function renderReasoningPathPanel(reasoningPath, interpretation, { hidden = fals
       createMiniMeta("Semantic Action", semanticPolicyCopy.actionLabel),
     );
   }
+  const stageSummary = describeCurrentStageSummary(state.turn.turnStage, state.turn.stageProgress);
+  if (stageSummary) {
+    turnReasoningPathMetaEl.append(
+      createMiniMeta("Stage", stageSummary),
+    );
+  }
+  const latestProgress = latestStageProgressItem(state.turn.stageProgress);
+  if (latestProgress?.message && latestProgress.message !== stageSummary) {
+    turnReasoningPathMetaEl.append(
+      createMiniMeta("Progress", latestProgress.message),
+    );
+  }
+  if (state.turn.stageAudit?.summary) {
+    turnReasoningPathMetaEl.append(
+      createMiniMeta("Stage Check", state.turn.stageAudit.summary),
+    );
+  }
 
   for (const stage of reasoningPath.stages || []) {
     turnReasoningPathRailEl.appendChild(createReasoningPathCard(stage));
   }
+}
+
+function describeCurrentStageSummary(turnStage = null, stageProgress = []) {
+  const parts = [];
+  if (turnStage?.label) {
+    parts.push(turnStage.label);
+  } else if (turnStage?.key) {
+    parts.push(humanizeSemanticToken(turnStage.key));
+  }
+  if (turnStage?.status) {
+    parts.push(humanizeSemanticToken(turnStage.status));
+  }
+  if (turnStage?.progress !== null && turnStage?.progress !== undefined && Number.isFinite(Number(turnStage.progress))) {
+    parts.push(`${Number(turnStage.progress)}%`);
+  }
+  const latestProgress = latestStageProgressItem(stageProgress);
+  if (!parts.length && latestProgress?.label) {
+    parts.push(latestProgress.label);
+  }
+  if (!parts.length && latestProgress?.status) {
+    parts.push(humanizeSemanticToken(latestProgress.status));
+  }
+  if (!parts.length && latestProgress?.message) {
+    parts.push(latestProgress.message);
+  }
+  return parts.join(" · ");
+}
+
+function latestStageProgressItem(stageProgress = []) {
+  return Array.isArray(stageProgress) && stageProgress.length
+    ? stageProgress[stageProgress.length - 1]
+    : null;
 }
 
 function createReasoningPathCard(stage) {
@@ -6008,17 +6594,18 @@ function createScenarioTranscriptCard(scenarioLab) {
 
   const actions = document.createElement("div");
   actions.className = "message-scenario-card__actions";
-  const openScenarioButton = createActionButton("Open Scenario Lab", "primary");
-  openScenarioButton.addEventListener("click", () => {
-    openVantage({ focus: "scenario" });
-  });
-  actions.append(openScenarioButton);
   if (artifactId) {
-    const inspectArtifactButton = createActionButton("Inspect comparison", "secondary");
+    const inspectArtifactButton = createActionButton("Inspect comparison", "primary");
     inspectArtifactButton.addEventListener("click", () => {
       inspectScenarioArtifact(artifactId);
     });
     actions.append(inspectArtifactButton);
+  } else {
+    const openScenarioButton = createActionButton("Open Scenario Lab", "primary");
+    openScenarioButton.addEventListener("click", () => {
+      openVantage({ focus: "scenario" });
+    });
+    actions.append(openScenarioButton);
   }
 
   card.append(top, title, summary, actions);
@@ -6263,6 +6850,12 @@ function setBusy(value) {
   state.busy = value;
   sendButtonEl.disabled = value;
   seedPromptEl.disabled = value;
+  if (apiKeyButtonEl) {
+    apiKeyButtonEl.disabled = value;
+  }
+  if (logoutButtonEl) {
+    logoutButtonEl.disabled = value;
+  }
   whiteboardToggleButtonEl.disabled = value;
   vantageToggleButtonEl.disabled = value;
   closeVantageButtonEl.disabled = value;
@@ -6280,15 +6873,28 @@ function setBusy(value) {
   } else {
     renderExperimentStatus({ nexusEnabled: state.nexusEnabled });
   }
+  renderOpenAIKeyStatus();
   renderViewState();
   renderTurnPanel();
   renderMemoryPanel();
 }
 
 async function fetchJson(path, options = {}) {
-  const response = await fetch(path, options);
+  const response = await fetch(path, { credentials: "same-origin", ...options });
   const text = await response.text();
   const payload = text ? safeParseJson(text) : {};
+  if (shouldHandleAuthChallenge({ path, status: response.status })) {
+    const message = authChallengeMessage(payload);
+    handleAuthChallenge(message);
+    return {
+      response,
+      payload: {
+        ...payload,
+        detail: message,
+        auth_expired: true,
+      },
+    };
+  }
   return { response, payload };
 }
 

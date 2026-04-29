@@ -220,6 +220,8 @@ class GraphActionExecutor:
 
     def open_saved_item_into_workspace(self, record_id: str) -> ExecutedAction:
         record = self._get_record(record_id)
+        if getattr(record, "type", None) == "protocol":
+            raise ValueError("Protocols are guidance objects and cannot be reopened as whiteboard drafts.")
         workspace_text = (
             f"# {record.title}\n\n"
             f"> {record.card}\n\n"

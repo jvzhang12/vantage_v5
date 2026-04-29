@@ -5,13 +5,15 @@ Static shell for the Vantage web app.
 ## Purpose
 
 - Define the three visible product surfaces: chat, Draft, and Inspect.
+- Define the sign-in gate used when auth is required or a browser session expires, including the create-account toggle and password confirmation field used when local account creation is enabled.
 - Provide the DOM anchors consumed by `app.js`.
 - Provide the persistent confirmation overlay used for high-friction local actions such as ending experiment mode.
+- Provide the provider-key dialog used to enter, save, inspect masked status for, and clear the current user's OpenAI API key, including a reminder that clearing the key from Vantage does not rotate or revoke it at OpenAI.
 - Load the CSS theme, the vendored local KaTeX and Highlight.js runtimes, and the module-based frontend entrypoint with cache-busting query strings.
 
 ## Major Regions
 
-- Chat panel with a minimal masthead, transcript shell, chat-side draft-decision panel, and composer. The masthead keeps the brand, compact session status, and `Draft` / `Inspect` controls available while onboarding and session-mode explanation live in the first system message instead of the header.
+- Auth panel with sign-in/create-account form controls, then chat panel with a minimal masthead, transcript shell, chat-side draft-decision panel, and composer. The masthead keeps the brand, compact session status, provider-key access, and `Draft` / `Inspect` controls available while onboarding and session-mode explanation live in the first system message instead of the header.
 - Draft panel with a utility header, title deck, draft-owned decision panel, a compact latest-work-product cue, document-sheet wrapper, source editor, a conditional live-preview section for math/code-rich drafts, and a single calm action row for `Back to chat`, `Save draft`, and `Publish artifact`. When Draft is focused it becomes the main drafting surface, with chat reduced to a sidebar.
 - Inspect panel with two visible docks and one temporarily hidden Library dock:
   - a primary answer dock presented as `What I Used`, with the inner turn panel titled `This turn`, containing an at-a-glance summary first, then a dedicated `Context in Scope` narrative block, then separate `Pulled In` and `Saved for Later` sections, followed by a `Details` group for `Memory Trace` and the collapsed-by-default `Reasoning Path`
@@ -51,6 +53,7 @@ Static shell for the Vantage web app.
 - The module and stylesheet cache-busting query strings were bumped again for the protocol-editor follow-up, so browsers pick up the protocol-specific selection/opening behavior and final quiet-activity busy copy.
 - The app module cache-busting query string was bumped again for the protocol-editor lookup fix, so browsers pick up turn-scoped protocol inspection without requiring a manual hard refresh.
 - The app module cache-busting query string was bumped again for the visible protocol-editor fix, so browsers pick up the editor directly on applied protocol cards in Inspect.
+- The app module cache-busting query string was bumped again for the Scenario Lab chat-card action cleanup, so browsers pick up the single `Inspect comparison` action on comparison-hub transcript cards.
 - The Scenario Lab dock is framed as a comparison-first review surface, separate from the Working Memory dock, with summary copy that keeps the comparison question, recommendation, durable hub, and related branch set legible on first read.
 - The `Reasoning Path` region is a staged clickable inspection rail rather than a raw console: Request, Route, Considered context, Recall, Working Memory, and Outcome. It sits in the later `Details` group so the main turn explanation still leads.
 - Each stage card now opens turn-scoped detail inside the same dock so the user can inspect concrete candidates, recalled items, and route details without jumping into the general library inspector.
@@ -77,3 +80,6 @@ Static shell for the Vantage web app.
 - The stylesheet and script tags both carry cache-busting query strings and should move whenever frontend semantics change, so the browser does not mix stale and fresh ES modules during active refinement passes.
 - The entrypoint intentionally bumps its module query string during hotfixes like Scenario Lab rendering fixes, because stale child-module caches can otherwise surface runtime errors even when the source tree is already corrected.
 - The entrypoint intentionally uses cache-busting query strings aggressively during active refinement passes because a stale module graph can otherwise look like a dead chat form even when the backend is healthy.
+- The stylesheet and module cache-busting query strings were bumped again for the user OpenAI-key pass, so browsers pick up the new provider-key dialog and masthead control together.
+- The stylesheet and module cache-busting query strings were bumped again for the local account-creation pass, so browsers pick up the auth-form mode toggle and confirmation field together.
+- The stylesheet and module cache-busting query strings were bumped again for the OpenAI-key warning pass, so browsers pick up the provider-key security reminder without stale modal markup.

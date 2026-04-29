@@ -20,12 +20,14 @@ LLM-based turn interpreter for Vantage V5. It decides whether a chat turn should
 - The model now also returns a `control_panel` object with action button presses, requested working-memory queries, and the intended response call after context assembly. This is additive for now, but it is the migration target for removing scattered deterministic intent classifiers.
 - The available control-panel actions include `apply_protocol`, which lets the Navigator choose reusable task guidance such as the Scenario Lab protocol before the response call.
 - Control-panel actions now include a nullable `protocol_kind` field. It should be `null` for non-protocol actions, and it is required for `apply_protocol` with one of `email`, `research_paper`, or `scenario_lab`.
+- Control-panel normalization now treats the model output as untrusted structured input: unsupported action types are dropped, `apply_protocol` actions must name a supported protocol kind, and non-protocol actions have `protocol_kind` reset to `null`.
 - Those instructions now explicitly frame workspace scenario metadata as transparent facts about the currently open whiteboard rather than a second hidden continuity system, so reopening a saved branch does not by itself force a fresh Scenario Lab rerun.
 - Those instructions now explicitly tell the model to treat `pending_workspace_update` as live drafting context, so a short acceptance or continuation turn can flip a previous whiteboard offer into `whiteboard_mode="draft"` instead of repeating the invitation or misclassifying the turn as ordinary chat.
 - The prompt also now tells the model that if the active whiteboard already contains a live draft and the user is revising that work, it should choose `whiteboard_mode="draft"` rather than reopening or reoffering the whiteboard.
 - The prompt now also tells the model how to use the small continuity frame: prefer the current whiteboard for clear active-draft continuation, but prefer `last_turn_referenced_record` over generic recent-whiteboard recency when the user refers back to a recently surfaced saved item.
 - The same interpretation pass can mark an explicitly pinned concept, memory, artifact, or reference note for continuity even when the follow-up is longer than the old short-message heuristic, so “let us keep playing with these rules in mind” can stay anchored to the pinned rules concept.
 - The response is parsed into a `NavigationDecision`.
+- The parsed decision is then stabilized for a few canonical product contracts that should not depend on one model phrasing: obvious work products invite whiteboard collaboration, explicit/pending/active whiteboard drafting resolves to draft mode, fresh/new whiteboard open phrasing still counts as explicit drafting, chat-only work products stay in chat, obvious email/research-paper work receives the matching protocol action, and any changed surface gets a matching stabilized rationale.
 - Invalid, missing, or unusable model output falls back to a chat decision instead of blocking the request.
 
 ## Key Classes / Functions
@@ -36,7 +38,7 @@ LLM-based turn interpreter for Vantage V5. It decides whether a chat turn should
 - `route_turn()`: main entry point for interpretation.
 - `_openai_route()`: builds the structured navigator request and parses the model response.
 - `_fallback_decision()`: returns a safe chat decision when routing cannot be completed.
-- `_normalize_whiteboard_mode_hint()`, `_normalize_preserve_pinned_context()`, `_normalize_reason()`, and `_normalize_control_panel()`: validate the semantic hint fields coming back from the model while keeping the legacy selected-record aliases tolerated at parse time.
+- `_normalize_whiteboard_mode_hint()`, `_normalize_preserve_pinned_context()`, `_normalize_reason()`, `_normalize_control_panel()`, and `_stabilize_decision()`: validate the semantic hint fields coming back from the model, keep legacy selected-record aliases tolerated at parse time, and enforce the narrow canonical whiteboard/protocol contracts.
 
 ## Notable Edge Cases
 
@@ -48,5 +50,6 @@ LLM-based turn interpreter for Vantage V5. It decides whether a chat turn should
 - The allowed route set is intentionally small so the rest of the system can dispatch deterministically after interpretation.
 - Whiteboard and continuity hints are advisory rather than authoritative until the server merges them with explicit UI choices and policy guardrails.
 - Whiteboard hints are also expected to distinguish between starting a fresh work product and continuing an already-visible draft in the current whiteboard.
+- The post-parse stabilizer is intentionally narrow; it does not try to infer arbitrary user intent, but it prevents clear email/research-paper/work-product and active-draft cases from drifting into unsupported plain-chat behavior.
 - Pinned saved-item context is strong enough to keep follow-up turns anchored to an existing scenario comparison or other active record when the request does not clearly ask for new branches, and the same conservative revisit bias applies when the current whiteboard is already a saved scenario branch. The public/client seam still exposes compatibility `selected_record*` aliases, but the navigator now speaks pinned context to the model.
 - The continuity frame stays intentionally small: the current implementation does not dump a long recent-whiteboard history into every navigator call, and it now prefers an explicit internal Memory Trace referenced-record fact for `last_turn_referenced_record` while still falling back to older preserved-context or unique-recall traces when needed.

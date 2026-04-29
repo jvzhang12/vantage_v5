@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  deriveAppliedWorkspaceDraftNote,
   deriveWhiteboardDecisionPresentation,
   isWhiteboardFocused,
   shouldHideChatWorkspaceUpdate,
@@ -81,6 +82,21 @@ test("draft-ready updates expose replace, append, and keep-current actions in th
   assert.deepEqual(
     presentation.actions.map((action) => action.id),
     ["apply_draft", "append_draft", "keep_current"],
+  );
+});
+
+test("applied draft status copy distinguishes opened drafts from in-place edits", () => {
+  assert.equal(
+    deriveAppliedWorkspaceDraftNote({ mode: "replace", forked: true }),
+    "Opened this draft in the whiteboard. Save when you're ready.",
+  );
+  assert.equal(
+    deriveAppliedWorkspaceDraftNote({ mode: "replace", forked: false }),
+    "Updated your draft with this turn's changes. Save when you're ready.",
+  );
+  assert.equal(
+    deriveAppliedWorkspaceDraftNote({ mode: "append", forked: true }),
+    "Updated your draft by appending this turn's changes. Save when you're ready.",
   );
 });
 

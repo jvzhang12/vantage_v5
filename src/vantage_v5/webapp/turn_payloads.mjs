@@ -5,6 +5,10 @@ import {
 
 const CANONICAL_CONTEXT_SOURCES = ["recall", "whiteboard", "recent_chat", "pending_whiteboard"];
 const CANONICAL_WORKSPACE_CONTEXT_SCOPES = ["auto", "excluded", "visible", "pinned", "requested"];
+const STAGE_LABEL_MAX_LENGTH = 72;
+const STAGE_MESSAGE_MAX_LENGTH = 180;
+const STAGE_AUDIT_MAX_LENGTH = 140;
+const HIDDEN_STAGE_TEXT_PATTERN = /\b(chain[-\s]?of[-\s]?thought|scratchpad|system\s+prompt|developer\s+message|raw\s+provider|stack\s+trace|traceback|json\s+schema|hidden\s+context|hidden\s+context\s+bodies?|openai|gpt[-_\s]?\d|o[1345](?:[-_\s]?(?:mini|preview|pro))?|model\s+(?:id|identifier|name)|provider\s+(?:request|response|payload|body))\b/i;
 const SCENARIO_SECTION_ALIASES = {
   thesis: "thesis",
   "shared context": "shared_context",
@@ -167,6 +171,9 @@ export function normalizeTurnPayload(payload) {
     semanticPolicy: normalizeSemanticPolicy(normalizedPayload.semantic_policy || normalizedPayload.semanticPolicy, semanticFrame),
     systemState: normalizeSystemState(normalizedPayload.system_state || normalizedPayload.systemState),
     activity: normalizeActivity(normalizedPayload.activity || normalizedPayload.activities || normalizedPayload.events),
+    turnStage: normalizeTurnStage(normalizedPayload.turn_stage || normalizedPayload.turnStage),
+    stageProgress: normalizeStageProgress(normalizedPayload.stage_progress || normalizedPayload.stageProgress),
+    stageAudit: normalizeStageAudit(normalizedPayload.stage_audit || normalizedPayload.stageAudit),
     workspaceUpdate: normalizeWorkspaceUpdate(normalizedPayload.workspace_update, normalizedPayload.workspace),
     workspaceContextScope: normalizeWorkspaceContextScope(normalizedPayload.workspace?.context_scope),
     pinnedContextId: normalizedPayload.pinned_context_id || normalizedPayload.pinnedContextId || normalizedPayload.selected_record_id || normalizedPayload.selectedRecordId || null,
@@ -274,6 +281,211 @@ export function normalizeActivity(activity) {
       createdAt: String(item.created_at || item.createdAt || item.timestamp || "").trim(),
     }))
     .filter((item) => item.label || item.message);
+}
+
+export function normalizeTurnStage(turnStage) {
+  if (turnStage === null || turnStage === undefined || turnStage === "") {
+    return null;
+  }
+  if (typeof turnStage === "string" || typeof turnStage === "number") {
+    const label = normalizeSafeStageDisplayText(turnStage, { maxLength: STAGE_LABEL_MAX_LENGTH });
+    return label ? { key: normalizeSemanticToken(label, "stage"), label, status: "", message: "" } : null;
+  }
+  if (!turnStage || typeof turnStage !== "object" || Array.isArray(turnStage)) {
+    return null;
+  }
+  const key = normalizeSafeStageToken(turnStage.key || turnStage.stage_id || turnStage.id || turnStage.name || turnStage.label || turnStage.contract || "", "");
+  const label = normalizeSafeStageDisplayText(
+    turnStage.label || turnStage.title || turnStage.name || turnStage.stage || turnStage.contract || turnStage.task_kind || turnStage.key,
+    { maxLength: STAGE_LABEL_MAX_LENGTH },
+  );
+  const status = normalizeSemanticToken(turnStage.status || turnStage.state || turnStage.phase || "", "");
+  const message = normalizeSafeStageDisplayText(
+    turnStage.message || turnStage.public_summary || turnStage.reason || turnStage.summary || turnStage.note || turnStage.detail || "",
+    { maxLength: STAGE_MESSAGE_MAX_LENGTH },
+  );
+  const progress = normalizeStageProgressValue(
+    turnStage.progress ?? turnStage.percent ?? turnStage.percentage,
+  );
+  if (!key && !label && !status && !message && progress === null) {
+    return null;
+  }
+  return {
+    key: key || normalizeSafeStageToken(label || status || "stage", "stage"),
+    label,
+    status,
+    message,
+    progress,
+  };
+}
+
+export function normalizeStageProgress(stageProgress) {
+  const source = normalizeStageCollectionSource(stageProgress);
+  return source
+    .map((item) => normalizeStageProgressItem(item))
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+export function normalizeStageAudit(stageAudit) {
+  if (!stageAudit || typeof stageAudit !== "object") {
+    return null;
+  }
+  const source = normalizeStageCollectionSource(stageAudit);
+  const items = source
+    .map((item) => normalizeStageAuditItem(item))
+    .filter(Boolean)
+    .slice(0, 8);
+  const summary = normalizeSafeStageDisplayText(
+    stageAudit.summary
+      || stageAudit.message
+      || stageAudit.note
+      || (Array.isArray(stageAudit.issues) ? stageAudit.issues.join("; ") : "")
+      || stageAudit.status
+      || "",
+    { maxLength: STAGE_AUDIT_MAX_LENGTH },
+  );
+  const rawStatus = stageAudit.status || stageAudit.state || "";
+  const status = normalizeSemanticToken(rawStatus, "");
+  const safeStatus = status && !isHiddenStageDisplayText(rawStatus) ? status : "";
+  if (!summary && !safeStatus && !items.length) {
+    return null;
+  }
+  return {
+    summary,
+    status: safeStatus,
+    items,
+  };
+}
+
+export function normalizeSafeStageDisplayText(value, { maxLength = STAGE_MESSAGE_MAX_LENGTH } = {}) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (!text || isHiddenStageDisplayText(text)) {
+    return "";
+  }
+  return clampDisplayText(text, maxLength);
+}
+
+function normalizeStageCollectionSource(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  if (Array.isArray(value.steps)) {
+    return value.steps;
+  }
+  if (Array.isArray(value.items)) {
+    return value.items;
+  }
+  if (Array.isArray(value.events)) {
+    return value.events;
+  }
+  if (Array.isArray(value.progress)) {
+    return value.progress;
+  }
+  return [value];
+}
+
+function normalizeStageProgressItem(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    const message = normalizeSafeStageDisplayText(item, { maxLength: STAGE_MESSAGE_MAX_LENGTH });
+    return message ? { key: normalizeSemanticToken(message, "stage"), label: "", status: "", message, progress: null, createdAt: "" } : null;
+  }
+  const rawLabel = item.label || item.title || item.name || item.stage || item.type || item.kind;
+  const rawMessage = item.message || item.summary || item.detail || item.note || item.reason || "";
+  const rawStatus = item.status || item.state || item.phase || "";
+  if (hasHiddenStageItemText(rawLabel, rawMessage, rawStatus)) {
+    return null;
+  }
+  const label = normalizeSafeStageDisplayText(
+    rawLabel,
+    { maxLength: STAGE_LABEL_MAX_LENGTH },
+  );
+  const message = normalizeSafeStageDisplayText(
+    rawMessage,
+    { maxLength: STAGE_MESSAGE_MAX_LENGTH },
+  );
+  const status = normalizeSemanticToken(rawStatus, "");
+  const safeStatus = status && !isHiddenStageDisplayText(rawStatus) ? status : "";
+  const progress = normalizeStageProgressValue(item.progress ?? item.percent ?? item.percentage);
+  if (!label && !message && !safeStatus && progress === null) {
+    return null;
+  }
+  return {
+    key: normalizeSafeStageToken(item.key || item.id || label || safeStatus || "stage", "stage"),
+    label,
+    status: safeStatus,
+    message,
+    progress,
+    createdAt: String(item.created_at || item.createdAt || item.timestamp || "").trim(),
+  };
+}
+
+function normalizeStageAuditItem(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    const message = normalizeSafeStageDisplayText(item, { maxLength: STAGE_AUDIT_MAX_LENGTH });
+    return message ? { label: "", message, status: "" } : null;
+  }
+  const rawLabel = item.label || item.title || item.name || item.check || item.type || item.kind;
+  const rawMessage = item.message || item.summary || item.detail || item.note || "";
+  const rawStatus = item.status || item.state || item.result || "";
+  if (hasHiddenStageItemText(rawLabel, rawMessage, rawStatus)) {
+    return null;
+  }
+  const label = normalizeSafeStageDisplayText(
+    rawLabel,
+    { maxLength: STAGE_LABEL_MAX_LENGTH },
+  );
+  const message = normalizeSafeStageDisplayText(
+    rawMessage,
+    { maxLength: STAGE_AUDIT_MAX_LENGTH },
+  );
+  const status = normalizeSemanticToken(rawStatus, "");
+  const safeStatus = status && !isHiddenStageDisplayText(rawStatus) ? status : "";
+  if (!label && !message && !safeStatus) {
+    return null;
+  }
+  return {
+    label,
+    message,
+    status: safeStatus,
+  };
+}
+
+function normalizeStageProgressValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  if (numeric <= 1 && numeric >= 0) {
+    return Math.round(numeric * 100);
+  }
+  return Math.max(0, Math.min(100, Math.round(numeric)));
+}
+
+function normalizeSafeStageToken(value, fallback = "") {
+  return isHiddenStageDisplayText(value) ? fallback : normalizeSemanticToken(value, fallback);
+}
+
+function isHiddenStageDisplayText(value) {
+  return HIDDEN_STAGE_TEXT_PATTERN.test(String(value || ""));
+}
+
+function hasHiddenStageItemText(...values) {
+  return values.some((value) => value !== null && value !== undefined && isHiddenStageDisplayText(value));
+}
+
+function clampDisplayText(text, maxLength) {
+  const normalizedMax = Number.isFinite(Number(maxLength)) ? Math.max(12, Number(maxLength)) : STAGE_MESSAGE_MAX_LENGTH;
+  if (text.length <= normalizedMax) {
+    return text;
+  }
+  return `${text.slice(0, normalizedMax - 3).trimEnd()}...`;
 }
 
 function normalizeProvidedResponseMode(responseMode, fallbackRecallCount) {

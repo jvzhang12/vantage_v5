@@ -6,7 +6,7 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 
 - Build the app from `AppConfig` and mount the frontend assets under `/static`.
 - Serve durable whiteboard state by default, switch to an active experiment session when one exists, and isolate durable/experiment state per authenticated user when multi-user profile mode is enabled.
-- Provide API endpoints for health, whiteboard/workspace CRUD, concepts, protocols, memory, vault notes, search, promotion/opening actions, experiments, and chat.
+- Provide API endpoints for health, account creation, login/logout, per-user OpenAI key status/save/clear, whiteboard/workspace CRUD, concepts, protocols, memory, vault notes, search, promotion/opening actions, experiments, and chat.
 - Delegate `/api/chat` context preparation to `ContextEngine` plus `ContextSupport`, source/continuity lookup to `ContextSourceResolver`, protocol action and API catalog/update semantics to `ProtocolEngine`, local semantic actions to `LocalSemanticActionEngine`, turn execution to `TurnOrchestrator`, whiteboard phrase routing to `WhiteboardRoutingEngine`, draft/artifact lifecycle work to `DraftArtifactLifecycle`, record-card presentation to `record_cards.py`, and turn payload construction/final compatibility shaping to `turn_payloads.py`.
 
 ## Key Classes / Models
@@ -19,6 +19,9 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - `ConceptOpenRequest`: request body for `/api/concepts/open`, with `record_id` as the generic alias for saved items.
 - `ExperimentStartRequest`: request body for `/api/experiment/start`.
 - `ProtocolUpdateRequest`: request body for `PUT /api/protocols/{protocol_kind}`, allowing protocol title, summary card, procedure body, variables, and applies-to phrases to be updated through the Inspect protocol editor.
+- `LoginRequest`: request body for cookie-backed username/password login.
+- `CreateAccountRequest`: request body for local account creation. Usernames are restricted to path-safe account names, passwords are written only as salted PBKDF2-SHA256 hashes under `state/accounts.json`, and successful creation signs the account into the same cookie-backed session path.
+- `OpenAIKeyRequest`: request body for saving a user-entered OpenAI API key. The server trims and stores the key only in memory for the current profile scope, and status responses expose only masked key metadata.
 
 ## Key Functions
 
@@ -34,6 +37,12 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 ## Routes
 
 - `GET /api/health`
+- `POST /api/accounts`
+- `POST /api/login`
+- `POST /api/logout`
+- `GET /api/openai-key`
+- `PUT /api/openai-key`
+- `DELETE /api/openai-key`
 - `POST /api/experiment/start`
 - `POST /api/experiment/end`
 - `GET /api/workspace`
@@ -71,7 +80,10 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 
 - Preserves the original single-user storage layout when no multi-user credential map is configured.
 - When `auth_users` is configured, Basic Auth usernames are normalized into safe storage ids and each user gets isolated Markdown-backed `concepts/`, `memories/`, `artifacts/`, `workspaces/`, `memory_trace/`, `state/`, and `traces/` directories under `users/<username>/`.
-- `/api/health` remains unauthenticated for uptime checks, but includes the current user only when a valid Basic Auth header is supplied.
+- `/api/health` remains unauthenticated for uptime checks, but includes the current user only when a valid Basic Auth header or login cookie is supplied. It also reports masked OpenAI key status, using the environment key for unauthenticated checks and the current user's in-memory override after login.
+- `/api/accounts` creates local username/password accounts when auth/profile mode is enabled. It rejects usernames that collide with configured auth users or existing local accounts, hashes passwords before writing `state/accounts.json`, seeds the new user's private storage root, and returns a login cookie so the user lands in their own durable session immediately.
+- `/api/openai-key` lets an authenticated profile inspect masked key status, save a session-local user key, or clear that key back to the environment/fallback setting. Full key material is never returned in API responses and is not written to the Markdown-backed user store.
+- Chat, Scenario Lab, Navigator, vetting, meta, and protocol interpreter services are now constructed from the effective key for the current durable scope, so a saved user key affects the model-backed request path without requiring a server restart.
 
 - Resolves a “runtime” object per request, choosing durable stores or experiment-session stores depending on whether an experiment is active.
 - When `VANTAGE_V5_AUTH_PASSWORD` is configured, protects the UI, static assets, and API routes with HTTP Basic Auth while leaving `/api/health` open for host health checks.
@@ -112,4 +124,4 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - `POST /api/workspace` now honors an explicit `workspace_id` and makes that workspace active after saving, which lets accepted drafts become new first-class whiteboards instead of implicitly rewriting the previous active workspace; when that save targets an existing Scenario Lab branch and the edited content omitted the metadata block, the existing branch metadata is preserved so the branch identity survives the save. The route also auto-saves an artifact snapshot for that whiteboard iteration and returns both the workspace payload and the saved artifact metadata, including `artifact_origin="whiteboard"` and `artifact_lifecycle="whiteboard_snapshot"`.
 - `/api/workspace/open` reopens an existing workspace branch by loading it from the active runtime store, switching the active workspace id to that branch, and returning the parsed stable scenario metadata from the workspace store; missing workspace ids now return a 404 instead of bubbling up as a generic server error.
 - `/api/concepts/promote` can promote either a saved workspace or an unsaved whiteboard draft buffer into an artifact. When `workspace_id` does not exist on disk yet but `content` is provided, the route now builds a transient `WorkspaceDocument` from that buffer instead of failing or implicitly saving a new workspace file first; when a saved workspace exists, it overlays the submitted content in memory before promotion rather than persisting the workspace as a side effect. Promoted payloads now carry `artifact_origin="whiteboard"` and `artifact_lifecycle="promoted_artifact"` so the UI can describe them truthfully without inferring promotion from the route alone.
-- `/api/concepts/open` accepts `record_id` as the generic saved-item alias, keeps `concept_id` for compatibility, and delegates the selected-item reopen flow to `DraftArtifactLifecycle`. Its `graph_action` now truthfully uses the generic `open_saved_item_into_workspace` label while still mirroring `concept_id` for older clients, and missing saved items are normalized into a clean 404.
+- `/api/concepts/open` accepts `record_id` as the generic saved-item alias, keeps `concept_id` for compatibility, and delegates the selected-item reopen flow to `DraftArtifactLifecycle`. Its `graph_action` now truthfully uses the generic `open_saved_item_into_workspace` label while still mirroring `concept_id` for older clients; missing saved items are normalized into a clean 404, and protocol records are rejected as 400s because protocols are guidance/editing objects rather than whiteboard drafts.

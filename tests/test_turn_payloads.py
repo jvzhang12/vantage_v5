@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Any
 
 from vantage_v5.services.navigator import NavigationDecision
+from vantage_v5.services.turn_staging import StageAuditResult
+from vantage_v5.services.turn_staging import StageProgressEvent
+from vantage_v5.services.turn_staging import TurnStage
 from vantage_v5.services.turn_payloads import assemble_local_turn_payload
 from vantage_v5.services.turn_payloads import assemble_scenario_lab_fallback_payload
 from vantage_v5.services.turn_payloads import assemble_service_turn_payload
@@ -354,6 +357,85 @@ def test_assemble_service_turn_payload_preserves_successful_turn_contract(tmp_pa
     assert payload["experiment"]["active"] is False
     assert payload["system_state"]["workspace"]["has_visible_content"] is True
     assert payload["activity"]["workspace_update_status"] == "draft_ready"
+
+
+def test_assemble_service_turn_payload_preserves_staging_payloads(tmp_path: Path) -> None:
+    payload = assemble_service_turn_payload(
+        ServiceTurnPayloadParts(
+            turn_body=ChatTurnBodyParts(
+                user_message="draft this",
+                assistant_message="I drafted this into the whiteboard.",
+                workspace_id="draft",
+                workspace_title="Draft",
+                workspace_content=None,
+                workspace_update={"status": "draft_ready"},
+                concept_cards=[],
+                trace_notes=[],
+                saved_notes=[],
+                vault_notes=[],
+                candidate_concepts=[],
+                candidate_trace_notes=[],
+                candidate_saved_notes=[],
+                candidate_vault_notes=[],
+                candidate_memory=[],
+                working_memory=[],
+                recall_details=[],
+                learned=[],
+                memory_trace_record=None,
+                response_mode={"recall_count": 0},
+                vetting={"selected_ids": []},
+                mode="chat",
+                meta_action=None,
+                graph_action=None,
+                created_record=None,
+                turn_stage=TurnStage(
+                    stage_id="draft",
+                    task_kind="whiteboard_draft",
+                    contract={"workspace_update_type": "draft_whiteboard", "schema": {"hidden": True}},
+                    max_attempts=0,
+                    reason="Prepare a whiteboard draft.",
+                ),
+                stage_progress=StageProgressEvent(
+                    event_id="draft",
+                    status="retrying",
+                    label="Repairing draft",
+                ),
+                stage_audit=StageAuditResult(
+                    accepted=False,
+                    status="retry",
+                    issues=("Draft whiteboard update needs draft content.",),
+                    retry_instruction="Return a draft_whiteboard workspace_update with title and content.",
+                ),
+            ),
+            pinned_context_id=None,
+            pinned_context=None,
+            turn_interpretation=None,
+            semantic_frame={"task_type": "draft"},
+            semantic_policy={"action_type": "none"},
+            workspace=_workspace(tmp_path, "# Draft\n\nCurrent content."),
+            runtime_scope="durable",
+            workspace_scope="visible",
+            transient_workspace=True,
+            experiment={"active": False, "session_id": None},
+        )
+    )
+
+    assert {
+        key: payload["turn_stage"][key]
+        for key in ("stage_id", "task_kind", "contract", "max_attempts", "reason")
+    } == {
+        "stage_id": "draft",
+        "task_kind": "whiteboard_draft",
+        "contract": {"workspace_update_type": "draft_whiteboard"},
+        "max_attempts": 1,
+        "reason": "Prepare a whiteboard draft.",
+    }
+    assert payload["turn_stage"]["label"] == "Whiteboard draft"
+    assert payload["stage_progress"]["id"] == "draft"
+    assert payload["stage_progress"]["status"] == "retrying"
+    assert payload["stage_progress"]["label"] == "Repairing draft"
+    assert payload["stage_audit"]["retryable"] is True
+    assert payload["stage_audit"]["retry_instruction"] == "Return a draft_whiteboard workspace_update with title and content."
 
 
 def test_assemble_chat_turn_body_preserves_chat_payload_aliases() -> None:

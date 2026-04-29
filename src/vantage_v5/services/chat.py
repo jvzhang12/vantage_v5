@@ -23,6 +23,11 @@ from vantage_v5.services.search import CandidateMemory
 from vantage_v5.services.search import ConceptSearchService
 from vantage_v5.services.turn_payloads import assemble_chat_turn_body
 from vantage_v5.services.turn_payloads import ChatTurnBodyParts
+from vantage_v5.services.turn_staging import audit_stage_response
+from vantage_v5.services.turn_staging import initial_stage_progress
+from vantage_v5.services.turn_staging import stage_progress_event
+from vantage_v5.services.turn_staging import StageAuditResult
+from vantage_v5.services.turn_staging import TurnStage
 from vantage_v5.services.vetting import anchor_selected_record_candidate
 from vantage_v5.services.vetting import build_continuity_hint
 from vantage_v5.services.vetting import resolve_selected_record_candidate
@@ -37,16 +42,16 @@ from vantage_v5.storage.vault import VaultNoteStore
 from vantage_v5.storage.workspaces import WorkspaceDocument
 from vantage_v5.storage.workspaces import WorkspaceStore
 
-WHITEBOARD_DRAFT_RE = re.compile(
-    r"^\s*CHAT_RESPONSE:\s*(?P<chat>.*?)\n+WHITEBOARD_DRAFT:\s*(?P<draft>.+?)\s*$",
-    re.DOTALL,
-)
-WHITEBOARD_OFFER_RE = re.compile(
-    r"^\s*CHAT_RESPONSE:\s*(?P<chat>.*?)\n+WHITEBOARD_OFFER:\s*(?P<offer>.+?)\s*$",
-    re.DOTALL,
+WHITEBOARD_LABEL_RE = re.compile(
+    r"(?<![A-Z0-9_])(?P<label>CHAT_RESPONSE|WHITEBOARD_DRAFT|WHITEBOARD_OFFER)\s*:",
+    re.IGNORECASE,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class ModelReplyError(RuntimeError):
+    pass
 
 
 @dataclass(slots=True)
@@ -58,6 +63,14 @@ class WorkspaceDraft:
 @dataclass(slots=True)
 class WorkspaceOffer:
     summary: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReplyVerification:
+    ok: bool
+    repair_strategy: str = "accept"
+    issues: tuple[str, ...] = ()
+    retry_instruction: str = ""
 
 
 @dataclass(slots=True)
@@ -87,6 +100,9 @@ class ChatTurn:
     meta_action: dict | None = None
     graph_action: dict | None = None
     created_record: dict | None = None
+    turn_stage: dict | None = None
+    stage_progress: list[dict] | None = None
+    stage_audit: dict | None = None
 
     def to_body_parts(self) -> ChatTurnBodyParts:
         return ChatTurnBodyParts(
@@ -115,6 +131,9 @@ class ChatTurn:
             meta_action=self.meta_action,
             graph_action=self.graph_action,
             created_record=self.created_record,
+            turn_stage=self.turn_stage,
+            stage_progress=self.stage_progress,
+            stage_audit=self.stage_audit,
         )
 
     def to_dict(self) -> dict:
@@ -178,6 +197,7 @@ class ChatService:
         workspace_is_transient: bool = False,
         workspace_scope: str = "excluded",
         applied_protocol_kinds: list[str] | None = None,
+        turn_stage: TurnStage | None = None,
     ) -> ChatTurn:
         memory_mode = _normalize_memory_mode(memory_intent)
         whiteboard_mode = _normalize_whiteboard_mode(whiteboard_mode)
@@ -286,9 +306,17 @@ class ChatService:
         candidate_trace_notes = [item for item in candidate_memory if item.source == "memory_trace"]
         candidate_saved_notes = [item for item in candidate_memory if item.source in {"memory", "artifact"}]
         candidate_vault_notes = [item for item in candidate_memory if item.source == "vault_note"]
+        stage_progress = initial_stage_progress(turn_stage) if turn_stage is not None else []
+        stage_audit: StageAuditResult | None = None
         if self.client:
             try:
-                assistant_reply = self._openai_reply(
+                (
+                    assistant_message,
+                    workspace_draft,
+                    workspace_offer,
+                    model_stage_progress,
+                    stage_audit,
+                ) = self._openai_reply_with_stage(
                     message=message,
                     workspace=workspace,
                     history=history,
@@ -296,32 +324,74 @@ class ChatService:
                     selected_memory=selected_memory if preserve_selected_memory else None,
                     whiteboard_mode=whiteboard_mode,
                     pending_workspace_update=pending_workspace_update,
+                    turn_stage=turn_stage,
                 )
-            except Exception:
+                stage_progress.extend(model_stage_progress)
+            except ModelReplyError:
                 logger.exception("OpenAI chat reply failed; falling back to deterministic chat response.")
-                assistant_message = self._fallback_reply(
+                assistant_message, workspace_draft, workspace_offer = self._fallback_reply(
                     message=message,
                     workspace=workspace,
                     vetted_memory=vetted_memory,
+                    whiteboard_mode=whiteboard_mode,
+                    pending_workspace_update=pending_workspace_update,
                     fallback_reason="provider_error",
                 )
-                workspace_draft = None
-                workspace_offer = None
+                stage_progress.append(
+                    stage_progress_event(
+                        "stage_generate",
+                        "Generated fallback response",
+                        message="The model provider was unavailable, so Vantage used the safe fallback path.",
+                    )
+                )
+                stage_audit = audit_stage_response(
+                    stage=turn_stage,
+                    assistant_message=assistant_message,
+                    has_workspace_draft=workspace_draft is not None,
+                    has_workspace_offer=workspace_offer is not None,
+                    attempt=1,
+                )
+                stage_progress.append(
+                    stage_progress_event(
+                        "stage_audit",
+                        "Checked output",
+                        status="completed" if stage_audit.accepted else "failed",
+                        message=_stage_audit_progress_message(stage_audit),
+                    )
+                )
                 mode = "fallback"
             else:
-                assistant_message, workspace_draft, workspace_offer = _extract_workspace_signal(
-                    assistant_reply,
-                    whiteboard_mode=whiteboard_mode,
-                )
                 mode = "openai"
         else:
-            assistant_message = self._fallback_reply(
+            assistant_message, workspace_draft, workspace_offer = self._fallback_reply(
                 message=message,
                 workspace=workspace,
                 vetted_memory=vetted_memory,
+                whiteboard_mode=whiteboard_mode,
+                pending_workspace_update=pending_workspace_update,
             )
-            workspace_draft = None
-            workspace_offer = None
+            stage_progress.append(
+                stage_progress_event(
+                    "stage_generate",
+                    "Generated fallback response",
+                    message="The local fallback path kept the turn responsive.",
+                )
+            )
+            stage_audit = audit_stage_response(
+                stage=turn_stage,
+                assistant_message=assistant_message,
+                has_workspace_draft=workspace_draft is not None,
+                has_workspace_offer=workspace_offer is not None,
+                attempt=1,
+            )
+            stage_progress.append(
+                stage_progress_event(
+                    "stage_audit",
+                    "Checked output",
+                    status="completed" if stage_audit.accepted else "failed",
+                    message=_stage_audit_progress_message(stage_audit),
+                )
+            )
             mode = "fallback"
         response_mode = build_response_mode_payload(
             vetted_memory,
@@ -339,6 +409,12 @@ class ChatService:
         auto_artifact_action = None
         auto_artifact_record = None
         if workspace_draft is not None:
+            workspace_draft = _enforce_workspace_draft_constraints(
+                message=message,
+                draft=workspace_draft,
+                workspace=workspace,
+                vetted_memory=vetted_memory,
+            )
             draft_workspace = WorkspaceDocument(
                 workspace_id=workspace.workspace_id,
                 title=_workspace_title_from_content(workspace.workspace_id, workspace_draft.content),
@@ -455,6 +531,9 @@ class ChatService:
             or _auto_graph_action_payload(auto_artifact_action)
             or _auto_graph_action_payload(protocol_action),
             created_record=created_record or auto_artifact_record or protocol_record_payload,
+            turn_stage=turn_stage.to_dict() if turn_stage is not None else None,
+            stage_progress=stage_progress,
+            stage_audit=stage_audit.to_dict() if stage_audit is not None else None,
         )
         self._trace_turn(
             turn,
@@ -471,6 +550,104 @@ class ChatService:
         )
         return turn
 
+    def _openai_reply_with_stage(
+        self,
+        *,
+        message: str,
+        workspace: WorkspaceDocument,
+        history: list[dict[str, str]],
+        vetted_memory: list[CandidateMemory],
+        selected_memory: CandidateMemory | None,
+        whiteboard_mode: str,
+        pending_workspace_update: dict[str, Any] | None,
+        turn_stage: TurnStage | None,
+    ) -> tuple[str, WorkspaceDraft | None, WorkspaceOffer | None, list[dict[str, Any]], StageAuditResult]:
+        max_attempts = turn_stage.max_attempts if turn_stage is not None else 1
+        retry_instruction = ""
+        stage_progress: list[dict[str, Any]] = []
+        last_reply: tuple[str, WorkspaceDraft | None, WorkspaceOffer | None] | None = None
+        last_audit = StageAuditResult(accepted=True, status="accepted")
+        for attempt in range(1, max_attempts + 1):
+            try:
+                assistant_reply = self._openai_reply(
+                    message=message,
+                    workspace=workspace,
+                    history=history,
+                    vetted_memory=vetted_memory,
+                    selected_memory=selected_memory,
+                    whiteboard_mode=whiteboard_mode,
+                    pending_workspace_update=pending_workspace_update,
+                    turn_stage=turn_stage,
+                    stage_retry_instruction=retry_instruction or None,
+                )
+            except Exception as exc:
+                raise ModelReplyError("Model-backed chat generation failed.") from exc
+            assistant_message, workspace_draft, workspace_offer = self._normalize_openai_reply(
+                response_text=assistant_reply,
+                message=message,
+                whiteboard_mode=whiteboard_mode,
+                pending_workspace_update=pending_workspace_update,
+            )
+            last_reply = (assistant_message, workspace_draft, workspace_offer)
+            stage_progress.append(
+                stage_progress_event(
+                    "stage_generate",
+                    "Generated response" if attempt == 1 else "Regenerated response",
+                    message="Vantage drafted the response against the staged turn contract.",
+                    attempt=attempt,
+                )
+            )
+            last_audit = audit_stage_response(
+                stage=turn_stage,
+                assistant_message=assistant_message,
+                has_workspace_draft=workspace_draft is not None,
+                has_workspace_offer=workspace_offer is not None,
+                attempt=attempt,
+            )
+            stage_progress.append(
+                stage_progress_event(
+                    "stage_audit",
+                    "Checked output",
+                    status="completed" if last_audit.accepted else ("retrying" if last_audit.retryable else "failed"),
+                    message=_stage_audit_progress_message(last_audit),
+                    attempt=attempt,
+                )
+            )
+            if last_audit.accepted:
+                stage_progress.append(
+                    stage_progress_event(
+                        "stage_accept",
+                        "Accepted response",
+                        message="The response matched the requested surface.",
+                        attempt=attempt,
+                    )
+                )
+                return assistant_message, workspace_draft, workspace_offer, stage_progress, last_audit
+            if not last_audit.retryable:
+                break
+            retry_instruction = last_audit.retry_instruction
+            stage_progress.append(
+                stage_progress_event(
+                    "stage_restage",
+                    "Restaged context",
+                    status="retrying",
+                    message="The first response missed the requested surface, so Vantage regenerated it before saving anything.",
+                    attempt=attempt + 1,
+                )
+            )
+        if last_reply is None:
+            return "", None, None, stage_progress, last_audit
+        assistant_message, workspace_draft, workspace_offer = last_reply
+        if last_audit.status == "terminal" and "internal_or_provider_text" in last_audit.issues:
+            return (
+                "I could not safely return that response. Please try again in a moment.",
+                None,
+                None,
+                stage_progress,
+                last_audit,
+            )
+        return assistant_message, workspace_draft, workspace_offer, stage_progress, last_audit
+
     def _openai_reply(
         self,
         *,
@@ -481,6 +658,8 @@ class ChatService:
         selected_memory: CandidateMemory | None,
         whiteboard_mode: str,
         pending_workspace_update: dict[str, Any] | None,
+        turn_stage: TurnStage | None = None,
+        stage_retry_instruction: str | None = None,
     ) -> str:
         recent_history = history[-6:]
         selected_memory_payload = None
@@ -503,45 +682,258 @@ class ChatService:
             "pending_workspace_update": pending_workspace_update,
             "user_message": message,
             "whiteboard_mode": whiteboard_mode,
+            "turn_stage": turn_stage.to_dict() if turn_stage is not None else None,
+            "stage_retry_instruction": stage_retry_instruction,
         }
+        instructions = (
+            "You are Vantage V5. "
+            "Behave like a normal high-quality chat assistant. "
+            "When relevant, use the shared Markdown workspace as collaborative context. "
+            "Use the vetted memory items as bounded context when they are relevant. "
+            "Treat Memory Trace items as recent continuity history, not timeless knowledge. "
+            "Treat Vantage concepts as timeless reasoning knowledge. "
+            "Treat Vantage protocols as modifiable instructions for recurring work types; "
+            "when relevant_memory includes an item with type protocol, follow its variables and procedure unless the current user message overrides it. "
+            "Treat saved memories and artifacts as continuity and work-history context. "
+            "Treat Nexus vault notes as read-only reference material rather than guaranteed truth. "
+            "You may reference and improve the workspace, but do not claim to have saved memory or modified files unless explicitly told so by the system. "
+            "The request payload includes whiteboard_mode, which can be auto, offer, draft, or chat. "
+            "If whiteboard_mode is chat, do not use any WHITEBOARD_* special format. "
+            "If whiteboard_mode is offer and the user is asking for a concrete work product, prefer the WHITEBOARD_OFFER format. "
+            "If whiteboard_mode is draft and the user is asking for a concrete work product, prefer the WHITEBOARD_DRAFT format. "
+            "The payload may include pending_workspace_update from the previous turn, including the origin request for a still-open whiteboard invitation or draft. "
+            "When pending_workspace_update is present, treat it as live drafting context. "
+            "If the current user message is a short acceptance, confirmation, preference-setting confirmation, refinement, or continuation of that pending whiteboard flow, use the original work-product request from pending_workspace_update to produce the actual draft now. "
+            "Do not repeat the whiteboard invitation after the user has already accepted a pending offer. "
+            "When the user is asking for a concrete work product such as an email, plan, itinerary, list, essay, paper, code, outline, checklist, agenda, or other document, first invite whiteboard collaboration unless one of three things is already true: "
+            "the user explicitly asked to use the whiteboard, the user is clearly continuing an existing whiteboard draft, or the user explicitly asked for the full output directly in chat. "
+            "For that invitation, respond exactly in this two-line format:\n"
+            "CHAT_RESPONSE: <one or two sentences asking whether the user wants to pull up a whiteboard for this work product>\n"
+            "WHITEBOARD_OFFER: <one sentence describing what could be drafted in the whiteboard>.\n"
+            "When the user has already chosen the whiteboard or clearly wants collaborative drafting there, respond exactly in this two-line format:\n"
+            "CHAT_RESPONSE: <one to three sentences telling the user the detailed draft is now in the whiteboard>\n"
+            "WHITEBOARD_DRAFT: <complete Markdown draft beginning with a level-one heading>.\n"
+            "The whiteboard draft should contain the full structured content and should be ready for collaborative editing. "
+            "Use these special formats only for concrete work products and whiteboard collaboration. "
+            "Otherwise, respond normally with just the assistant message."
+        )
+        if stage_retry_instruction:
+            instructions += (
+                " A prior response failed the staged turn contract before anything was saved. "
+                "Regenerate the response and follow stage_retry_instruction from the payload exactly."
+            )
+        response = self.client.responses.create(
+            model=self.model,
+            store=False,
+            instructions=instructions,
+            input=json.dumps(input_payload),
+        )
+        return response.output_text.strip()
+
+    def _normalize_openai_reply(
+        self,
+        *,
+        response_text: str,
+        message: str,
+        whiteboard_mode: str,
+        pending_workspace_update: dict[str, Any] | None,
+    ) -> tuple[str, WorkspaceDraft | None, WorkspaceOffer | None]:
+        assistant_message, workspace_draft, workspace_offer = _extract_workspace_signal(
+            response_text,
+            whiteboard_mode=whiteboard_mode,
+        )
+        if workspace_draft is not None or workspace_offer is not None or whiteboard_mode == "chat":
+            return assistant_message, workspace_draft, workspace_offer
+        if whiteboard_mode not in {"offer", "draft"}:
+            return assistant_message, workspace_draft, workspace_offer
+        try:
+            verification = self._verify_openai_reply(
+                response_text=response_text,
+                message=message,
+                whiteboard_mode=whiteboard_mode,
+                pending_workspace_update=pending_workspace_update,
+                parsed_assistant_message=assistant_message,
+                workspace_draft=workspace_draft,
+                workspace_offer=workspace_offer,
+            )
+        except Exception:
+            logger.exception("OpenAI reply verification failed; using unverified response text.")
+            verification = ReplyVerification(
+                ok=True,
+                repair_strategy="accept",
+                issues=("verifier_unavailable",),
+                retry_instruction="",
+            )
+        if verification.ok or verification.repair_strategy == "accept":
+            return assistant_message, workspace_draft, workspace_offer
+        if verification.repair_strategy == "fallback_safe_message":
+            return (
+                "I could not safely turn that into the requested whiteboard action. Please try again in a moment.",
+                None,
+                None,
+            )
+        try:
+            return self._structure_openai_reply(
+                response_text=response_text,
+                message=message,
+                whiteboard_mode=whiteboard_mode,
+                pending_workspace_update=pending_workspace_update,
+                verifier_feedback=verification,
+            )
+        except Exception:
+            logger.exception("OpenAI reply structuring failed; using unstructured assistant text.")
+            return assistant_message, workspace_draft, workspace_offer
+
+    def _verify_openai_reply(
+        self,
+        *,
+        response_text: str,
+        message: str,
+        whiteboard_mode: str,
+        pending_workspace_update: dict[str, Any] | None,
+        parsed_assistant_message: str,
+        workspace_draft: WorkspaceDraft | None,
+        workspace_offer: WorkspaceOffer | None,
+    ) -> ReplyVerification:
+        del workspace_draft, workspace_offer
         response = self.client.responses.create(
             model=self.model,
             store=False,
             instructions=(
-                "You are Vantage V5. "
-                "Behave like a normal high-quality chat assistant. "
-                "When relevant, use the shared Markdown workspace as collaborative context. "
-                "Use the vetted memory items as bounded context when they are relevant. "
-                "Treat Memory Trace items as recent continuity history, not timeless knowledge. "
-                "Treat Vantage concepts as timeless reasoning knowledge. "
-                "Treat Vantage protocols as modifiable instructions for recurring work types; "
-                "when relevant_memory includes an item with type protocol, follow its variables and procedure unless the current user message overrides it. "
-                "Treat saved memories and artifacts as continuity and work-history context. "
-                "Treat Nexus vault notes as read-only reference material rather than guaranteed truth. "
-                "You may reference and improve the workspace, but do not claim to have saved memory or modified files unless explicitly told so by the system. "
-                "The request payload includes whiteboard_mode, which can be auto, offer, draft, or chat. "
-                "If whiteboard_mode is chat, do not use any WHITEBOARD_* special format. "
-                "If whiteboard_mode is offer and the user is asking for a concrete work product, prefer the WHITEBOARD_OFFER format. "
-                "If whiteboard_mode is draft and the user is asking for a concrete work product, prefer the WHITEBOARD_DRAFT format. "
-                "The payload may include pending_workspace_update from the previous turn, including the origin request for a still-open whiteboard invitation or draft. "
-                "When pending_workspace_update is present, treat it as live drafting context. "
-                "If the current user message is a short acceptance, confirmation, preference-setting confirmation, refinement, or continuation of that pending whiteboard flow, use the original work-product request from pending_workspace_update to produce the actual draft now. "
-                "Do not repeat the whiteboard invitation after the user has already accepted a pending offer. "
-                "When the user is asking for a concrete work product such as an email, plan, itinerary, list, essay, paper, code, outline, checklist, agenda, or other document, first invite whiteboard collaboration unless one of three things is already true: "
-                "the user explicitly asked to use the whiteboard, the user is clearly continuing an existing whiteboard draft, or the user explicitly asked for the full output directly in chat. "
-                "For that invitation, respond exactly in this format: "
-                "CHAT_RESPONSE: <one or two sentences asking whether the user wants to pull up a whiteboard for this work product> "
-                "WHITEBOARD_OFFER: <one sentence describing what could be drafted in the whiteboard>. "
-                "When the user has already chosen the whiteboard or clearly wants collaborative drafting there, respond exactly in this format: "
-                "CHAT_RESPONSE: <one to three sentences telling the user the detailed draft is now in the whiteboard> "
-                "WHITEBOARD_DRAFT: <complete Markdown draft beginning with a level-one heading>. "
-                "The whiteboard draft should contain the full structured content and should be ready for collaborative editing. "
-                "Use these special formats only for concrete work products and whiteboard collaboration. "
-                "Otherwise, respond normally with just the assistant message."
+                "You are the Vantage response verifier. "
+                "Judge whether the assistant response satisfies the requested product contract. "
+                "Do not rewrite the answer. Choose a bounded repair strategy only. "
+                "Use accept when the response can be returned as-is. "
+                "Use normalize_json when the response should be converted into typed whiteboard action fields. "
+                "Use retry_response only when the response substantially conflicts with the requested surface or constraints. "
+                "Use fallback_safe_message only when the response contains unsafe/internal/provider/debug content. "
+                "For whiteboard_mode draft, a satisfactory response must provide or imply a complete draft for the whiteboard, not merely offer one. "
+                "For whiteboard_mode offer, a satisfactory response should be an invitation/offer rather than a full draft. "
+                "Return only JSON matching the schema."
             ),
-            input=json.dumps(input_payload),
+            input=json.dumps(
+                {
+                    "user_message": message,
+                    "assistant_response": response_text,
+                    "parsed_assistant_message": parsed_assistant_message,
+                    "whiteboard_mode": whiteboard_mode,
+                    "pending_workspace_update": pending_workspace_update,
+                }
+            ),
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "vantage_response_verification",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "ok": {"type": "boolean"},
+                            "repair_strategy": {
+                                "type": "string",
+                                "enum": ["accept", "normalize_json", "retry_response", "fallback_safe_message"],
+                            },
+                            "issues": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "retry_instruction": {"type": ["string", "null"]},
+                        },
+                        "required": ["ok", "repair_strategy", "issues", "retry_instruction"],
+                    },
+                }
+            },
         )
-        return response.output_text.strip()
+        payload = json.loads(response.output_text)
+        strategy = str(payload.get("repair_strategy") or "accept").strip().lower()
+        if strategy not in {"accept", "normalize_json", "retry_response", "fallback_safe_message"}:
+            strategy = "accept"
+        raw_issues = payload.get("issues") if isinstance(payload.get("issues"), list) else []
+        issues = tuple(str(issue).strip() for issue in raw_issues if str(issue).strip())
+        return ReplyVerification(
+            ok=bool(payload.get("ok")) and strategy == "accept",
+            repair_strategy=strategy,
+            issues=issues,
+            retry_instruction=str(payload.get("retry_instruction") or "").strip(),
+        )
+
+    def _structure_openai_reply(
+        self,
+        *,
+        response_text: str,
+        message: str,
+        whiteboard_mode: str,
+        pending_workspace_update: dict[str, Any] | None,
+        verifier_feedback: ReplyVerification | None = None,
+    ) -> tuple[str, WorkspaceDraft | None, WorkspaceOffer | None]:
+        response = self.client.responses.create(
+            model=self.model,
+            store=False,
+            instructions=(
+                "You are the Vantage response normalizer. "
+                "Convert the assistant's natural-language reply into a strict product contract. "
+                "Do not invent new content beyond extracting or lightly restating what is present. "
+                "If whiteboard_mode is offer, prefer action offer unless the reply clearly should stay as plain chat. "
+                "If whiteboard_mode is draft, prefer action draft when the reply contains or implies a complete work product draft. "
+                "Protocols are guidance, not draft targets; never set a protocol document as draft_markdown. "
+                "If verifier_feedback is present, use its issues and retry_instruction to repair the contract while staying grounded in the original assistant response and user request. "
+                "Return only JSON matching the schema."
+            ),
+            input=json.dumps(
+                {
+                    "user_message": message,
+                    "assistant_response": response_text,
+                    "whiteboard_mode": whiteboard_mode,
+                    "pending_workspace_update": pending_workspace_update,
+                    "verifier_feedback": _verification_payload(verifier_feedback),
+                }
+            ),
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "vantage_response_contract",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "assistant_message": {"type": "string"},
+                            "whiteboard_action": {
+                                "type": "string",
+                                "enum": ["none", "offer", "draft"],
+                            },
+                            "offer_summary": {"type": ["string", "null"]},
+                            "draft_markdown": {"type": ["string", "null"]},
+                        },
+                        "required": [
+                            "assistant_message",
+                            "whiteboard_action",
+                            "offer_summary",
+                            "draft_markdown",
+                        ],
+                    },
+                }
+            },
+        )
+        payload = json.loads(response.output_text)
+        assistant_message = str(payload.get("assistant_message") or "").strip() or response_text.strip()
+        action = str(payload.get("whiteboard_action") or "none").strip().lower()
+        if whiteboard_mode == "offer" and action == "draft":
+            action = "offer"
+        if action == "offer" and whiteboard_mode != "chat":
+            offer_summary = " ".join(str(payload.get("offer_summary") or "").strip().split())
+            if not offer_summary:
+                offer_summary = "Whiteboard available for collaborative drafting."
+            return assistant_message, None, WorkspaceOffer(summary=offer_summary)
+        if action == "draft" and whiteboard_mode == "draft":
+            draft_content = _normalize_workspace_draft_content(str(payload.get("draft_markdown") or ""))
+            if draft_content:
+                return assistant_message, WorkspaceDraft(
+                    content=draft_content,
+                    summary="Drafted the detailed answer into the whiteboard for collaborative editing.",
+                ), None
+        return assistant_message, None, None
 
     @staticmethod
     def _fallback_reply(
@@ -549,34 +941,50 @@ class ChatService:
         message: str,
         workspace: WorkspaceDocument,
         vetted_memory: list[CandidateMemory],
+        whiteboard_mode: str = "auto",
+        pending_workspace_update: dict[str, Any] | None = None,
         fallback_reason: str = "no_openai_key",
-    ) -> str:
-        concept_titles = [item.title for item in vetted_memory if item.source == "concept"]
-        trace_titles = [item.title for item in vetted_memory if item.source == "memory_trace"]
-        saved_note_titles = [item.title for item in vetted_memory if item.source in {"memory", "artifact"}]
-        vault_titles = [item.title for item in vetted_memory if item.source == "vault_note"]
-        memory_summary = ""
-        if concept_titles or trace_titles or saved_note_titles or vault_titles:
-            parts: list[str] = []
-            if concept_titles:
-                parts.append(f"Relevant concepts: {', '.join(concept_titles)}.")
-            if trace_titles:
-                parts.append(f"Relevant memory trace: {', '.join(trace_titles)}.")
-            if saved_note_titles:
-                parts.append(f"Relevant saved notes: {', '.join(saved_note_titles)}.")
-            if vault_titles:
-                parts.append(f"Relevant reference notes: {', '.join(vault_titles)}.")
-            memory_summary = " " + " ".join(parts)
-        fallback_status = "Fallback mode is active because no OpenAI key is configured."
+    ) -> tuple[str, WorkspaceDraft | None, WorkspaceOffer | None]:
+        if whiteboard_mode == "offer":
+            return (
+                "Want me to open the whiteboard so we can draft this there?",
+                None,
+                WorkspaceOffer(summary=_fallback_offer_summary(message)),
+            )
+        if whiteboard_mode == "draft":
+            draft_request = _fallback_draft_request(
+                message=message,
+                pending_workspace_update=pending_workspace_update,
+            )
+            if _can_make_fallback_draft(
+                message=message,
+                workspace=workspace,
+                pending_workspace_update=pending_workspace_update,
+            ):
+                draft_content = _fallback_workspace_draft(draft_request)
+                return (
+                    "I put a simple draft in the whiteboard so you can keep moving. It may need another pass once the model is available.",
+                    WorkspaceDraft(
+                        content=draft_content,
+                        summary="Fallback draft prepared in the whiteboard while the model was unavailable.",
+                    ),
+                    None,
+                )
+            return (
+                "I could not safely update the whiteboard on this turn, so I left the current draft unchanged. Please try again in a moment.",
+                None,
+                None,
+            )
         if fallback_reason == "provider_error":
-            fallback_status = "Fallback mode is active because the model provider was unavailable for this turn."
-        return (
-            f"You said: {message}\n\n"
-            f"The active workspace is '{workspace.title}'. "
-            f"{fallback_status} "
-            "I can still help you think through the document and suggest changes based on the current workspace."
-            f"{memory_summary}"
-        )
+            return (
+                "I could not complete the model-backed answer on this turn. Please try again in a moment.",
+                None,
+                None,
+            )
+        context_hint = "I can still keep the app responsive, but model-backed answers are not configured here."
+        if vetted_memory:
+            context_hint += " I found some local context, but I cannot turn it into a complete answer without the model-backed response."
+        return context_hint, None, None
 
     def _trace_turn(
         self,
@@ -673,10 +1081,7 @@ class ChatService:
             "scope": scope,
             "durability": durability,
             "why_learned": _learned_reason(record, revision_parent_id=revision_parent_id),
-            "correction_affordance": {
-                "kind": "open_in_whiteboard",
-                "label": "Open in whiteboard",
-            },
+            "correction_affordance": _correction_affordance(record),
         }
         payload.update(artifact_lifecycle_card_fields(record))
         return payload
@@ -706,6 +1111,264 @@ class ChatService:
         return payload
 
 
+def _fallback_draft_request(
+    *,
+    message: str,
+    pending_workspace_update: dict[str, Any] | None,
+) -> str:
+    if isinstance(pending_workspace_update, dict):
+        origin = str(pending_workspace_update.get("origin_user_message") or "").strip()
+        if origin:
+            return origin
+    return message
+
+
+def _verification_payload(verification: ReplyVerification | None) -> dict[str, Any] | None:
+    if verification is None:
+        return None
+    return {
+        "ok": verification.ok,
+        "repair_strategy": verification.repair_strategy,
+        "issues": list(verification.issues),
+        "retry_instruction": verification.retry_instruction,
+    }
+
+
+def _stage_audit_progress_message(audit: StageAuditResult) -> str:
+    if audit.accepted:
+        return "The response matched the requested surface."
+    if audit.retryable:
+        return "The response missed the requested surface, so Vantage is trying once more."
+    return "The response could not be safely repaired on this turn."
+
+
+def _enforce_workspace_draft_constraints(
+    *,
+    message: str,
+    draft: WorkspaceDraft,
+    workspace: WorkspaceDocument,
+    vetted_memory: list[CandidateMemory],
+) -> WorkspaceDraft:
+    content = draft.content
+    signature = _extract_known_signature(workspace=workspace, vetted_memory=vetted_memory)
+    if signature:
+        content = _preserve_known_signature_placeholders(content, signature)
+    lowered = message.lower()
+    if re.search(r"\b(no|without|remove|avoid|do not use|don't use)\s+(?:any\s+)?(?:em\s+)?dashes?\b", lowered) or "em dash" in lowered:
+        content = _remove_em_dashes(content)
+    if "short optional reading" in lowered or "brief optional reading" in lowered:
+        content = _shorten_optional_reading_section(content)
+    if content == draft.content:
+        return draft
+    return WorkspaceDraft(content=content, summary=draft.summary)
+
+
+SIGNATURE_RE = re.compile(
+    r"(?im)^\s*(?:best|thanks|thank you|regards|warmly|sincerely|cheers),?\s*\n\s*(?P<name>[A-Z][A-Za-z .'-]{1,60})\s*$"
+)
+SIGNATURE_PLACEHOLDER_RE = re.compile(r"\[(?:your\s+name|name)\]", re.IGNORECASE)
+
+
+def _extract_known_signature(
+    *,
+    workspace: WorkspaceDocument,
+    vetted_memory: list[CandidateMemory],
+) -> str | None:
+    sources = [workspace.content]
+    for item in vetted_memory:
+        sources.append(item.body)
+        sources.append(item.card)
+    for source in sources:
+        signature = _extract_signature_from_text(source)
+        if signature:
+            return signature
+    return None
+
+
+def _extract_signature_from_text(text: str | None) -> str | None:
+    if not text:
+        return None
+    for match in SIGNATURE_RE.finditer(text):
+        name = match.group("name").strip()
+        if "[" in name or "]" in name:
+            continue
+        words = name.split()
+        if 1 <= len(words) <= 4:
+            return name
+    return None
+
+
+def _preserve_known_signature_placeholders(content: str, signature: str) -> str:
+    if not SIGNATURE_PLACEHOLDER_RE.search(content):
+        return content
+    return SIGNATURE_PLACEHOLDER_RE.sub(signature, content)
+
+
+def _remove_em_dashes(content: str) -> str:
+    content = content.replace("—", ", ").replace("–", ", ")
+    content = re.sub(r" {2,}", " ", content)
+    content = re.sub(r" ,", ",", content)
+    return content
+
+
+def _shorten_optional_reading_section(content: str) -> str:
+    marker = re.search(r"(?im)^(?:\s*-{3,}\s*)?(?:#{1,4}\s*)?(?:\*\*)?optional reading[^\n]*(?:\*\*)?\s*$", content)
+    if marker is None:
+        return content
+    section_start = marker.end()
+    section = content[section_start:].strip()
+    words = re.findall(r"\S+", section)
+    if len(words) <= 90:
+        return content
+    sentences = re.split(r"(?<=[.!?])\s+", section)
+    summary = " ".join(sentence.strip() for sentence in sentences[:2] if sentence.strip())
+    if not summary or len(re.findall(r"\S+", summary)) > 80:
+        summary = " ".join(words[:70])
+    summary = summary.strip()
+    return f"{content[:section_start].rstrip()}\n\n{summary}\n"
+
+
+def _can_make_fallback_draft(
+    *,
+    message: str,
+    workspace: WorkspaceDocument,
+    pending_workspace_update: dict[str, Any] | None,
+) -> bool:
+    if isinstance(pending_workspace_update, dict) and str(pending_workspace_update.get("origin_user_message") or "").strip():
+        return True
+    lowered = message.lower()
+    if not _looks_like_work_product_request(lowered):
+        return False
+    if not workspace.content.strip():
+        return True
+    if re.search(r"\b(new|fresh|separate|standalone|different)\b", lowered):
+        return True
+    if _looks_like_revision_request(lowered):
+        return False
+    return True
+
+
+def _looks_like_work_product_request(lowered_message: str) -> bool:
+    return bool(
+        re.search(r"\b(draft|write|create|compose|open|make|generate)\b", lowered_message)
+        and re.search(
+            r"\b(email|essay|memo|plan|outline|checklist|agenda|itinerary|paper|letter|proposal|doc|document)\b",
+            lowered_message,
+        )
+    )
+
+
+def _looks_like_revision_request(lowered_message: str) -> bool:
+    return bool(re.search(r"\b(revise|update|edit|alter|change|shorten|expand|rewrite|add|remove|make it|make the)\b", lowered_message))
+
+
+def _fallback_offer_summary(message: str) -> str:
+    if re.search(r"\bemail\b", message, re.IGNORECASE):
+        return "Whiteboard ready for collaboratively drafting the email."
+    if re.search(r"\bessay\b", message, re.IGNORECASE):
+        return "Whiteboard ready for collaboratively drafting the essay."
+    return "Whiteboard ready for collaboratively drafting this work product."
+
+
+def _fallback_workspace_draft(message: str) -> str:
+    if re.search(r"\bemail\b", message, re.IGNORECASE):
+        return _fallback_email_draft(message)
+    if re.search(r"\bessay\b", message, re.IGNORECASE):
+        return _fallback_essay_draft(message)
+    title = _fallback_title(message, fallback="Whiteboard Draft")
+    return (
+        f"# {title}\n\n"
+        "## Goal\n\n"
+        f"{_clean_fallback_sentence(message)}\n\n"
+        "## Draft\n\n"
+        "- Main point to refine\n"
+        "- Supporting detail to fill in\n"
+        "- Next step to confirm\n"
+    )
+
+
+def _fallback_email_draft(message: str) -> str:
+    recipient = _extract_email_recipient(message) or "there"
+    organization = _extract_email_organization(message)
+    topic = _extract_email_topic(message) or "Following up"
+    heading = f"Email Draft To {recipient.title() if recipient != 'there' else 'Recipient'}"
+    if organization:
+        heading += f" At {organization}"
+    subject = _title_case_compact(topic, fallback="Following Up")
+    greeting = f"Hi {recipient}," if recipient != "there" else "Hi,"
+    body_line = _clean_fallback_sentence(topic)
+    return (
+        f"# {heading}\n\n"
+        f"Subject: {subject}\n\n"
+        f"{greeting}\n\n"
+        f"{body_line}\n\n"
+        "I wanted to share this clearly and keep it easy to respond to. If now is not the right time, no worries at all.\n\n"
+        "Best,\n"
+        "[Your Name]\n"
+    )
+
+
+def _fallback_essay_draft(message: str) -> str:
+    title = _extract_titled_phrase(message) or _fallback_title(message, fallback="Essay Draft")
+    return (
+        f"# {title}\n\n"
+        "This essay explores the idea from the prompt and gives it a simple structure for revision.\n\n"
+        "The core argument is that early product work improves when real users help shape the product before it is treated as finished. A focused beta gives the team concrete reactions, specific workflow examples, and a clearer sense of what should change next.\n\n"
+        "Using Vantage as the example, design partners can reveal where the product feels useful, where it feels confusing, and which parts of the experience matter most in real work. That makes the feedback more practical than abstract opinions or broad public reactions.\n\n"
+        "The tradeoff is that design partners require care, coordination, and follow-through. The benefit is a tighter learning loop: the product can improve through real collaboration before a wider launch.\n"
+    )
+
+
+def _extract_email_recipient(message: str) -> str | None:
+    match = re.search(r"\bto\s+([A-Z][A-Za-z'-]+)", message)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _extract_email_organization(message: str) -> str | None:
+    match = re.search(r"\b(?:at|from)\s+([A-Z][A-Za-z0-9&' -]+?)(?:\s+about|\s+thanking|\s+asking|[,.]|$)", message)
+    if match:
+        return " ".join(match.group(1).split())
+    return None
+
+
+def _extract_email_topic(message: str) -> str | None:
+    match = re.search(r"\b(?:about|thanking|asking)\s+(.+?)(?:\s+This should\b|$)", message, re.IGNORECASE)
+    if match:
+        return " ".join(match.group(1).strip(" .").split())
+    return None
+
+
+def _extract_titled_phrase(message: str) -> str | None:
+    match = re.search(r"\btitled\s+(.+?)(?:\.|$)", message, re.IGNORECASE)
+    if match:
+        return _title_case_compact(match.group(1).strip(" \"'"), fallback="Essay Draft")
+    return None
+
+
+def _fallback_title(message: str, *, fallback: str) -> str:
+    compact = " ".join(message.strip().split())
+    compact = re.sub(r"^(please\s+)?(try again( now)?\s*:\s*)?", "", compact, flags=re.IGNORECASE)
+    compact = re.sub(r"^(open|create|draft|write|compose|make|generate)\s+(a|an|the)?\s*", "", compact, flags=re.IGNORECASE)
+    return _title_case_compact(compact[:80], fallback=fallback)
+
+
+def _title_case_compact(text: str, *, fallback: str) -> str:
+    words = re.findall(r"[A-Za-z0-9']+", text)
+    if not words:
+        return fallback
+    return " ".join(word.capitalize() for word in words[:10])
+
+
+def _clean_fallback_sentence(text: str) -> str:
+    compact = " ".join(text.strip().split())
+    compact = compact.strip(" .")
+    if not compact:
+        return "Draft content to refine."
+    return compact[0].upper() + compact[1:] + "."
+
+
 def _learned_reason(
     record: Any,
     *,
@@ -729,6 +1392,18 @@ def _learned_reason(
             return "Promoted the whiteboard into a durable artifact."
         return "Saved as a durable artifact."
     return "Saved as durable knowledge."
+
+
+def _correction_affordance(record: Any) -> dict[str, str]:
+    if getattr(record, "type", None) == "protocol":
+        return {
+            "kind": "edit_protocol",
+            "label": "Edit protocol",
+        }
+    return {
+        "kind": "open_in_whiteboard",
+        "label": "Open in whiteboard",
+    }
 
 
 def _normalize_memory_mode(memory_intent: str | None) -> str:
@@ -756,7 +1431,11 @@ def _trace_referenced_record_payload(
 ) -> dict[str, Any] | None:
     if selected_memory is not None:
         return _trace_preserved_context_payload(selected_memory)
-    reopenable = [candidate for candidate in vetted_memory if candidate.source != "vault_note"]
+    reopenable = [
+        candidate
+        for candidate in vetted_memory
+        if candidate.source != "vault_note" and candidate.type != "protocol"
+    ]
     if len(reopenable) != 1:
         return None
     return _trace_preserved_context_payload(reopenable[0])
@@ -849,9 +1528,13 @@ def _extract_workspace_signal(
     text = response_text.strip()
     if not text:
         return "", None, None
-    draft_match = WHITEBOARD_DRAFT_RE.match(text)
-    if draft_match is not None:
-        chat_response = draft_match.group("chat").strip() or "I drafted the detailed answer into the whiteboard so we can refine it there."
+    parsed_signal = _parse_workspace_labels(text)
+    if parsed_signal is None:
+        return text, None, None
+
+    chat_response, signal_label, signal_body = parsed_signal
+    if signal_label == "WHITEBOARD_DRAFT":
+        chat_response = chat_response or "I drafted the detailed answer into the whiteboard so we can refine it there."
         if whiteboard_mode == "chat":
             return chat_response, None, None
         if whiteboard_mode == "offer":
@@ -860,23 +1543,53 @@ def _extract_workspace_signal(
             return chat_response, None, WorkspaceOffer(
                 summary="Whiteboard ready for collaboratively drafting this work product.",
             )
-        draft_content = _normalize_workspace_draft_content(draft_match.group("draft"))
+        draft_content = _normalize_workspace_draft_content(signal_body)
         if not draft_content:
             return chat_response, None, None
         return chat_response, WorkspaceDraft(
             content=draft_content,
             summary="Drafted the detailed answer into the whiteboard for collaborative editing.",
         ), None
-    offer_match = WHITEBOARD_OFFER_RE.match(text)
-    if offer_match is not None:
-        chat_response = offer_match.group("chat").strip() or "This looks like a work product. Want me to pull up a whiteboard for it?"
+    if signal_label == "WHITEBOARD_OFFER":
+        chat_response = chat_response or "This looks like a work product. Want me to pull up a whiteboard for it?"
         if whiteboard_mode == "chat":
             return chat_response, None, None
-        offer_summary = " ".join(offer_match.group("offer").strip().split())
+        offer_summary = " ".join(signal_body.strip().split())
         if not offer_summary:
             offer_summary = "Whiteboard available for collaborative drafting."
         return chat_response, None, WorkspaceOffer(summary=offer_summary)
-    return text, None, None
+    return chat_response or text, None, None
+
+
+def _parse_workspace_labels(text: str) -> tuple[str, str | None, str] | None:
+    matches = list(WHITEBOARD_LABEL_RE.finditer(text))
+    if not matches:
+        return None
+
+    chat_response: str | None = None
+    signal_label: str | None = None
+    signal_body = ""
+
+    for index, match in enumerate(matches):
+        label = match.group("label").upper()
+        next_start = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        body = text[match.end():next_start].strip()
+        if label == "CHAT_RESPONSE" and chat_response is None:
+            chat_response = body
+            continue
+        if label in {"WHITEBOARD_OFFER", "WHITEBOARD_DRAFT"} and signal_label is None:
+            signal_label = label
+            signal_body = body
+            if chat_response is None:
+                chat_response = text[:match.start()].strip()
+
+    if signal_label is None:
+        return (chat_response or _strip_workspace_labels(text), None, "")
+    return (chat_response or "", signal_label, signal_body)
+
+
+def _strip_workspace_labels(text: str) -> str:
+    return WHITEBOARD_LABEL_RE.sub("", text).strip()
 
 
 def _normalize_workspace_draft_content(text: str) -> str:

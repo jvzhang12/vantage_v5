@@ -10,6 +10,7 @@ Focused unit tests for the Draft/Artifact Lifecycle service.
 ## Coverage
 
 - Reopening concept, memory, and artifact records writes the selected item into the active workspace scope, preserves the generic `open_saved_item_into_workspace` graph action, and sets active workspace state.
+- Reopening protocol records is rejected because protocols are guidance objects, not whiteboard draft targets.
 - Reopening a durable reference record while an experiment runtime is active writes the whiteboard document into experiment storage, not durable storage.
 - Missing saved-item reopen raises `FileNotFoundError` for the HTTP layer to translate.
 - Artifact lifecycle card enrichment exposes `artifact_origin` / `artifact_lifecycle` for artifacts, recovers comparison hubs, and does not add artifact-only fields to concepts.

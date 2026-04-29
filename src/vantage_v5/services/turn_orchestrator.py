@@ -20,6 +20,9 @@ from vantage_v5.services.turn_payloads import assemble_service_turn_payload
 from vantage_v5.services.turn_payloads import ScenarioLabFallbackParts
 from vantage_v5.services.turn_payloads import ServiceTurnPayloadParts
 from vantage_v5.services.turn_payloads import TurnInterpretationParts
+from vantage_v5.services.turn_staging import build_turn_stage
+from vantage_v5.services.turn_staging import initial_stage_progress
+from vantage_v5.services.turn_staging import stage_progress_event
 from vantage_v5.services.whiteboard_routing import WhiteboardRoutingEngine
 from vantage_v5.storage.workspaces import WorkspaceDocument
 
@@ -112,6 +115,11 @@ class TurnOrchestrator:
                 request.message
             ),
         )
+        turn_stage = build_turn_stage(
+            navigation_mode=navigation.mode,
+            whiteboard_mode=resolved_whiteboard_mode if navigation.mode == "chat" else "chat",
+            public_summary=navigation.reason,
+        )
         local_semantic_parts = self.local_semantic_actions.build_turn_parts(
             LocalSemanticTurnContext(
                 runtime=context.runtime,
@@ -162,6 +170,16 @@ class TurnOrchestrator:
                     turn_interpretation=turn_interpretation_parts,
                     error=exc,
                 )
+            turn.turn_stage = turn_stage.to_dict()
+            turn.stage_progress = [
+                *initial_stage_progress(turn_stage),
+                stage_progress_event(
+                    "stage_accept",
+                    "Accepted response",
+                    message="Scenario Lab completed and saved the comparison outputs.",
+                ),
+            ]
+            turn.stage_audit = {"accepted": True, "status": "accepted", "issues": [], "retry_instruction": ""}
         else:
             turn = context.runtime["chat_service"].reply(
                 message=request.message,
@@ -180,6 +198,7 @@ class TurnOrchestrator:
                 workspace_is_transient=context.transient_workspace,
                 workspace_scope=context.normalized_workspace_scope,
                 applied_protocol_kinds=applied_protocol_kinds,
+                turn_stage=turn_stage,
             )
 
         return assemble_service_turn_payload(
@@ -234,6 +253,11 @@ class TurnOrchestrator:
             workspace_is_transient=transient_workspace,
             workspace_scope=normalized_workspace_scope,
             applied_protocol_kinds=applied_protocol_kinds,
+            turn_stage=build_turn_stage(
+                navigation_mode="chat",
+                whiteboard_mode=resolved_whiteboard_mode,
+                public_summary="Scenario Lab fell back to a chat response.",
+            ),
         )
         return assemble_scenario_lab_fallback_payload(
             ScenarioLabFallbackParts(
@@ -242,7 +266,7 @@ class TurnOrchestrator:
                 comparison_question=navigation.comparison_question,
                 reason=navigation.reason,
                 error_type=type(error).__name__,
-                error_message=str(error),
+                error_message=_safe_scenario_lab_error_message(error),
                 pinned_context_id=request.pinned_context_id,
                 pinned_context=pinned_context,
                 turn_interpretation=turn_interpretation,
@@ -255,3 +279,10 @@ class TurnOrchestrator:
                 experiment=self.local_semantic_actions.session_info(session),
             )
         )
+
+
+def _safe_scenario_lab_error_message(error: Exception) -> str:
+    raw = str(error)
+    if "rate limit" in raw.lower() or "openai" in type(error).__module__.lower():
+        return "Scenario Lab could not complete because the model provider was temporarily unavailable. The turn stayed in chat so you can retry or continue from here."
+    return "Scenario Lab could not complete this turn. The turn stayed in chat so you can retry or continue from here."

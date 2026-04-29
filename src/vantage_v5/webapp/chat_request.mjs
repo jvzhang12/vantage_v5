@@ -1,7 +1,9 @@
-import { isWhiteboardFocused } from "./surface_state.mjs";
+import { hasWhiteboardActiveContext } from "./surface_state.mjs";
 
-const EXPLICIT_WHITEBOARD_OPEN_RE = /\b(?:open|pull up|bring up|show|use|start|resume)\s+(?:the\s+)?whiteboard\b/i;
+const EXPLICIT_WHITEBOARD_OPEN_RE = /\b(?:open|pull up|bring up|show|use|start|resume)\s+(?:(?:a|the)\s+)?(?:(?:fresh|new|blank|empty|shared)\s+)?whiteboard\b/i;
 const EXPLICIT_WHITEBOARD_DRAFT_RE = /\b(?:draft|write|put|move|build|plan|outline|sketch|work|create|review|refine|play)\b.{0,80}\b(?:in|on|into)\s+(?:the\s+)?whiteboard\b/i;
+const FRESH_WHITEBOARD_REQUEST_RE = /\b(?:open|pull up|bring up|show|use|start)\s+(?:(?:a|the)\s+)?(?:fresh|new|blank|empty|shared)\s+whiteboard\b/i;
+const WHITEBOARD_FOR_DEICTIC_TARGET_RE = /\b(?:open|show|load|reopen|pull up|bring up|use|start|resume)\s+(?:the\s+)?whiteboard\b.{0,50}\b(?:for|with|about)\s+(?:it|this|that|the draft|this draft|that draft|the current draft)\b/i;
 const DEICTIC_WHITEBOARD_REOPEN_VERB_RE = /\b(?:open|show|load|reopen)\b|\bpull\b.{0,20}\bup\b|\bbring\b.{0,20}\bup\b/i;
 const DEICTIC_WHITEBOARD_REOPEN_TARGET_RE = /\b(?:it|this|that|that one|this one|the other(?:\s+(?:email|draft|artifact|note|one))?|the previous(?:\s+(?:email|draft|artifact|note|one))?|the earlier(?:\s+(?:email|draft|artifact|note|one))?|the last(?:\s+(?:email|draft|artifact|note|one))?)\b/i;
 const DEICTIC_WHITEBOARD_REOPEN_RE = /\b(?:open|show|load|reopen)\b.{0,80}\b(?:it|this|that|that one|this one|the other(?:\s+(?:email|draft|artifact|note|one))?|the previous(?:\s+(?:email|draft|artifact|note|one))?|the earlier(?:\s+(?:email|draft|artifact|note|one))?|the last(?:\s+(?:email|draft|artifact|note|one))?)\b.{0,80}\b(?:in|on|into|onto)\s+(?:the\s+)?whiteboard\b|\bpull\b.{0,40}\b(?:it|this|that|that one|this one|the other(?:\s+(?:email|draft|artifact|note|one))?|the previous(?:\s+(?:email|draft|artifact|note|one))?|the earlier(?:\s+(?:email|draft|artifact|note|one))?|the last(?:\s+(?:email|draft|artifact|note|one))?)\b.{0,20}\bup\b.{0,60}\b(?:in|on|into|onto)\s+(?:the\s+)?whiteboard\b|\bbring\b.{0,40}\b(?:it|this|that|that one|this one|the other(?:\s+(?:email|draft|artifact|note|one))?|the previous(?:\s+(?:email|draft|artifact|note|one))?|the earlier(?:\s+(?:email|draft|artifact|note|one))?|the last(?:\s+(?:email|draft|artifact|note|one))?)\b.{0,20}\bup\b.{0,60}\b(?:in|on|into|onto)\s+(?:the\s+)?whiteboard\b/i;
@@ -11,7 +13,7 @@ const PENDING_DEICTIC_FOLLOW_UP_RE = /^\s*(?:(?:please\s+)?(?:which one|what abo
 const PENDING_ACCEPT_RE = /\b(?:yes|yeah|yep|sure|ok(?:ay)?|please do|go ahead|do it|start draft|open draft|open it|use it|sounds good|works for me|let'?s do that|that works|that sounds good)\b/i;
 const PENDING_CONTINUE_RE = /\b(?:continue|keep going|go on|carry on|pick up where we left off|resume)\b/i;
 const PENDING_REFERENCE_RE = /\b(?:draft|whiteboard|email|plan|list|outline|document|note|it|this|that)\b/i;
-const PENDING_EDIT_VERB_RE = /\b(?:update|revise|edit|refine|rewrite|change|adjust|add|remove|include|incorporate|personalize|polish|tighten|shorten|expand|improve)\b/i;
+const PENDING_EDIT_VERB_RE = /\b(?:update|revise|edit|refine|rewrite|change|adjust|add|remove|include|incorporate|personalize|polish|tighten|shorten|expand|improve|make|replace|apply|use)\b/i;
 const PENDING_EDIT_TARGET_RE = /\b(?:email|draft|whiteboard|plan|list|outline|essay|document|note|signature|greeting|it|this|that)\b/i;
 const MAX_PENDING_FOLLOW_UP_LENGTH = 240;
 const WORKSPACE_CONTEXT_SCOPES = new Set(["auto", "excluded", "visible", "pinned", "requested"]);
@@ -34,14 +36,13 @@ export function isDeicticWhiteboardReopenRequest(message = "") {
   if (!text) {
     return false;
   }
+  if (FRESH_WHITEBOARD_REQUEST_RE.test(text)) {
+    return false;
+  }
   if (DEICTIC_WHITEBOARD_REOPEN_RE.test(text)) {
     return true;
   }
-  return (
-    text.toLowerCase().includes("whiteboard")
-    && DEICTIC_WHITEBOARD_REOPEN_VERB_RE.test(text)
-    && DEICTIC_WHITEBOARD_REOPEN_TARGET_RE.test(text)
-  );
+  return WHITEBOARD_FOR_DEICTIC_TARGET_RE.test(text);
 }
 
 function isReopenableWhiteboardTarget(item) {
@@ -50,7 +51,22 @@ function isReopenableWhiteboardTarget(item) {
   }
   const id = normalizeMessage(item.id);
   const source = normalizeMessage(item.source).toLowerCase();
-  return Boolean(id) && item.isVaultNote !== true && source !== "memory_trace";
+  const type = normalizeMessage(item.type).toLowerCase();
+  const kind = normalizeMessage(item.kind).toLowerCase();
+  const memoryRole = normalizeMessage(item.memory_role || item.memoryRole).toLowerCase();
+  const protocolKind = normalizeMessage(
+    item.protocol_kind
+      || item.protocolKind
+      || item.protocol?.protocol_kind
+      || item.protocol?.protocolKind,
+  );
+  return Boolean(id)
+    && item.isVaultNote !== true
+    && source !== "memory_trace"
+    && type !== "protocol"
+    && kind !== "protocol"
+    && memoryRole !== "protocol"
+    && !protocolKind;
 }
 
 function uniqueReopenTargets(items = []) {
@@ -138,13 +154,23 @@ export function deriveWorkspaceContextScope({
   if (workspacePinned) {
     return "pinned";
   }
-  if (isWhiteboardFocused(surface)) {
+  if (hasWhiteboardActiveContext(surface)) {
     return "visible";
   }
-  if (isExplicitWhiteboardRequest(message)) {
+  if (isExplicitWhiteboardRequest(message) && shouldUseHiddenWorkspaceAsRequestedContext(message)) {
     return "requested";
   }
   return "excluded";
+}
+
+function shouldUseHiddenWorkspaceAsRequestedContext(message = "") {
+  const text = normalizeMessage(message);
+  if (!text) {
+    return false;
+  }
+  return /\b(?:resume|continue|reopen)\b.{0,80}\b(?:the\s+)?whiteboard\b/i.test(text)
+    || /\b(?:the\s+)?whiteboard\b.{0,80}\b(?:resume|continue|reopen)\b/i.test(text)
+    || /\b(?:current|existing|active)\s+(?:whiteboard|draft)\b/i.test(text);
 }
 
 export function buildWorkspaceContextPayload({
@@ -168,4 +194,27 @@ export function buildWorkspaceContextPayload({
     payload.workspace_content = String(workspace?.content ?? "");
   }
   return payload;
+}
+
+export function deriveChatWhiteboardMode({
+  requestedWhiteboardMode = "auto",
+  surface = {},
+  message = "",
+} = {}) {
+  const normalizedMode = String(requestedWhiteboardMode || "").trim().toLowerCase();
+  if (normalizedMode === "chat") {
+    return "chat";
+  }
+  const text = normalizeMessage(message);
+  if (
+    hasWhiteboardActiveContext(surface)
+    && PENDING_EDIT_VERB_RE.test(text)
+    && PENDING_EDIT_TARGET_RE.test(text)
+  ) {
+    return "draft";
+  }
+  if (["offer", "draft", "auto"].includes(normalizedMode)) {
+    return normalizedMode;
+  }
+  return "auto";
 }

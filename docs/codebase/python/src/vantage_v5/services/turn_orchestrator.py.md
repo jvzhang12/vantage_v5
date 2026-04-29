@@ -21,9 +21,9 @@ Backend orchestration boundary for one chat turn.
 - Local semantic-action handling now lives in `local_semantic_actions.py`; the orchestrator asks that service for semantic-policy context, local save/publish/clarification/experiment turn parts, and experiment payloads.
 - Successful chat and Scenario Lab service-turn post-processing now lives in `turn_payloads.py`; the orchestrator hands typed service `to_body_parts()` output through `ServiceTurnPayloadParts` after the selected service returns, instead of passing prebuilt public payload dictionaries.
 - Turn interpretation shaping and workspace disclosure now live in `turn_payloads.py`; the orchestrator creates one typed `TurnInterpretationParts` object and passes it through local, service, and Scenario Lab fallback assembler paths.
-- Scenario Lab fallback response shaping now lives in `turn_payloads.py`; the orchestrator still performs the fallback chat call, then hands typed fallback chat body parts plus failure metadata to the assembler.
+- Scenario Lab fallback response shaping now lives in `turn_payloads.py`; the orchestrator still performs the fallback chat call, then hands typed fallback chat body parts plus sanitized failure metadata to the assembler so raw provider or exception text does not become chat-card copy.
 - Local semantic-policy actions now return `TurnResultParts`; the orchestrator attaches the shared typed interpretation parts and sends them through `assemble_local_turn_payload()` so local actions use the same assembler boundary as other turn outcomes.
 - This extraction still intentionally uses a callback for the Scenario Lab entry threshold. That keeps the refactor safe while creating deeper interfaces incrementally.
-- Scenario Lab failures still fall back to normal chat and preserve the same explicit failure payload.
+- Scenario Lab failures still fall back to normal chat and preserve the same explicit failure payload, but the user-facing error message is now generic and retry-oriented rather than the raw exception string.
 - Local semantic-policy actions can still short-circuit the turn before model response generation.
 - Later phases can decide whether the Scenario Lab entry threshold should become a policy object, but the broad whiteboard and local semantic-action hooks have moved behind deeper services.

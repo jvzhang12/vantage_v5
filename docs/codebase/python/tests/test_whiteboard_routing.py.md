@@ -16,4 +16,4 @@ Focused unit tests for the deep whiteboard routing service.
 - Current whiteboard edit/revision requests upgrade Navigator chat decisions to `draft` when workspace content exists.
 - Navigator `whiteboard_mode` values `chat`, `offer`, `draft`, and `auto` are honored when no deterministic override applies.
 - Unknown or missing Navigator whiteboard modes fall back to `auto`.
-- Explicit whiteboard draft phrase detection recognizes direct open/draft requests and rejects ordinary mentions.
+- Explicit whiteboard draft phrase detection recognizes direct open/draft requests, including `fresh whiteboard` phrasing, and rejects ordinary mentions.

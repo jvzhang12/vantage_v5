@@ -4,6 +4,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from vantage_v5.services.navigator import NavigationDecision
+from vantage_v5.services.turn_staging import StageAuditResult
+from vantage_v5.services.turn_staging import StageProgressEvent
+from vantage_v5.services.turn_staging import TurnStage
+from vantage_v5.services.turn_staging import payload_for_audit
+from vantage_v5.services.turn_staging import payload_for_progress
+from vantage_v5.services.turn_staging import payload_for_stage
 from vantage_v5.storage.workspaces import WorkspaceDocument
 
 
@@ -22,6 +28,9 @@ class LocalTurnBodyParts:
     graph_action: dict[str, Any] | None = None
     created_record: dict[str, Any] | None = None
     workspace_update: dict[str, Any] | None = None
+    turn_stage: TurnStage | dict[str, Any] | None = None
+    stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
+    stage_audit: StageAuditResult | dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +48,9 @@ class TurnResultParts:
     experiment: dict[str, Any]
     turn_body: LocalTurnBodyParts
     turn_interpretation: TurnInterpretationParts | dict[str, Any] | None = None
+    turn_stage: TurnStage | dict[str, Any] | None = None
+    stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
+    stage_audit: StageAuditResult | dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +86,9 @@ class ScenarioLabFallbackParts:
     workspace_scope: str
     transient_workspace: bool
     experiment: dict[str, Any]
+    turn_stage: TurnStage | dict[str, Any] | None = None
+    stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
+    stage_audit: StageAuditResult | dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +104,9 @@ class ServiceTurnPayloadParts:
     workspace_scope: str
     transient_workspace: bool
     experiment: dict[str, Any]
+    turn_stage: TurnStage | dict[str, Any] | None = None
+    stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
+    stage_audit: StageAuditResult | dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +136,9 @@ class ChatTurnBodyParts:
     meta_action: dict[str, Any] | None
     graph_action: dict[str, Any] | None
     created_record: dict[str, Any] | None
+    turn_stage: TurnStage | dict[str, Any] | None = None
+    stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
+    stage_audit: StageAuditResult | dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +165,9 @@ class ScenarioLabTurnBodyParts:
     branches: list[dict[str, Any]]
     comparison_artifact: dict[str, Any]
     created_record: dict[str, Any] | None
+    turn_stage: TurnStage | dict[str, Any] | None = None
+    stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
+    stage_audit: StageAuditResult | dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +223,9 @@ def build_local_turn_parts(
     workspace: WorkspaceDocument | None = None,
     transient_workspace: bool | None = None,
     turn_interpretation: TurnInterpretationParts | dict[str, Any] | None = None,
+    turn_stage: TurnStage | dict[str, Any] | None = None,
+    stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None,
+    stage_audit: StageAuditResult | dict[str, Any] | None = None,
 ) -> TurnResultParts:
     return TurnResultParts(
         user_message=context.user_message,
@@ -214,6 +241,9 @@ def build_local_turn_parts(
         experiment=context.experiment,
         turn_body=turn_body,
         turn_interpretation=turn_interpretation,
+        turn_stage=turn_stage,
+        stage_progress=stage_progress,
+        stage_audit=stage_audit,
     )
 
 
@@ -266,6 +296,9 @@ def assemble_local_turn_payload(
             "semantic_frame": parts.semantic_frame,
             "semantic_policy": parts.semantic_policy,
             "experiment": parts.experiment,
+            "turn_stage": parts.turn_stage or parts.turn_body.turn_stage,
+            "stage_progress": parts.stage_progress or parts.turn_body.stage_progress,
+            "stage_audit": parts.stage_audit or parts.turn_body.stage_audit,
         },
         pinned_context_id=parts.pinned_context_id,
         pinned_context=parts.pinned_context,
@@ -292,6 +325,10 @@ def assemble_service_turn_payload(
         transient_workspace=parts.transient_workspace,
     )
     payload["experiment"] = parts.experiment
+    payload["turn_stage"] = parts.turn_stage or payload.get("turn_stage")
+    payload["stage_progress"] = parts.stage_progress or payload.get("stage_progress")
+    payload["stage_audit"] = parts.stage_audit or payload.get("stage_audit")
+    _preserve_stage_payloads(payload)
     return attach_safe_turn_state(payload)
 
 
@@ -332,6 +369,9 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
         "meta_action": parts.meta_action,
         "graph_action": parts.graph_action,
         "created_record": created_record,
+        "turn_stage": parts.turn_stage,
+        "stage_progress": parts.stage_progress or [],
+        "stage_audit": parts.stage_audit,
     }
 
 
@@ -371,6 +411,9 @@ def assemble_scenario_lab_turn_body(parts: ScenarioLabTurnBodyParts) -> dict[str
         },
         "graph_action": None,
         "created_record": created_record,
+        "turn_stage": parts.turn_stage,
+        "stage_progress": parts.stage_progress or [],
+        "stage_audit": parts.stage_audit,
         "scenario_lab": {
             "navigator": parts.navigator,
             "question": parts.comparison_question,
@@ -420,6 +463,10 @@ def assemble_scenario_lab_fallback_payload(
         transient_workspace=parts.transient_workspace,
     )
     payload["experiment"] = parts.experiment
+    payload["turn_stage"] = parts.turn_stage or payload.get("turn_stage")
+    payload["stage_progress"] = parts.stage_progress or payload.get("stage_progress")
+    payload["stage_audit"] = parts.stage_audit or payload.get("stage_audit")
+    _preserve_stage_payloads(payload)
     return attach_safe_turn_state(payload)
 
 
@@ -497,7 +544,21 @@ def finalize_turn_payload(
     payload["pinned_context"] = pinned_context
     payload["selected_record_id"] = pinned_context_id
     payload["selected_record"] = pinned_context
+    _preserve_stage_payloads(payload)
     return payload
+
+
+def _preserve_stage_payloads(payload: dict[str, Any]) -> None:
+    for key, normalizer in (
+        ("turn_stage", payload_for_stage),
+        ("stage_progress", payload_for_progress),
+        ("stage_audit", payload_for_audit),
+    ):
+        value = normalizer(payload.get(key))
+        if value is None:
+            payload.pop(key, None)
+        else:
+            payload[key] = value
 
 
 def attach_safe_turn_state(payload: dict[str, Any]) -> dict[str, Any]:

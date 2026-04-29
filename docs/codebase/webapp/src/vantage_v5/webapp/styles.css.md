@@ -7,10 +7,12 @@ Single-file visual system for the Vantage frontend.
 - Define the refined Apple-like visual system for chat, whiteboard, and `Vantage`, with cool white/graphite materials, SF-style typography, compact controls, and a cleaner native-product feel.
 - Control the shell layout for normal chat, whiteboard-focused drafting, and `Vantage` inspection, with a stronger separation between the chat surface and the whiteboard surface.
 - Style notices, badges, panels, library cards, compact chat result cards, and the whiteboard editor.
+- Style the auth form's sign-in/create-account action row while keeping account creation inside the existing sign-in panel rather than adding a new surface.
 - Style the secondary recall-reason treatment used by item-level `Why recalled` lines inside Recall-oriented cards.
 - Style Inspect taxonomy buckets, the quiet activity line, and the inline protocol editor.
 - Style the shared rich-text/math/code render surfaces used by chat, library inspection, concept cards, and the whiteboard preview, including the vendored Highlight.js theme assets.
 - Style the persistent confirmation overlay used for high-friction actions such as ending experiment mode, keeping it visually aligned with the calmer Apple-tech material system.
+- Style the OpenAI key dialog using the same modal material system as confirmations, with compact credential-field controls, masked-key status copy, and a small warning callout that reminds users to clear the key locally and rotate/revoke temporary keys in OpenAI.
 - Give Scenario Lab a distinct comparison-first treatment so it reads as separate from the working-memory influence view.
 - Carry the current visual refinement pass aimed at calming the shell further, making the whiteboard feel premium and editorial, and preserving existing frontend semantics.
 - Carry the final shared visual-system tightening for Pass 02E, with softer medium-emphasis chrome, a more consistent spacing rhythm, and calmer secondary controls across all surfaces.
@@ -64,6 +66,7 @@ Single-file visual system for the Vantage frontend.
 - Tunes the outer shell chrome, panel shadows, chat cards, and status pills down so the app frame feels calmer and less like an operator console.
 - Keeps the global notice rail to a single softer card at a time, so routine confirmations no longer stack into an alert queue above the product.
 - Makes the in-app confirmation overlay feel more stable and deliberate through a cooler dimmed backdrop, firmer dialog dimensions, steadier shadowing, and a separated action footer.
+- Reuses the confirmation overlay treatment for the provider-key dialog so API-key entry feels like account configuration rather than a new product surface.
 - Carries Pass 02A of the visual redesign into chat specifically: the masthead is shorter and quieter, the transcript sits in a centered reading column, assistant responses carry more typographic authority than user bubbles, and the composer reads more like a writing surface than a tool slab.
 - Keeps the whiteboard-sidebar chat state lighter without making it empty: the sidebar shrinks the masthead, keeps a reduced session cue visible, and preserves a usable transcript/composer stack while clearly yielding priority to the whiteboard.
 - Gives the whiteboard header a compact pill-like action row instead of a stacked control cluster, so back/save/promote actions stay available without competing with the page-like drafting surface.

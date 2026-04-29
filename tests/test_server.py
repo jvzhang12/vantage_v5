@@ -4,6 +4,7 @@ import base64
 from datetime import UTC, datetime
 from pathlib import Path
 import json
+import re
 import shutil
 
 from fastapi.testclient import TestClient
@@ -13,6 +14,8 @@ from vantage_v5.services.meta import MetaDecision
 from vantage_v5.services.meta import MetaService
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.navigator import NavigatorService
+from vantage_v5.services.chat import ReplyVerification
+from vantage_v5.services.chat import WorkspaceOffer
 from vantage_v5.services.protocols import ProtocolInterpretation
 from vantage_v5.services.protocols import build_protocol_write_from_interpretation
 from vantage_v5.services.scenario_lab import ScenarioBranchPlan
@@ -430,11 +433,37 @@ def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     assert recalled_item["recall_status"] == "recalled"
 
 
+def test_plain_why_question_stays_direct_chat(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Why do transformers use attention? Keep it concise.",
+            "history": [],
+            "workspace_scope": "excluded",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] != "Which answer or context path would you like me to inspect?"
+    assert payload["semantic_frame"]["target_surface"] == "chat"
+    assert payload["semantic_frame"]["task_type"] == "question_answering"
+    assert payload["semantic_policy"]["should_clarify"] is False
+
+
 def test_basic_auth_protects_ui_and_api_when_configured(tmp_path: Path) -> None:
-    client, _ = _client(tmp_path, auth_username="jordan", auth_password="secret-password")
+    client, repo_root = _client(tmp_path, auth_username="jordan", auth_password="secret-password")
 
     health = client.get("/api/health")
     assert health.status_code == 200
+    assert health.json()["auth_required"] is True
+    assert health.json()["authenticated"] is False
+
+    index = client.get("/")
+    assert index.status_code == 200
+    assert "<title>Vantage</title>" in index.text
 
     unauthenticated_workspace = client.get("/api/workspace")
     assert unauthenticated_workspace.status_code == 401
@@ -452,10 +481,220 @@ def test_basic_auth_protects_ui_and_api_when_configured(tmp_path: Path) -> None:
     )
     assert workspace.status_code == 200
     assert workspace.json()["workspace_id"] == "v5-milestone-1"
+    assert (repo_root / "users" / "jordan" / "workspaces" / "v5-milestone-1.md").exists()
 
     index = client.get("/", headers=_basic_auth_header("jordan", "secret-password"))
     assert index.status_code == 200
     assert "<title>Vantage</title>" in index.text
+
+
+def test_cookie_login_protects_user_scoped_routes(tmp_path: Path) -> None:
+    client, repo_root = _client(
+        tmp_path,
+        auth_users={
+            "eden": "eden-password",
+            "jordan": "jordan-password",
+        },
+    )
+
+    bad_login = client.post("/api/login", json={"username": "eden", "password": "wrong-password"})
+    assert bad_login.status_code == 401
+
+    login = client.post("/api/login", json={"username": "eden", "password": "eden-password"})
+    assert login.status_code == 200
+    assert login.json()["authenticated"] is True
+    assert login.json()["user"] == {"id": "eden"}
+    assert "vantage_session" in login.headers.get("set-cookie", "")
+
+    health = client.get("/api/health")
+    assert health.status_code == 200
+    assert health.json()["authenticated"] is True
+    assert health.json()["user"] == {"id": "eden"}
+    protocol_path = repo_root / "users" / "eden" / "concepts" / "email-drafting-protocol.md"
+    assert protocol_path.exists()
+
+    protocols = client.get("/api/protocols")
+    assert protocols.status_code == 200
+    protocols_by_id = {item["id"]: item for item in protocols.json()["protocols"]}
+    assert protocols_by_id["email-drafting-protocol"]["scope"] == "durable"
+    assert protocols_by_id["email-drafting-protocol"]["protocol"]["protocol_kind"] == "email"
+
+    update = client.post(
+        "/api/workspace",
+        json={
+            "workspace_id": "v5-milestone-1",
+            "content": "# Eden Cookie Draft\n\nThis belongs to Eden's login session.",
+        },
+    )
+    assert update.status_code == 200
+    assert "Eden Cookie Draft" in update.json()["content"]
+    assert "Eden Cookie Draft" in (
+        repo_root / "users" / "eden" / "workspaces" / "v5-milestone-1.md"
+    ).read_text(encoding="utf-8")
+    jordan_workspace_path = repo_root / "users" / "jordan" / "workspaces" / "v5-milestone-1.md"
+    assert not jordan_workspace_path.exists() or "Eden Cookie Draft" not in jordan_workspace_path.read_text(encoding="utf-8")
+
+    logout = client.post("/api/logout")
+    assert logout.status_code == 200
+    assert client.get("/api/workspace").status_code == 401
+
+
+def test_create_account_hashes_password_and_creates_user_session(tmp_path: Path) -> None:
+    client, repo_root = _client(
+        tmp_path,
+        auth_users={
+            "eden": "eden-password",
+        },
+    )
+    password = "taylor-password"
+
+    health = client.get("/api/health")
+    assert health.status_code == 200
+    assert health.json()["account_creation_enabled"] is True
+
+    invalid = client.post("/api/accounts", json={"username": "no spaces", "password": password})
+    assert invalid.status_code == 400
+
+    duplicate_configured_user = client.post("/api/accounts", json={"username": "eden", "password": password})
+    assert duplicate_configured_user.status_code == 409
+
+    created = client.post("/api/accounts", json={"username": "Taylor_01", "password": password})
+    assert created.status_code == 201
+    assert created.json()["authenticated"] is True
+    assert created.json()["created"] is True
+    assert created.json()["user"] == {"id": "Taylor_01"}
+    assert "vantage_session" in created.headers.get("set-cookie", "")
+
+    account_path = repo_root / "state" / "accounts.json"
+    assert account_path.exists()
+    account_payload = json.loads(account_path.read_text(encoding="utf-8"))
+    account = account_payload["accounts"]["taylor_01"]
+    assert account["username"] == "Taylor_01"
+    assert account["password"]["algorithm"] == "pbkdf2_sha256"
+    assert password not in account_path.read_text(encoding="utf-8")
+    assert (repo_root / "users" / "taylor_01" / "workspaces" / "v5-milestone-1.md").exists()
+    assert (repo_root / "users" / "taylor_01" / "concepts" / "email-drafting-protocol.md").exists()
+
+    duplicate_local_user = client.post("/api/accounts", json={"username": "taylor_01", "password": password})
+    assert duplicate_local_user.status_code == 409
+
+    logout = client.post("/api/logout")
+    assert logout.status_code == 200
+
+    bad_login = client.post("/api/login", json={"username": "Taylor_01", "password": "wrong-password"})
+    assert bad_login.status_code == 401
+
+    login = client.post("/api/login", json={"username": "Taylor_01", "password": password})
+    assert login.status_code == 200
+    assert login.json()["authenticated"] is True
+    assert login.json()["user"] == {"id": "Taylor_01"}
+
+    workspace = client.get("/api/workspace")
+    assert workspace.status_code == 200
+    assert workspace.json()["workspace_id"] == "v5-milestone-1"
+
+
+def test_create_account_is_disabled_when_auth_is_not_enabled(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+
+    health = client.get("/api/health")
+    assert health.status_code == 200
+    assert health.json()["auth_required"] is False
+    assert health.json()["account_creation_enabled"] is False
+
+    created = client.post("/api/accounts", json={"username": "Taylor_01", "password": "taylor-password"})
+    assert created.status_code == 404
+
+
+def test_user_openai_key_is_scoped_and_not_returned_or_persisted(tmp_path: Path) -> None:
+    client, repo_root = _client(
+        tmp_path,
+        auth_users={
+            "eden": "eden-password",
+            "jordan": "jordan-password",
+        },
+    )
+    secret = "sk-test-eden-secret-1234"
+
+    assert client.get("/api/openai-key").status_code == 401
+
+    login = client.post("/api/login", json={"username": "eden", "password": "eden-password"})
+    assert login.status_code == 200
+
+    initial_status = client.get("/api/openai-key")
+    assert initial_status.status_code == 200
+    assert initial_status.json()["openai_key"] == {
+        "configured": False,
+        "source": "none",
+        "masked_key": "",
+        "environment_configured": False,
+    }
+
+    save = client.put("/api/openai-key", json={"api_key": secret})
+    assert save.status_code == 200
+    assert save.json()["mode"] == "openai"
+    assert save.json()["openai_key"]["source"] == "user"
+    assert save.json()["openai_key"]["masked_key"] == "sk-t...1234"
+    assert secret not in save.text
+
+    health = client.get("/api/health")
+    assert health.status_code == 200
+    assert health.json()["mode"] == "openai"
+    assert health.json()["openai_key"]["source"] == "user"
+    assert secret not in health.text
+
+    logout = client.post("/api/logout")
+    assert logout.status_code == 200
+    jordan_login = client.post("/api/login", json={"username": "jordan", "password": "jordan-password"})
+    assert jordan_login.status_code == 200
+    jordan_status = client.get("/api/openai-key")
+    assert jordan_status.status_code == 200
+    assert jordan_status.json()["mode"] == "fallback"
+    assert jordan_status.json()["openai_key"]["source"] == "none"
+
+    client.post("/api/logout")
+    eden_login = client.post("/api/login", json={"username": "eden", "password": "eden-password"})
+    assert eden_login.status_code == 200
+    clear = client.delete("/api/openai-key")
+    assert clear.status_code == 200
+    assert clear.json()["mode"] == "fallback"
+    assert clear.json()["openai_key"]["source"] == "none"
+
+    for path in repo_root.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            assert secret not in path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+
+
+def test_user_openai_key_can_override_environment_key_and_clear_back_to_env(tmp_path: Path) -> None:
+    client, _ = _client(
+        tmp_path,
+        openai_api_key="sk-env-fallback-5678",
+        auth_users={"eden": "eden-password"},
+    )
+
+    login = client.post("/api/login", json={"username": "eden", "password": "eden-password"})
+    assert login.status_code == 200
+
+    env_status = client.get("/api/openai-key")
+    assert env_status.status_code == 200
+    assert env_status.json()["mode"] == "openai"
+    assert env_status.json()["openai_key"]["source"] == "environment"
+    assert env_status.json()["openai_key"]["masked_key"] == "sk-e...5678"
+
+    user_status = client.put("/api/openai-key", json={"api_key": "sk-user-override-9012"})
+    assert user_status.status_code == 200
+    assert user_status.json()["openai_key"]["source"] == "user"
+    assert user_status.json()["openai_key"]["masked_key"] == "sk-u...9012"
+
+    restored = client.delete("/api/openai-key")
+    assert restored.status_code == 200
+    assert restored.json()["mode"] == "openai"
+    assert restored.json()["openai_key"]["source"] == "environment"
+    assert restored.json()["openai_key"]["masked_key"] == "sk-e...5678"
 
 
 def test_semantic_policy_saves_visible_whiteboard_without_chat_guessing(tmp_path: Path, monkeypatch) -> None:
@@ -935,8 +1174,31 @@ def test_email_protocol_updates_existing_record_in_place(tmp_path: Path, monkeyp
     assert "Dr. Jordan Zhang" in protocol.body
 
 
+def test_open_saved_item_rejects_protocol_records(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path)
+    ConceptStore(repo_root / "concepts").upsert_protocol(
+        protocol_id="email-drafting-protocol",
+        title="Email Drafting Protocol",
+        card="Reusable email drafting guidance.",
+        body="Use this for drafting emails.",
+        protocol_kind="email",
+        variables={},
+        applies_to=["email"],
+    )
+
+    response = client.post(
+        "/api/concepts/open",
+        json={"record_id": "email-drafting-protocol"},
+    )
+
+    assert response.status_code == 400
+    assert "cannot be reopened as whiteboard drafts" in response.json()["detail"]
+
+
 def test_protocol_learning_requires_interpreter_decision(tmp_path: Path) -> None:
     client, repo_root = _client(tmp_path)
+    protocol_path = repo_root / "concepts" / "email-drafting-protocol.md"
+    protocol_path.unlink(missing_ok=True)
 
     response = client.post(
         "/api/chat",
@@ -950,7 +1212,7 @@ def test_protocol_learning_requires_interpreter_decision(tmp_path: Path) -> None
     payload = response.json()
     assert payload["graph_action"] is None
     assert payload["created_record"] is None
-    assert not (repo_root / "concepts" / "email-drafting-protocol.md").exists()
+    assert not protocol_path.exists()
 
 
 def test_multi_user_auth_isolates_markdown_storage(tmp_path: Path) -> None:
@@ -1031,6 +1293,12 @@ def test_chat_can_route_into_scenario_lab_and_open_branch(tmp_path: Path, monkey
     assert response.status_code == 200
     payload = response.json()
     assert payload["mode"] == "scenario_lab"
+    assert payload["assistant_message"].startswith(
+        "Recommendation: Ship the reduced-scope branch as the milestone centerpiece"
+    )
+    assert "Why: Reduced Scope is the strongest first proof" in payload["assistant_message"]
+    assert "Tradeoffs: Baseline keeps breadth but dilutes the proof point;" in payload["assistant_message"]
+    assert "Saved the full Scenario Lab comparison with 3 branches: Baseline, Reduced Scope, Fast Launch." in payload["assistant_message"]
     assert payload["response_mode"]["kind"] == "grounded"
     assert payload["response_mode"]["grounding_mode"] == "recall"
     assert payload["response_mode"]["legacy_grounding_mode"] == "working_memory"
@@ -1398,7 +1666,44 @@ def test_chat_openai_reply_failure_falls_back_to_deterministic_response(tmp_path
     assert response.status_code == 200
     payload = response.json()
     assert payload["mode"] == "fallback"
-    assert "model provider was unavailable for this turn" in payload["assistant_message"]
+    assert "could not complete the model-backed answer" in payload["assistant_message"]
+    assert "Fallback mode" not in payload["assistant_message"]
+    assert "Relevant memory trace" not in payload["assistant_message"]
+
+
+def test_chat_reply_failure_still_drafts_fresh_whiteboard_request(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    original_workspace = (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8")
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _raise_runtime_error_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="no_op",
+            rationale="Fallback whiteboard drafts should stay temporary until the user saves them.",
+        ),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Open a fresh whiteboard essay titled Why Design Partners Make AI Products Better.",
+            "history": [],
+            "workspace_id": "v5-milestone-1",
+            "whiteboard_mode": "draft",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "fallback"
+    assert payload["workspace_update"]["type"] == "draft_whiteboard"
+    assert payload["workspace_update"]["status"] == "draft_ready"
+    assert payload["workspace_update"]["title"] == "Why Design Partners Make Ai Products Better"
+    assert payload["workspace_update"]["content"].startswith("# Why Design Partners Make Ai Products Better")
+    assert "Fallback mode" not in payload["assistant_message"]
+    assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
+    assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
 
 
 def test_chat_workspace_signal_failures_still_surface_as_server_errors(tmp_path: Path, monkeypatch) -> None:
@@ -1483,8 +1788,11 @@ def test_scenario_lab_failure_is_explicit_in_payload(tmp_path: Path, monkeypatch
     assert payload["scenario_lab"]["fallback_mode"] == "chat"
     assert payload["scenario_lab"]["navigation"]["mode"] == "scenario_lab"
     assert payload["scenario_lab"]["error"]["type"] == "RuntimeError"
-    assert payload["scenario_lab"]["error"]["message"] == "scenario lab boom"
-    assert payload["scenario_lab_error"]["message"] == "scenario lab boom"
+    assert payload["scenario_lab"]["error"]["message"] == (
+        "Scenario Lab could not complete this turn. The turn stayed in chat so you can retry or continue from here."
+    )
+    assert payload["scenario_lab_error"]["message"] == payload["scenario_lab"]["error"]["message"]
+    assert "scenario lab boom" not in payload["scenario_lab_error"]["message"]
     assert payload["assistant_message"]
 
 
@@ -2155,7 +2463,8 @@ def test_low_context_follow_up_keeps_selected_concept_in_turn_memory(tmp_path: P
     follow_up_payload = follow_up.json()
     assert follow_up_payload["mode"] == "fallback"
     assert any(item["id"] == "rules-of-hangman-game" for item in follow_up_payload["concept_cards"])
-    assert "Relevant concepts: Rules of Hangman (game)." in follow_up_payload["assistant_message"]
+    assert "Relevant concepts:" not in follow_up_payload["assistant_message"]
+    assert "local context" in follow_up_payload["assistant_message"]
     assert "rules-of-hangman-game" in follow_up_payload["vetting"]["selected_ids"]
     assert follow_up_payload["vetting"]["none_relevant"] is False
     assert follow_up_payload["response_mode"]["kind"] == "grounded"
@@ -2884,6 +3193,41 @@ def test_whiteboard_accept_route_drafts_without_fabricated_user_message(tmp_path
     assert payload["created_record"]["artifact_lifecycle"] == "whiteboard_snapshot"
     assert payload["workspace_update"]["artifact_snapshot_id"] == payload["created_record"]["id"]
     assert (repo_root / "artifacts" / f"{payload['created_record']['id']}.md").exists()
+    assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
+
+
+def test_whiteboard_accept_route_provider_failure_still_returns_draft(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    original_workspace = (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8")
+    pending_workspace_update = _pending_offer_update()
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _raise_runtime_error_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="no_op",
+            rationale="Fallback whiteboard acceptance should still keep the draft temporary.",
+        ),
+    )
+
+    response = client.post(
+        "/api/chat/whiteboard/accept",
+        json={
+            "workspace_id": "v5-milestone-1",
+            "history": [],
+            "pending_workspace_update": pending_workspace_update,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "fallback"
+    assert payload["workspace_update"]["type"] == "draft_whiteboard"
+    assert payload["workspace_update"]["status"] == "draft_ready"
+    assert payload["workspace_update"]["title"] == "Email Draft To Judy"
+    assert "Hi Judy" in payload["workspace_update"]["content"]
+    assert "Fallback mode" not in payload["assistant_message"]
+    assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
     assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
 
 
@@ -3840,6 +4184,138 @@ def test_work_product_request_can_offer_whiteboard_collaboration(tmp_path: Path,
     assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
 
 
+def test_same_line_whiteboard_offer_is_parsed_without_leaking_tags(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: (
+            "CHAT_RESPONSE: Want me to open the whiteboard for this email? "
+            "WHITEBOARD_OFFER: I can draft the beta invitation there."
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Offer stays pending."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Draft an email inviting a beta tester.",
+            "history": [],
+            "whiteboard_mode": "offer",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "Want me to open the whiteboard for this email?"
+    assert "WHITEBOARD_OFFER" not in payload["assistant_message"]
+    assert payload["workspace_update"]["type"] == "offer_whiteboard"
+    assert payload["workspace_update"]["summary"] == "I can draft the beta invitation there."
+
+
+def test_natural_whiteboard_offer_can_be_structured_by_second_call(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+    verifier_calls = []
+    normalizer_calls = []
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "I can open a whiteboard and draft a warm beta invitation there.",
+    )
+    def _verify(self, **kwargs):
+        verifier_calls.append(kwargs)
+        return ReplyVerification(
+            ok=False,
+            repair_strategy="normalize_json",
+            issues=("missing_typed_whiteboard_offer",),
+            retry_instruction="Convert the natural-language offer into an offer_whiteboard update.",
+        )
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._verify_openai_reply", _verify)
+    def _structure(self, **kwargs):
+        normalizer_calls.append(kwargs)
+        return (
+            "Want me to open the whiteboard for this email?",
+            None,
+            WorkspaceOffer(summary="I can draft the beta invitation there."),
+        )
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._structure_openai_reply", _structure)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Offer stays pending."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Draft an email inviting a beta tester.",
+            "history": [],
+            "whiteboard_mode": "offer",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "Want me to open the whiteboard for this email?"
+    assert payload["workspace_update"]["type"] == "offer_whiteboard"
+    assert payload["workspace_update"]["summary"] == "I can draft the beta invitation there."
+    assert verifier_calls
+    assert verifier_calls[0]["whiteboard_mode"] == "offer"
+    assert normalizer_calls[0]["verifier_feedback"].issues == ("missing_typed_whiteboard_offer",)
+
+
+def test_staged_whiteboard_draft_retries_before_persisting_artifact(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    replies = [
+        "CHAT_RESPONSE: I can draft that in the whiteboard.",
+        "CHAT_RESPONSE: I drafted the email into the whiteboard.\nWHITEBOARD_DRAFT: # Beta Invitation\n\nHi Jamie,\n\nWould you like to try the Vantage beta?\n\nBest,\nJordan",
+    ]
+    calls = []
+    artifact_count_before = len(list((repo_root / "artifacts").glob("*.md")))
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+
+    def _reply(self, **kwargs):
+        calls.append(kwargs)
+        return replies.pop(0)
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._verify_openai_reply",
+        lambda self, **kwargs: ReplyVerification(ok=True),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Draft artifact is enough for this test."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Draft an email inviting Jamie to the private beta in the whiteboard.",
+            "history": [],
+            "whiteboard_mode": "draft",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(calls) == 2
+    assert calls[0]["stage_retry_instruction"] is None
+    assert "WHITEBOARD_DRAFT" in calls[1]["stage_retry_instruction"]
+    assert payload["workspace_update"]["type"] == "draft_whiteboard"
+    assert payload["workspace_update"]["content"].startswith("# Beta Invitation")
+    assert payload["stage_audit"]["accepted"] is True
+    assert any(event["id"] == "stage_restage" for event in payload["stage_progress"])
+    assert len(list((repo_root / "artifacts").glob("*.md"))) == artifact_count_before + 1
+
+
 def test_navigation_can_drive_auto_whiteboard_offer(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path, openai_api_key="test-key")
     original_workspace = (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8")
@@ -3958,6 +4434,119 @@ def test_explicit_whiteboard_request_bypasses_offer_step(tmp_path: Path, monkeyp
     assert payload["workspace_update"]["artifact_snapshot_id"] == payload["created_record"]["id"]
     assert (repo_root / "artifacts" / f"{payload['created_record']['id']}.md").exists()
     assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
+
+
+def test_whiteboard_draft_constraints_remove_em_dashes(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: (
+            "CHAT_RESPONSE: I updated the email.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# Email Draft\n\n"
+            "Hi Jamie,\n\n"
+            "If this is not the right time—that is completely fine.\n"
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Draft stays temporary."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Remove any em dashes from the whiteboard email.",
+            "history": [],
+            "whiteboard_mode": "draft",
+        },
+    )
+    assert response.status_code == 200
+    content = response.json()["workspace_update"]["content"]
+    assert "—" not in content
+    assert "time, that" in content
+
+
+def test_whiteboard_draft_constraints_shorten_optional_reading_section(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+    long_section = " ".join(f"word{i}" for i in range(140))
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: (
+            "CHAT_RESPONSE: I updated the email.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# Email Draft\n\n"
+            "Hi Jamie,\n\n"
+            "See below.\n\n"
+            "## Optional reading\n\n"
+            f"{long_section}\n"
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Draft stays temporary."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Add the essay as a short optional reading section to the email.",
+            "history": [],
+            "whiteboard_mode": "draft",
+        },
+    )
+    assert response.status_code == 200
+    content = response.json()["workspace_update"]["content"]
+    assert "## Optional reading" in content
+    assert len(re.findall(r"word\d+", content)) <= 75
+
+
+def test_whiteboard_email_draft_preserves_known_signature_placeholder(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: (
+            "CHAT_RESPONSE: I updated the email.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# Email Draft\n\n"
+            "Hi Priya,\n\n"
+            "Here is the revised note.\n\n"
+            "Best,\n"
+            "[Your Name]\n"
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Draft stays temporary."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Update this email with the new essay context.",
+            "history": [],
+            "workspace_id": "v5-milestone-1",
+            "workspace_scope": "visible",
+            "workspace_content": (
+                "# Email Draft\n\n"
+                "Hi Priya,\n\n"
+                "Earlier draft.\n\n"
+                "Best,\n"
+                "Eden\n"
+            ),
+            "whiteboard_mode": "draft",
+        },
+    )
+    assert response.status_code == 200
+    content = response.json()["workspace_update"]["content"]
+    assert "Best,\nEden" in content
+    assert "[Your Name]" not in content
 
 
 def test_pending_whiteboard_offer_deictic_whiteboard_follow_up_carries(tmp_path: Path, monkeypatch) -> None:
@@ -4564,6 +5153,59 @@ def test_visible_whiteboard_greeting_edit_follow_up_prefers_draft_over_offer(tmp
     assert payload["workspace"]["context_scope"] == "visible"
     assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
     assert payload["created_record"]["source"] == "artifact"
+    assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
+
+
+def test_visible_whiteboard_make_and_mention_follow_up_prefers_draft_over_offer(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    original_workspace = (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8")
+
+    monkeypatch.setattr(
+        "vantage_v5.server.NavigatorService.route_turn",
+        lambda self, **kwargs: NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="The model over-offered despite an active draft.",
+            whiteboard_mode="offer",
+        ),
+    )
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+
+    def _reply(self, **kwargs):
+        assert kwargs["whiteboard_mode"] == "draft"
+        return (
+            "CHAT_RESPONSE: I made the email warmer and mentioned the 20-minute feedback window.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# Morgan Beta Invitation\n\n"
+            "Hi Morgan,\n\n"
+            "I hope you're doing well. I immediately thought of you for a small Vantage private beta next week. "
+            "It would only take 20 minutes of feedback, and your perspective would be really helpful.\n\n"
+            "Best,\n"
+            "Jordan\n"
+        )
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Active draft revision should stay temporary."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Make the email warmer and mention that the beta would only take 20 minutes of feedback.",
+            "history": [],
+            "workspace_id": "v5-milestone-1",
+            "workspace_scope": "visible",
+            "workspace_content": "# Morgan Beta Invitation\n\nHi Morgan,\n\nWould you join the Vantage beta?\n\nBest,\nJordan\n",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "I made the email warmer and mentioned the 20-minute feedback window."
+    assert payload["workspace_update"]["type"] == "draft_whiteboard"
+    assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "draft"
+    assert payload["workspace"]["context_scope"] == "visible"
     assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
 
 
@@ -5613,23 +6255,9 @@ def test_off_topic_selected_scenario_comparison_does_not_anchor_short_turn(tmp_p
     assert payload["mode"] == "openai"
     assert payload["assistant_message"] == "This short draft request should not revive the selected scenario comparison."
     assert payload["turn_interpretation"]["preserve_selected_record"] is None
-    assert payload["working_memory"] == [
-        {
-            "id": "email-drafting",
-            "title": "Email Drafting",
-            "type": "concept",
-            "card": "Draft and refine short emails.",
-            "kind": "concept",
-            "memory_role": "semantic_knowledge",
-            "recall_status": "recalled",
-            "source_tier": "curated",
-            "source": "concept",
-            "source_label": "Concept KB",
-            "trust": "high",
-            "body": "",
-            "path": None,
-        }
-    ]
+    recalled_ids = {item["id"] for item in payload["working_memory"]}
+    assert "launch-comparison" not in recalled_ids
+    assert "email-drafting-protocol" in recalled_ids
 
 
 def test_pending_whiteboard_draft_blocks_implicit_durable_write(tmp_path: Path, monkeypatch) -> None:

@@ -74,15 +74,20 @@ def test_explicit_whiteboard_draft_request_upgrades_chat_decision() -> None:
 def test_current_whiteboard_revision_upgrades_chat_decision_to_draft() -> None:
     engine = WhiteboardRoutingEngine()
 
-    assert (
-        engine.resolve_whiteboard_mode(
-            "auto",
-            _decision(mode="chat", whiteboard_mode="chat"),
-            user_message="Tighten the draft and add a warmer greeting.",
-            workspace=_workspace("Dear Alex,\n\nHere is the current draft."),
+    for message in [
+        "Tighten the draft and add a warmer greeting.",
+        "Make the email warmer and mention that I appreciated the thoughtful feedback.",
+        "Replace the current whiteboard content with a concise email draft.",
+    ]:
+        assert (
+            engine.resolve_whiteboard_mode(
+                "auto",
+                _decision(mode="chat", whiteboard_mode="offer"),
+                user_message=message,
+                workspace=_workspace("Dear Alex,\n\nHere is the current draft."),
+            )
+            == "draft"
         )
-        == "draft"
-    )
 
 
 @pytest.mark.parametrize("navigator_mode", ["chat", "offer", "draft", "auto"])
@@ -121,6 +126,7 @@ def test_resolve_whiteboard_mode_defaults_to_auto_for_unknown_navigator_mode(
     "message",
     [
         "Open the whiteboard for this.",
+        "Open a fresh whiteboard and draft a short essay titled Why Design Partner Fit Matters.",
         "Please write the email in the whiteboard.",
         "Let's sketch the launch options on the whiteboard.",
     ],

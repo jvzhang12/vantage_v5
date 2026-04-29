@@ -14,7 +14,7 @@ Executes the graph action chosen by meta decisioning. This service bridges the a
 - `GraphActionExecutor.execute()` receives a `MetaDecision` and the current workspace.
 - It dispatches on `decision.action` and writes to the relevant store when the action is supported.
 - It wraps each outcome in `ExecutedAction`, which now reports `record_id` and `record_title` while keeping `concept_id` and `concept_title` aliases for compatibility.
-- `open_saved_item_into_workspace()` reads a saved record from any available store, formats it as Markdown, saves it into the workspace store, and marks that workspace active. The emitted action name is now also `open_saved_item_into_workspace`, so memories and artifacts do not masquerade as concept-only reopen actions.
+- `open_saved_item_into_workspace()` reads a saved record from any available store, rejects protocol records, formats valid work products or saved knowledge as Markdown, saves it into the workspace store, and marks that workspace active. The emitted action name is now also `open_saved_item_into_workspace`, so memories and artifacts do not masquerade as concept-only reopen actions.
 
 ## Key Classes / Functions
 
@@ -33,6 +33,7 @@ Executes the graph action chosen by meta decisioning. This service bridges the a
 - `create_revision` is supported here even though it is not one of the visible meta-allowed actions, so callers may still send it from elsewhere.
 - Whiteboard iteration snapshots are distinct from `promote_workspace_to_artifact`: the snapshot helper leaves the whiteboard in its normal lifecycle while still writing a durable artifact record for that iteration.
 - The executor now stamps artifact lifecycle metadata at write time so downstream serializers and the UI do not have to infer it from `comes_from`: whiteboard saves write `artifact_origin="whiteboard"` plus `artifact_lifecycle="whiteboard_snapshot"`, while promotion paths write `artifact_origin="whiteboard"` plus `artifact_lifecycle="promoted_artifact"`.
+- Protocol records are not reopenable in the whiteboard; they are edited through protocol-specific flows rather than treated as draft material.
 - Revision creation returns `skipped` if `target_concept_id` is missing or if the base concept cannot be found.
 - `_get_record()` searches concepts, memories, artifacts, and optional reference stores in order, then raises `FileNotFoundError` if nothing matches.
 - `ExecutedAction.to_dict()` exposes both record-oriented keys and the older concept aliases, which keeps existing consumers working if they expect either naming convention.

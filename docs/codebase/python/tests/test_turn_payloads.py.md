@@ -17,3 +17,4 @@ Focused unit tests for backend turn payload assembly.
 - Scenario Lab body assembly preserves memory aliases, default no-op meta action, `graph_action=None`, comparison question aliases, branch list, comparison artifact, recommendation, and created-record compatibility.
 - Successful service-turn payloads assemble typed chat/Scenario Lab body parts before preserving turn interpretation, semantic frame/policy, graph-action aliases, created-record compatibility, workspace disclosure, experiment status, safe state, and activity.
 - Scenario Lab fallback payloads assemble typed fallback chat body parts before preserving the explicit `scenario_lab.status="failed"` contract, `scenario_lab_error`, pinned-context aliases, workspace disclosure, and activity payload.
+- Optional staging payloads from service turn body parts are preserved and sanitized without affecting older callers that do not pass `turn_stage`, `stage_progress`, or `stage_audit`.

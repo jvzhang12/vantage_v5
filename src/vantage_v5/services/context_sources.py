@@ -150,7 +150,10 @@ class ContextSourceResolver:
             "source": summary["source"],
             "type": summary.get("type"),
             "card": summary.get("card"),
-            "reopenable_in_whiteboard": summary.get("source") != "vault_note",
+            "reopenable_in_whiteboard": (
+                summary.get("source") != "vault_note"
+                and summary.get("type") != "protocol"
+            ),
         }
 
     def _recent_whiteboard_summaries(

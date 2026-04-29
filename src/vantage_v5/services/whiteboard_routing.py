@@ -8,7 +8,7 @@ from vantage_v5.storage.workspaces import WorkspaceDocument
 
 
 EXPLICIT_WHITEBOARD_OPEN_RE = re.compile(
-    r"\b(?:open|pull up|bring up|show|use|start|resume)\s+(?:the\s+)?whiteboard\b",
+    r"\b(?:open|pull up|bring up|show|use|start|resume)\s+(?:(?:a|the)\s+)?(?:(?:fresh|new|blank|empty|shared)\s+)?whiteboard\b",
     re.IGNORECASE,
 )
 EXPLICIT_WHITEBOARD_DRAFT_RE = re.compile(
@@ -28,7 +28,7 @@ PENDING_DEICTIC_FOLLOW_UP_RE = re.compile(
     re.IGNORECASE,
 )
 WHITEBOARD_EDIT_VERB_RE = re.compile(
-    r"\b(?:update|revise|edit|refine|rewrite|change|adjust|add|remove|include|incorporate|personalize|polish|tighten|shorten|expand|improve)\b",
+    r"\b(?:update|revise|edit|refine|rewrite|change|adjust|add|remove|include|incorporate|personalize|polish|tighten|shorten|expand|improve|make|mention|say|note|emphasize|clarify|soften|replace|apply|use)\b",
     re.IGNORECASE,
 )
 WHITEBOARD_EDIT_TARGET_RE = re.compile(

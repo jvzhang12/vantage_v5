@@ -170,6 +170,23 @@ def test_open_saved_item_into_whiteboard_supports_saved_record_types(tmp_path: P
         assert runtime.state_store.get_active_workspace_id(default_workspace_id="fallback") == record.id
 
 
+def test_open_saved_item_into_whiteboard_rejects_protocol_records(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    lifecycle = DraftArtifactLifecycle()
+    protocol = runtime.executor.concept_store.upsert_protocol(
+        protocol_id="email-drafting-protocol",
+        title="Email Drafting Protocol",
+        card="Reusable email drafting guidance.",
+        body="Use this for drafting emails.",
+        protocol_kind="email",
+        variables={},
+        applies_to=["email"],
+    )
+
+    with pytest.raises(ValueError, match="Protocols are guidance objects"):
+        lifecycle.open_saved_item_into_whiteboard(runtime=runtime, record_id=protocol.id)
+
+
 def test_artifact_lifecycle_card_fields_only_enriches_artifacts(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
     concept = runtime.executor.concept_store.create_concept(

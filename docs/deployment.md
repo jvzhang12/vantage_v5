@@ -30,9 +30,9 @@ VANTAGE_V5_AUTH_PASSWORD=replace-with-a-long-random-password
 Notes:
 
 - `VANTAGE_V5_HOST` defaults to `127.0.0.1` for local-only development. Use `0.0.0.0` only inside a container, VM, private network, or reverse-proxy deployment.
-- `VANTAGE_V5_AUTH_PASSWORD` enables HTTP Basic Auth for the UI and API. If it is empty, auth is disabled for local development.
-- `VANTAGE_V5_AUTH_USERS_JSON` or `VANTAGE_V5_AUTH_USERS_FILE` enables private multi-user profile mode. The Basic Auth username selects an isolated Markdown store under `users/<username>/`.
-- If multi-user profile mode is enabled, keep using long random passwords. The JSON values are plaintext deployment secrets and should be supplied through your host secret manager or an uncommitted file.
+- `VANTAGE_V5_AUTH_PASSWORD` enables the Vantage sign-in screen for the configured `VANTAGE_V5_AUTH_USERNAME`; API clients may still use HTTP Basic Auth with the same credentials.
+- `VANTAGE_V5_AUTH_USERS_JSON` or `VANTAGE_V5_AUTH_USERS_FILE` enables multi-user profile mode. Each username signs in to its own isolated Markdown store under `users/<username>/`.
+- Keep using long random passwords. The JSON values are plaintext deployment secrets and should be supplied through your host secret manager or an uncommitted file.
 - `/api/health` stays unauthenticated so hosts and reverse proxies can perform uptime checks.
 - `VANTAGE_V5_REPO_ROOT` controls where Vantage stores Markdown state. In Docker, use `/data` and mount it as persistent storage.
 
@@ -52,7 +52,7 @@ workspaces/
 
 These directories are the product database today. Losing them loses saved whiteboards, artifacts, memories, experiment state, and trace history.
 
-In multi-user profile mode, each user has the same directory layout under `users/<username>/`. Back up the whole `users/` directory as part of the persistent data volume.
+When auth is enabled, each user has the same directory layout under `users/<username>/`. Back up the whole `users/` directory as part of the persistent data volume.
 
 ## Docker
 

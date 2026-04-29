@@ -14,7 +14,7 @@ _PUBLISH_RE = re.compile(r"\b(?:publish|artifact|finalize|ship)\b", re.IGNORECAS
 _DRAFT_RE = re.compile(r"\b(?:draft|write|compose|outline|plan|sketch|create|build)\b", re.IGNORECASE)
 _REVISE_RE = re.compile(r"\b(?:revise|edit|rewrite|refine|polish|tighten|update|change|adjust|add|remove|include)\b", re.IGNORECASE)
 _INSPECT_RE = re.compile(
-    r"\b(?:why|what shaped|what did you use|inspect|provenance|source|reasoning|memory trace|trace this)\b",
+    r"\b(?:what shaped|what did you use|inspect|provenance|source path|reasoning path|memory trace|trace this|why did you (?:answer|choose|use)|why that answer)\b",
     re.IGNORECASE,
 )
 _EXPERIMENT_RE = re.compile(r"\b(?:experiment mode|switch out|turn off|end experiment|leave experiment)\b", re.IGNORECASE)

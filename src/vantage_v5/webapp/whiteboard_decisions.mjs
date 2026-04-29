@@ -30,6 +30,16 @@ export function workspaceUpdateHasDraft(workspaceUpdate) {
   return Boolean(workspaceUpdate && typeof workspaceUpdate.content === "string" && workspaceUpdate.content.trim());
 }
 
+export function deriveAppliedWorkspaceDraftNote({ mode = "replace", forked = false } = {}) {
+  if (mode === "append") {
+    return "Updated your draft by appending this turn's changes. Save when you're ready.";
+  }
+  if (forked) {
+    return "Opened this draft in the whiteboard. Save when you're ready.";
+  }
+  return "Updated your draft with this turn's changes. Save when you're ready.";
+}
+
 export function shouldHideChatWorkspaceUpdate({ hidden = false, view = {}, workspaceUpdate = null } = {}) {
   return Boolean(hidden || isWhiteboardFocused(view) || !hasPendingWorkspaceDecision(workspaceUpdate));
 }

@@ -16,5 +16,5 @@ Focused unit tests for the backend Protocol Engine.
 - Interpreter-driven protocol updates write a stable protocol record, return an `upsert_protocol` action, and merge the updated record into the turn's concept records when the user explicitly expresses reusable future behavior.
 - One-off draft requests can recall a protocol without writing or updating that protocol, even if the interpreter over-eagerly proposes an update.
 - Interpreter decisions that only recall a protocol preserve existing concept records without writing.
-- Guidance construction prefers persisted protocol overrides over built-ins.
-- Guidance construction falls back to built-in protocols, such as Scenario Lab, when no persisted protocol exists.
+- Guidance construction prefers persisted/canonical protocol records over built-ins and keeps protocol metadata explicit.
+- Guidance construction falls back to built-in protocols, such as Scenario Lab, when no persisted or canonical protocol exists.

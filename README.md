@@ -844,7 +844,7 @@ Then open [http://127.0.0.1:8005](http://127.0.0.1:8005).
 If `OPENAI_API_KEY` is present in `.env`, chat runs through OpenAI.
 If not, the app falls back to a local placeholder chat response so the UI and workspace flow still work.
 
-For private online access, see [docs/deployment.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/deployment.md). The deployment path supports configurable host binding, opt-in HTTP Basic Auth, optional isolated user profiles, Docker, and persistent Markdown storage.
+For online access, see [docs/deployment.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/deployment.md). The supported V5 path is Docker Compose plus required auth, persistent Markdown storage, and an optional Tailscale, Cloudflare Tunnel, or Caddy public-facing layer.
 
 ## Milestones
 

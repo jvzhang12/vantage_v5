@@ -18,10 +18,15 @@ class AppConfig:
     nexus_root: Path | None
     nexus_include_paths: list[str]
     nexus_exclude_paths: list[str]
+    canonical_root: Path | None = None
     host: str = "127.0.0.1"
     auth_username: str = "vantage"
     auth_password: str | None = None
     auth_users: dict[str, str] = field(default_factory=dict)
+    allowed_hosts: list[str] = field(default_factory=list)
+    allowed_origins: list[str] = field(default_factory=list)
+    cookie_secure: bool = False
+    allow_unsafe_public_no_auth: bool = False
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -31,6 +36,7 @@ class AppConfig:
         load_dotenv(repo_root / ".env", override=False)
         return cls(
             repo_root=repo_root,
+            canonical_root=_optional_path(os.getenv("VANTAGE_V5_CANONICAL_ROOT")) or default_repo_root / "canonical",
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             model=os.getenv("VANTAGE_V5_MODEL", "gpt-4.1"),
             host=os.getenv("VANTAGE_V5_HOST", "127.0.0.1"),
@@ -45,6 +51,10 @@ class AppConfig:
             auth_username=os.getenv("VANTAGE_V5_AUTH_USERNAME", "vantage"),
             auth_password=os.getenv("VANTAGE_V5_AUTH_PASSWORD") or None,
             auth_users=_auth_users_from_env(repo_root),
+            allowed_hosts=_csv_env("VANTAGE_V5_ALLOWED_HOSTS"),
+            allowed_origins=_csv_env("VANTAGE_V5_ALLOWED_ORIGINS"),
+            cookie_secure=_bool_env("VANTAGE_V5_COOKIE_SECURE"),
+            allow_unsafe_public_no_auth=_bool_env("VANTAGE_V5_ALLOW_UNSAFE_PUBLIC_NO_AUTH"),
         )
 
 
@@ -61,6 +71,10 @@ def _default_active_workspace(repo_root: Path) -> str:
 def _csv_env(name: str) -> list[str]:
     raw = os.getenv(name, "")
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _bool_env(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _optional_path(value: str | None) -> Path | None:

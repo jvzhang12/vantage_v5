@@ -8,6 +8,7 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - Serve durable whiteboard state by default, switch to an active experiment session when one exists, and isolate durable/experiment state per authenticated user when multi-user profile mode is enabled.
 - Provide API endpoints for health, account creation, login/logout, per-user OpenAI key status/save/clear, whiteboard/workspace CRUD, concepts, protocols, memory, vault notes, search, promotion/opening actions, experiments, and chat.
 - Delegate `/api/chat` context preparation to `ContextEngine` plus `ContextSupport`, source/continuity lookup to `ContextSourceResolver`, protocol action and API catalog/update semantics to `ProtocolEngine`, local semantic actions to `LocalSemanticActionEngine`, turn execution to `TurnOrchestrator`, whiteboard phrase routing to `WhiteboardRoutingEngine`, draft/artifact lifecycle work to `DraftArtifactLifecycle`, record-card presentation to `record_cards.py`, and turn payload construction/final compatibility shaping to `turn_payloads.py`.
+- Enforce deployment safety checks before exposing the app on non-local hosts, including required auth by default, optional trusted-host enforcement, same-origin protection for mutating browser requests, and secure cookie support for HTTPS reverse proxies.
 
 ## Key Classes / Models
 
@@ -29,10 +30,12 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - `main() -> None`: loads config and runs `uvicorn` on the configured `VANTAGE_V5_HOST:{port}`.
 - `_chat_turn_response()`: thin compatibility wrapper that builds `ChatTurnRequestContext` and calls `TurnOrchestrator.run()`.
 - Helper payload builders:
-  - `_workspace_payload`
-  - `_session_info`
+- `_workspace_payload`
+- `_session_info`
 - `_runtime`
 - `_durable_scope`
+- `_requires_public_auth`
+- `_request_origin_allowed`
 
 ## Routes
 
@@ -80,20 +83,25 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 
 - Preserves the original single-user storage layout when no multi-user credential map is configured.
 - When `auth_users` is configured, Basic Auth usernames are normalized into safe storage ids and each user gets isolated Markdown-backed `concepts/`, `memories/`, `artifacts/`, `workspaces/`, `memory_trace/`, `state/`, and `traces/` directories under `users/<username>/`.
+- Adds a read-through canonical default layer under `canonical/`: profile and experiment stores stay private/writable, while canonical concepts, protocols, memories, and artifacts are visible as lower-priority reference context without being copied into each user folder.
+- Refuses non-local bind hosts such as `0.0.0.0` unless auth is enabled, unless `VANTAGE_V5_ALLOW_UNSAFE_PUBLIC_NO_AUTH=true` is explicitly set.
+- Supports optional `TrustedHostMiddleware` through `VANTAGE_V5_ALLOWED_HOSTS`.
+- Blocks mutating cross-origin requests when an `Origin` or `Referer` does not match the request host or configured `VANTAGE_V5_ALLOWED_ORIGINS`.
+- Sets login cookies with `Secure` when `VANTAGE_V5_COOKIE_SECURE=true`, which is the expected setting behind an HTTPS proxy or tunnel.
 - `/api/health` remains unauthenticated for uptime checks, but includes the current user only when a valid Basic Auth header or login cookie is supplied. It also reports masked OpenAI key status, using the environment key for unauthenticated checks and the current user's in-memory override after login.
-- `/api/accounts` creates local username/password accounts when auth/profile mode is enabled. It rejects usernames that collide with configured auth users or existing local accounts, hashes passwords before writing `state/accounts.json`, seeds the new user's private storage root, and returns a login cookie so the user lands in their own durable session immediately.
+- `/api/accounts` creates local username/password accounts when auth/profile mode is enabled. It rejects usernames that collide with configured auth users or existing local accounts, hashes passwords before writing `state/accounts.json`, seeds the new user's private storage root, and returns a login cookie so the user lands in their own durable session immediately. Canonical defaults remain read-through references rather than copied account files.
 - `/api/openai-key` lets an authenticated profile inspect masked key status, save a session-local user key, or clear that key back to the environment/fallback setting. Full key material is never returned in API responses and is not written to the Markdown-backed user store.
 - Chat, Scenario Lab, Navigator, vetting, meta, and protocol interpreter services are now constructed from the effective key for the current durable scope, so a saved user key affects the model-backed request path without requiring a server restart.
 
-- Resolves a “runtime” object per request, choosing durable stores or experiment-session stores depending on whether an experiment is active.
+- Resolves a “runtime” object per request, choosing durable stores or experiment-session stores depending on whether an experiment is active, then layering canonical stores underneath as reference stores.
 - When `VANTAGE_V5_AUTH_PASSWORD` is configured, protects the UI, static assets, and API routes with HTTP Basic Auth while leaving `/api/health` open for host health checks.
-- Combines experiment and durable content in several read paths, especially memory/concept lookup and search.
+- Combines experiment, durable, and canonical content in several read paths, especially memory/concept lookup, protocol catalogs, and search. Higher-priority user/session records override canonical records with the same id.
 - Uses `HTTPException` to convert missing files into 404s and unexpected chat errors into 500s.
 - `/api/chat` now treats `workspace_content` as transient turn context rather than silently persisting it before the reply, and it honors `workspace_scope` so hidden whiteboards do not silently ground ordinary chat. When the whiteboard is in scope, `ContextEngine` overlays the live buffer onto the loaded workspace document; when it is out of scope, `ContextSupport` blanks the workspace content before routing while keeping the active whiteboard id stable. The route delegates this lifecycle through `TurnOrchestrator`, which consumes a single `PreparedTurnContext`.
 - `/api/chat` now delegates final turn-payload shaping to `turn_payloads.py`: `learned` stays canonical, `created_record` is backfilled as a thin compatibility alias, `graph_action.record_id` / `concept_id` stay mirrored, pending whiteboard `status` / `type` aliases are normalized both ways, and the pinned-context continuity surface is exposed explicitly as top-level `pinned_context` plus `pinned_context_id`, with `selected_record` / `selected_record_id` retained only as compatibility aliases. The same assembler-owned payload now also surfaces `turn_interpretation.whiteboard_entry_mode` so the UI can distinguish a fresh whiteboard start from continuing the current draft or reopening prior material.
 - Local semantic-action and clarification helpers now live in `LocalSemanticActionEngine`, which creates `LocalTurnBodyParts` and returns `TurnResultParts` envelopes instead of final response dictionaries; `TurnOrchestrator` sends those parts through `assemble_local_turn_payload()` in `turn_payloads.py`, leaving `server.py` out of local action execution details.
 - Saved concept, memory, artifact, and pinned-context payloads now add a thin lineage view-model on top of raw `comes_from`: `derived_from_id`, `revision_parent_id`, and `lineage_kind`. The server still stores lineage canonically in `comes_from`; these fields only help the UI tell generic provenance from concept-revision ancestry, and `record_cards.py` now prefers explicit `revision_of` metadata when it exists before falling back to legacy revision filename heuristics.
-- Protocol concept payloads now expose a `kind="protocol"` view plus `protocol.protocol_kind`, `variables`, `applies_to`, `modifiable`, built-in, and built-in-override metadata. `ProtocolEngine` owns catalog listing, id/kind lookup, persisted override precedence, and API update write construction; `server.py` serializes those facts for `/api/protocols?include_builtins=true`, `GET /api/protocols/{protocol_kind_or_id}`, and `PUT /api/protocols/{protocol_kind}`.
+- Protocol concept payloads now expose a `kind="protocol"` view plus `protocol.protocol_kind`, `variables`, `applies_to`, `modifiable`, built-in, canonical, built-in-override, and canonical-override metadata. `ProtocolEngine` owns catalog listing, id/kind lookup, persisted override precedence, and API update write construction; `server.py` serializes those facts for `/api/protocols?include_builtins=true`, `GET /api/protocols/{protocol_kind_or_id}`, and `PUT /api/protocols/{protocol_kind}`.
 - Final turn payloads now attach a safe `system_state` object plus a compact `activity` object. These expose session/surface/control availability, content-free workspace metadata, pinned/pending references, completed activity steps, graph actions, and created record ids without leaking hidden whiteboard content.
 - Saved artifact payloads now also expose explicit lifecycle semantics through `DraftArtifactLifecycle` card enrichment: `artifact_origin` and `artifact_lifecycle` distinguish whiteboard snapshots, promoted artifacts, and Scenario Lab comparison hubs without changing the underlying storage truth that provenance still lives in `comes_from`.
 - Whiteboard snapshot saves, visible-whiteboard publish actions, `/api/workspace` save snapshots, `/api/concepts/promote`, and `/api/concepts/open` saved-item reopen now delegate their storage/executor sequence to `DraftArtifactLifecycle`, keeping `server.py` responsible for HTTP routing and response serialization rather than lifecycle choreography.

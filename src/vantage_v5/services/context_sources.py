@@ -33,9 +33,9 @@ class ContextSourceResolver:
             (runtime["concept_store"], runtime["scope"]),
             (runtime["memory_store"], runtime["scope"]),
             (runtime["artifact_store"], runtime["scope"]),
-            (durable_scope["concept_store"] if session is not None else None, "durable"),
-            (durable_scope["memory_store"] if session is not None else None, "durable"),
-            (durable_scope["artifact_store"] if session is not None else None, "durable"),
+            (runtime.get("reference_concept_store"), "reference"),
+            (runtime.get("reference_memory_store"), "reference"),
+            (runtime.get("reference_artifact_store"), "reference"),
         ]
         for store, scope in stores:
             if store is None:
@@ -44,7 +44,7 @@ class ContextSourceResolver:
                 record = store.get(record_id)
             except FileNotFoundError:
                 continue
-            return self._saved_record_summary(record, scope=scope)
+            return self._saved_record_summary(record, scope=_record_scope(record, fallback=scope))
         try:
             note = self.vault_store.get(record_id)
         except FileNotFoundError:
@@ -260,3 +260,15 @@ def _is_scenario_comparison_record(record: Any) -> bool:
         return True
     body = getattr(record, "body", "")
     return "## Recommendation" in body and "## Branches Compared" in body
+
+
+def _record_scope(record: Any, *, fallback: str) -> str:
+    path = getattr(record, "path", None)
+    parts = getattr(path, "parts", ()) if path is not None else ()
+    if "canonical" in parts:
+        return "canonical"
+    if "experiments" in parts:
+        return "experiment"
+    if fallback == "reference":
+        return "durable"
+    return fallback

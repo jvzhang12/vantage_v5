@@ -1121,7 +1121,7 @@ def _merge_records(*record_lists: list[Any]) -> list[Any]:
     merged: dict[tuple[str, str], Any] = {}
     for records in record_lists:
         for record in records:
-            merged[(record.source, record.id)] = record
+            merged.setdefault((record.source, record.id), record)
     return list(merged.values())
 
 

@@ -40,7 +40,7 @@ def serialize_concept_card(concept: Any, *, scope: str = "durable") -> dict[str,
         "body": concept.body,
         "status": concept.status,
         "source": "concept",
-        "source_label": "Experiment concepts" if scope == "experiment" else "Concept KB",
+        "source_label": _concept_source_label(scope),
         "trust": "high",
         "kind": "concept",
         "memory_role": "semantic_knowledge",
@@ -59,7 +59,9 @@ def serialize_concept_card(concept: Any, *, scope: str = "durable") -> dict[str,
             "applies_to": metadata.get("applies_to") or [],
             "modifiable": bool(metadata.get("modifiable", True)),
             "is_builtin": False,
+            "is_canonical": scope == "canonical",
             "overrides_builtin": bool(metadata.get("override_of_builtin")),
+            "overrides_canonical": bool(metadata.get("override_of_canonical")),
         }
     payload.update(lineage_payload(concept))
     return payload
@@ -100,10 +102,7 @@ def serialize_built_in_protocol_card(protocol_kind: str) -> dict[str, Any]:
 
 
 def serialize_saved_note_card(record: Any, *, scope: str = "durable") -> dict[str, Any]:
-    source_label = {
-        "memory": "Experiment memories" if scope == "experiment" else "Saved memories",
-        "artifact": "Experiment artifacts" if scope == "experiment" else "Saved artifacts",
-    }.get(record.source, "Saved notes")
+    source_label = _saved_note_source_label(record.source, scope)
     payload = {
         "id": record.id,
         "title": record.title,
@@ -205,3 +204,27 @@ def _clean_scenario_metadata_value(value: Any) -> Any:
         return cleaned_list
     normalized_value = str(value).strip()
     return normalized_value or None
+
+
+def _concept_source_label(scope: str) -> str:
+    if scope == "experiment":
+        return "Experiment concepts"
+    if scope == "canonical":
+        return "Vantage defaults"
+    return "Concept KB"
+
+
+def _saved_note_source_label(source: str, scope: str) -> str:
+    if source == "memory":
+        if scope == "experiment":
+            return "Experiment memories"
+        if scope == "canonical":
+            return "Vantage default memories"
+        return "Saved memories"
+    if source == "artifact":
+        if scope == "experiment":
+            return "Experiment artifacts"
+        if scope == "canonical":
+            return "Vantage default artifacts"
+        return "Saved artifacts"
+    return "Saved notes"

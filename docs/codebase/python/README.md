@@ -73,6 +73,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - [src/vantage_v5/storage/markdown_store.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/markdown_store.py.md)
 - [src/vantage_v5/storage/memory_trace.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/memory_trace.py.md)
 - [src/vantage_v5/storage/memories.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/memories.py.md)
+- [src/vantage_v5/storage/overlay.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/overlay.py.md)
 - [src/vantage_v5/storage/state.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/state.py.md)
 - [src/vantage_v5/storage/vault.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/vault.py.md)
 - [src/vantage_v5/storage/workspaces.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/workspaces.py.md)
@@ -82,6 +83,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - `memory_trace.py` now implements the first markdown-backed recent-history store that sits alongside the existing JSON debug traces under `traces/`.
 - Recent trace items can feed Recall as `memory_trace` candidates without being folded into the durable Library endpoints.
 - Memory Trace records now carry structured frontmatter metadata such as turn mode, workspace scope, recalled ids, learned ids, and preserved-context ids so retrieval can rank on continuity signals instead of relying only on the transcript body.
+- `overlay.py` provides the read-through canonical/default layer used to merge shipped Vantage defaults underneath user and experiment records without copying those defaults into each profile.
 
 ## Tests
 

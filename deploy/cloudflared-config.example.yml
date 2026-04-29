@@ -1,0 +1,10 @@
+# Example Cloudflare Tunnel config for Vantage V5.
+# Replace the tunnel, credentials-file, and hostname placeholders.
+
+tunnel: <tunnel-id-or-name>
+credentials-file: /etc/cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: vantage.example.com
+    service: http://127.0.0.1:8005
+  - service: http_status:404

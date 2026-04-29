@@ -58,7 +58,9 @@ def test_serialize_concept_card_preserves_protocol_metadata(tmp_path: Path) -> N
         "applies_to": ["email"],
         "modifiable": True,
         "is_builtin": False,
+        "is_canonical": False,
         "overrides_builtin": True,
+        "overrides_canonical": False,
     }
 
 

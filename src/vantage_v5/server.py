@@ -3,18 +3,21 @@ from __future__ import annotations
 import base64
 from datetime import UTC, datetime
 import hashlib
+from ipaddress import ip_address
 import json
 import logging
 from pathlib import Path
 import re
 import secrets
 from typing import Any
+from urllib.parse import urlparse
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from vantage_v5.config import AppConfig
 from vantage_v5.services.chat import ChatService
@@ -49,6 +52,10 @@ from vantage_v5.storage.experiments import ExperimentSession
 from vantage_v5.storage.experiments import ExperimentSessionManager
 from vantage_v5.storage.memory_trace import MemoryTraceStore
 from vantage_v5.storage.memories import MemoryStore
+from vantage_v5.storage.overlay import ArtifactOverlayStore
+from vantage_v5.storage.overlay import ConceptOverlayStore
+from vantage_v5.storage.overlay import MemoryOverlayStore
+from vantage_v5.storage.overlay import overlay_records
 from vantage_v5.storage.state import ActiveWorkspaceStateStore
 from vantage_v5.storage.vault import VaultNoteStore
 from vantage_v5.storage.workspaces import WorkspaceStore
@@ -160,6 +167,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     repo_root = cfg.repo_root
     account_store_path = repo_root / "state" / "accounts.json"
     auth_enabled = bool(cfg.auth_password or cfg.auth_users or account_store_path.exists())
+    if _requires_public_auth(cfg.host) and not auth_enabled and not cfg.allow_unsafe_public_no_auth:
+        raise RuntimeError(
+            "Vantage is configured to listen on a non-local host without authentication. "
+            "Set VANTAGE_V5_AUTH_PASSWORD or VANTAGE_V5_AUTH_USERS_JSON before exposing it, "
+            "or set VANTAGE_V5_ALLOW_UNSAFE_PUBLIC_NO_AUTH=true only for a trusted private network."
+        )
     account_creation_enabled = auth_enabled
     user_scoped_storage = auth_enabled
     multi_user_enabled = bool(cfg.auth_users)
@@ -167,6 +180,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     login_sessions: dict[str, str] = {}
     user_openai_api_keys: dict[str, str] = {}
     durable_scope_cache: dict[str, dict[str, Any]] = {}
+    canonical_root = cfg.canonical_root or repo_root / "canonical"
     vault_store = VaultNoteStore(
         vault_root=cfg.nexus_root,
         include_paths=cfg.nexus_include_paths,
@@ -184,12 +198,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     context_sources = ContextSourceResolver(vault_store=vault_store)
 
     app = FastAPI(title="Vantage V5", version="0.1.0")
+    if cfg.allowed_hosts:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=cfg.allowed_hosts)
     web_dir = Path(__file__).resolve().parent / "webapp"
     app.mount("/static", StaticFiles(directory=web_dir), name="static")
 
     @app.middleware("http")
     async def _basic_auth_middleware(request: Request, call_next):
         request.state.user_id = None
+        if _is_unsafe_method(request.method) and not _request_origin_allowed(request, cfg.allowed_origins):
+            return Response("Cross-origin request blocked.", status_code=403)
         if not auth_enabled:
             if not user_scoped_storage:
                 request.state.user_id = cfg.auth_username
@@ -271,7 +289,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             token,
             httponly=True,
             samesite="lax",
-            secure=False,
+            secure=cfg.cookie_secure,
             max_age=60 * 60 * 24 * 14,
         )
         return response
@@ -306,7 +324,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def _ensure_storage_root(root: Path) -> None:
         for folder in ["concepts", "memories", "memory_trace", "artifacts", "workspaces", "state", "traces"]:
             (root / folder).mkdir(parents=True, exist_ok=True)
-        _seed_default_protocol_concepts(root)
         workspace_path = root / "workspaces" / f"{cfg.active_workspace}.md"
         if not workspace_path.exists():
             workspace_path.write_text(
@@ -328,20 +345,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 encoding="utf-8",
             )
 
-    def _seed_default_protocol_concepts(root: Path) -> None:
-        if root == repo_root:
-            return
-        source_dir = repo_root / "concepts"
-        target_dir = root / "concepts"
-        if not source_dir.exists():
-            return
-        for protocol in ConceptStore(source_dir).list_concepts():
-            if protocol.type != "protocol":
-                continue
-            target_path = target_dir / protocol.path.name
-            if target_path.exists():
-                continue
-            target_path.write_text(protocol.path.read_text(encoding="utf-8"), encoding="utf-8")
+    def _canonical_scope() -> dict[str, Any]:
+        return {
+            "root": canonical_root,
+            "concept_store": ConceptStore(canonical_root / "concepts"),
+            "memory_store": MemoryStore(canonical_root / "memories"),
+            "artifact_store": ArtifactStore(canonical_root / "artifacts"),
+        }
 
     def _durable_scope(request: Request | None = None) -> dict[str, Any]:
         scope_key = _scope_key_for_request(request)
@@ -351,9 +361,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         root = _user_root_for_key(scope_key)
         if user_scoped_storage:
             _ensure_storage_root(root)
+        canonical_scope = _canonical_scope()
         scope = {
             "user_id": None if scope_key == "__single_user__" else scope_key,
             "root": root,
+            "canonical_scope": canonical_scope,
             "concept_store": ConceptStore(root / "concepts"),
             "memory_store": MemoryStore(root / "memories"),
             "memory_trace_store": MemoryTraceStore(root / "memory_trace"),
@@ -421,6 +433,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
 
     def _runtime(durable_scope: dict[str, Any], session: ExperimentSession | None) -> dict[str, Any]:
+        canonical_scope = durable_scope["canonical_scope"]
         if session is None:
             concept_store = durable_scope["concept_store"]
             memory_store = durable_scope["memory_store"]
@@ -428,10 +441,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             artifact_store = durable_scope["artifact_store"]
             workspace_store = durable_scope["workspace_store"]
             state_store = durable_scope["state_store"]
-            reference_concept_store = None
-            reference_memory_store = None
+            reference_concept_store = canonical_scope["concept_store"]
+            reference_memory_store = canonical_scope["memory_store"]
             reference_memory_trace_store = None
-            reference_artifact_store = None
+            reference_artifact_store = canonical_scope["artifact_store"]
             traces_dir = durable_scope["traces_dir"]
             scope = "durable"
         else:
@@ -441,10 +454,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             artifact_store = ArtifactStore(session.artifacts_dir)
             workspace_store = WorkspaceStore(session.workspaces_dir)
             state_store = ActiveWorkspaceStateStore(session.state_path)
-            reference_concept_store = durable_scope["concept_store"]
-            reference_memory_store = durable_scope["memory_store"]
+            reference_concept_store = ConceptOverlayStore(
+                durable_scope["concept_store"],
+                canonical_scope["concept_store"],
+            )
+            reference_memory_store = MemoryOverlayStore(
+                durable_scope["memory_store"],
+                canonical_scope["memory_store"],
+            )
             reference_memory_trace_store = None
-            reference_artifact_store = durable_scope["artifact_store"]
+            reference_artifact_store = ArtifactOverlayStore(
+                durable_scope["artifact_store"],
+                canonical_scope["artifact_store"],
+            )
             traces_dir = session.traces_dir
             scope = "experiment"
         openai_api_key = _effective_openai_api_key(durable_scope)
@@ -515,6 +537,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "artifact_store": artifact_store,
             "workspace_store": workspace_store,
             "state_store": state_store,
+            "reference_concept_store": reference_concept_store,
+            "reference_memory_store": reference_memory_store,
+            "reference_artifact_store": reference_artifact_store,
             "executor": executor,
             "chat_service": chat_service,
             "scenario_lab_service": scenario_lab_service,
@@ -522,27 +547,27 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         }
 
     def _saved_note_cards(durable_scope: dict[str, Any], session: ExperimentSession | None) -> list[dict[str, Any]]:
-        if session is None:
-            return [
-                *[_serialize_saved_note_card(memory, scope="durable") for memory in durable_scope["memory_store"].list_memories()],
-                *[_serialize_saved_note_card(artifact, scope="durable") for artifact in durable_scope["artifact_store"].list_artifacts()],
-            ]
-        experiment_notes = [
-            *[_serialize_saved_note_card(memory, scope="experiment") for memory in MemoryStore(session.memories_dir).list_memories()],
-            *[_serialize_saved_note_card(artifact, scope="experiment") for artifact in ArtifactStore(session.artifacts_dir).list_artifacts()],
+        return [
+            _serialize_saved_note_card(record, scope=_record_scope(record, session))
+            for record in _saved_note_records(durable_scope, session)
         ]
-        durable_notes = [
-            *[_serialize_saved_note_card(memory, scope="durable") for memory in durable_scope["memory_store"].list_memories()],
-            *[_serialize_saved_note_card(artifact, scope="durable") for artifact in durable_scope["artifact_store"].list_artifacts()],
-        ]
-        return experiment_notes + durable_notes
 
     def _concept_records(durable_scope: dict[str, Any], session: ExperimentSession | None) -> list[Any]:
+        canonical_scope = durable_scope["canonical_scope"]
         if session is None:
-            return durable_scope["concept_store"].list_concepts()
-        return ConceptStore(session.concepts_dir).list_concepts() + durable_scope["concept_store"].list_concepts()
+            return overlay_records(
+                durable_scope["concept_store"].list_concepts(),
+                canonical_scope["concept_store"].list_concepts(),
+            )
+        return overlay_records(
+            ConceptStore(session.concepts_dir).list_concepts(),
+            durable_scope["concept_store"].list_concepts(),
+            canonical_scope["concept_store"].list_concepts(),
+        )
 
     def _record_scope(record: Any, session: ExperimentSession | None) -> str:
+        if "canonical" in record.path.parts:
+            return "canonical"
         return "experiment" if session and "experiments" in record.path.parts else "durable"
 
     def _serialize_protocol_catalog_entry(entry: Any, session: ExperimentSession | None) -> dict[str, Any]:
@@ -553,13 +578,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return _serialize_built_in_protocol(entry.built_in_kind)
 
     def _saved_note_records(durable_scope: dict[str, Any], session: ExperimentSession | None) -> list[Any]:
+        canonical_scope = durable_scope["canonical_scope"]
         if session is None:
-            return durable_scope["memory_store"].list_memories() + durable_scope["artifact_store"].list_artifacts()
-        return (
-            MemoryStore(session.memories_dir).list_memories()
-            + ArtifactStore(session.artifacts_dir).list_artifacts()
-            + durable_scope["memory_store"].list_memories()
-            + durable_scope["artifact_store"].list_artifacts()
+            return overlay_records(
+                durable_scope["memory_store"].list_memories(),
+                durable_scope["artifact_store"].list_artifacts(),
+                canonical_scope["memory_store"].list_memories(),
+                canonical_scope["artifact_store"].list_artifacts(),
+            )
+        return overlay_records(
+            MemoryStore(session.memories_dir).list_memories(),
+            ArtifactStore(session.artifacts_dir).list_artifacts(),
+            durable_scope["memory_store"].list_memories(),
+            durable_scope["artifact_store"].list_artifacts(),
+            canonical_scope["memory_store"].list_memories(),
+            canonical_scope["artifact_store"].list_artifacts(),
         )
 
     context_engine = ContextEngine(
@@ -697,7 +730,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if token:
             login_sessions.pop(token, None)
         response = JSONResponse({"authenticated": False})
-        response.delete_cookie(session_cookie_name)
+        response.delete_cookie(session_cookie_name, secure=cfg.cookie_secure, samesite="lax")
         return response
 
     @app.get("/api/openai-key")
@@ -922,11 +955,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         durable_scope = _durable_scope(request)
         session = durable_scope["experiment_manager"].get_active_session()
         runtime = _runtime(durable_scope, session)
+        canonical_scope = durable_scope["canonical_scope"]
         for store, scope in [
             (runtime["memory_store"], runtime["scope"]),
             (runtime["artifact_store"], runtime["scope"]),
             (durable_scope["memory_store"] if session is not None else None, "durable"),
             (durable_scope["artifact_store"] if session is not None else None, "durable"),
+            (canonical_scope["memory_store"], "canonical"),
+            (canonical_scope["artifact_store"], "canonical"),
         ]:
             if store is None:
                 continue
@@ -950,12 +986,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         durable_scope = _durable_scope(request)
         session = durable_scope["experiment_manager"].get_active_session()
         runtime = _runtime(durable_scope, session)
-        try:
-            concept = runtime["concept_store"].get(concept_id)
-            return _serialize_concept_card(concept, scope=runtime["scope"])
-        except FileNotFoundError:
-            concept = durable_scope["concept_store"].get(concept_id)
-            return _serialize_concept_card(concept, scope="durable")
+        canonical_scope = durable_scope["canonical_scope"]
+        for store, scope in [
+            (runtime["concept_store"], runtime["scope"]),
+            (durable_scope["concept_store"] if session is not None else None, "durable"),
+            (canonical_scope["concept_store"], "canonical"),
+        ]:
+            if store is None:
+                continue
+            try:
+                concept = store.get(concept_id)
+                return _serialize_concept_card(concept, scope=scope)
+            except FileNotFoundError:
+                continue
+        raise HTTPException(status_code=404, detail=f"Concept '{concept_id}' was not found.")
 
     @app.get("/api/vault-notes/{note_id}")
     def get_vault_note(note_id: str) -> dict[str, Any]:
@@ -1220,6 +1264,85 @@ def _mask_openai_api_key(api_key: str) -> str:
     if len(normalized) <= 8:
         return "***"
     return f"{normalized[:4]}...{normalized[-4:]}"
+
+
+def _requires_public_auth(host: str) -> bool:
+    normalized = str(host or "").strip().lower()
+    if normalized in {"", "localhost", "127.0.0.1", "::1"}:
+        return False
+    if normalized in {"0.0.0.0", "::", "*"}:
+        return True
+    try:
+        parsed = ip_address(normalized)
+    except ValueError:
+        return True
+    return not parsed.is_loopback
+
+
+def _is_unsafe_method(method: str) -> bool:
+    return method.upper() not in {"GET", "HEAD", "OPTIONS", "TRACE"}
+
+
+def _request_origin_allowed(request: Request, allowed_origins: list[str]) -> bool:
+    origin = str(request.headers.get("origin") or "").strip()
+    if not origin:
+        referer = str(request.headers.get("referer") or "").strip()
+        if not referer:
+            return True
+        origin = _origin_from_url(referer)
+    if not origin:
+        return True
+    normalized_origin = _normalize_origin(origin)
+    if normalized_origin in {_normalize_origin(allowed) for allowed in allowed_origins}:
+        return True
+    origin_host = _host_port_from_origin(normalized_origin)
+    request_host = _host_port_from_host_header(str(request.headers.get("host") or ""))
+    return bool(origin_host and request_host and origin_host == request_host)
+
+
+def _origin_from_url(value: str) -> str:
+    parsed = urlparse(value)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _normalize_origin(value: str) -> str:
+    parsed = urlparse(value.strip())
+    if not parsed.scheme or not parsed.netloc:
+        return value.strip().rstrip("/")
+    scheme = parsed.scheme.lower()
+    hostname = (parsed.hostname or "").lower()
+    port = parsed.port
+    default_port = 443 if scheme == "https" else 80 if scheme == "http" else None
+    if port is None or port == default_port:
+        return f"{scheme}://{hostname}"
+    return f"{scheme}://{hostname}:{port}"
+
+
+def _host_port_from_origin(origin: str) -> str:
+    parsed = urlparse(origin)
+    if not parsed.hostname:
+        return ""
+    port = parsed.port
+    return f"{parsed.hostname.lower()}:{port}" if port else parsed.hostname.lower()
+
+
+def _host_port_from_host_header(host: str) -> str:
+    normalized = host.strip().lower()
+    if not normalized:
+        return ""
+    if normalized.startswith("["):
+        end = normalized.find("]")
+        if end == -1:
+            return normalized
+        hostname = normalized[1:end]
+        port = normalized[end + 2 :] if normalized[end + 1 : end + 2] == ":" else ""
+        return f"{hostname}:{port}" if port else hostname
+    if ":" in normalized:
+        hostname, port = normalized.rsplit(":", 1)
+        return f"{hostname}:{port}" if port else hostname
+    return normalized
 
 
 def _should_enter_scenario_lab(decision: NavigationDecision) -> bool:

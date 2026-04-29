@@ -10,7 +10,7 @@ Focused unit tests for the record-card presentation boundary.
 ## Coverage
 
 - Saved artifact cards preserve `artifact_origin`, `artifact_lifecycle`, `scenario_kind`, nested `scenario`, and lineage fields.
-- Persisted protocol cards expose protocol metadata, variables, scope, and built-in override state.
+- Persisted protocol cards expose protocol metadata, variables, scope, built-in/canonical state, and override state.
 - Built-in protocol cards and grouped memory payloads keep their existing API shapes.
 - Memory cards do not accidentally receive artifact-only lifecycle fields.
 - Scenario payload cleanup removes empty nested values while preserving useful comparison metadata.

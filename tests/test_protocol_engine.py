@@ -175,7 +175,9 @@ def test_protocol_engine_builds_guidance_from_persisted_protocol_override(tmp_pa
         "applies_to": ["scenario lab"],
         "modifiable": True,
         "is_builtin": False,
+        "is_canonical": False,
         "overrides_builtin": True,
+        "overrides_canonical": False,
     }
 
 

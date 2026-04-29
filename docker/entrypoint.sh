@@ -4,7 +4,7 @@ set -eu
 DATA_ROOT="${VANTAGE_V5_REPO_ROOT:-/data}"
 ACTIVE_WORKSPACE="${VANTAGE_V5_ACTIVE_WORKSPACE:-v5-milestone-1}"
 
-for dir in artifacts concepts memories memory_trace state traces workspaces; do
+for dir in artifacts concepts memories memory_trace state traces users workspaces; do
   mkdir -p "${DATA_ROOT}/${dir}"
 done
 

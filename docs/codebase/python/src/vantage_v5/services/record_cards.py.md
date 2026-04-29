@@ -22,5 +22,6 @@ Presentation boundary for UI-facing record cards.
 
 - Artifact lifecycle enrichment is intentionally delegated to `artifact_lifecycle_card_fields()` so the lifecycle module remains the owner of `artifact_origin` / `artifact_lifecycle` card semantics.
 - Scenario metadata is cleaned before exposure so empty strings, empty lists, and empty nested objects do not leak into UI cards.
-- Protocol cards expose `kind="protocol"`, `memory_role="protocol"`, and a nested `protocol` object while keeping the same base concept-card shape.
+- Protocol cards expose `kind="protocol"`, `memory_role="protocol"`, and a nested `protocol` object while keeping the same base concept-card shape. The nested object now distinguishes built-in, canonical, built-in-override, and canonical-override protocol states for Inspect.
+- Canonical/default records receive Vantage-default source labels while user and experiment records keep their existing saved/experiment labels.
 - This module is a presentation layer only; it does not mutate storage or decide whether records should be recalled, saved, reopened, or promoted.

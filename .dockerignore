@@ -4,6 +4,9 @@ __pycache__
 .pytest_cache
 .DS_Store
 .env
+.env.*
+!.env.example
+!.env.online.example
 build
 dist
 *.egg-info
@@ -16,4 +19,7 @@ memories
 memory_trace
 state
 traces
+users
 workspaces
+tmp
+eval_runs

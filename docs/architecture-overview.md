@@ -83,9 +83,9 @@ There are two paths into protocol use:
 
 The built-in `scenario_lab` protocol is a reasoning recipe. It should be treated as task guidance, not a factual source.
 
-Protocols are now editable through Inspect. `GET /api/protocols?include_builtins=true` can surface built-ins, `GET /api/protocols/{protocol_kind_or_id}` resolves by kind or id, and `PUT /api/protocols/{protocol_kind}` writes a durable or experiment-scoped protocol record. Editing a built-in creates a persisted override rather than mutating the built-in default.
+Protocols are now editable through Inspect. `GET /api/protocols?include_builtins=true` can surface built-ins, `GET /api/protocols/{protocol_kind_or_id}` resolves by kind or id, and `PUT /api/protocols/{protocol_kind}` writes a durable or experiment-scoped protocol record. Editing a built-in or canonical default creates a persisted user/session override rather than mutating the shipped default.
 
-`protocol_engine.py` is the turn-time resolution seam. It consumes Navigator `apply_protocol` controls, validates supported protocol kinds, deduplicates actions, returns `ResolvedTurnProtocols`, applies interpreter-driven protocol learning/upserts, and builds `ProtocolGuidance` candidate memory for Chat or Scenario Lab. Persisted protocol records take precedence over built-ins; built-ins such as Scenario Lab remain available as advisory reasoning recipes when no override exists.
+`protocol_engine.py` is the turn-time resolution seam. It consumes Navigator `apply_protocol` controls, validates supported protocol kinds, deduplicates actions, returns `ResolvedTurnProtocols`, applies interpreter-driven protocol learning/upserts, and builds `ProtocolGuidance` candidate memory for Chat or Scenario Lab. User/session protocol records take precedence over canonical defaults, and canonical or persisted records take precedence over built-ins; built-ins such as Scenario Lab remain available as advisory reasoning recipes when no override exists.
 
 ## Semantic Frame And Policy
 
@@ -118,6 +118,7 @@ Follow-up questions on existing scenario comparisons should usually stay in chat
 
 The repository is currently a Markdown-backed local product database:
 
+- `canonical/`: shipped Vantage defaults, read underneath user/session stores and not mutated by user edits.
 - `concepts/`: timeless knowledge and protocols.
 - `memories/`: retained continuity facts.
 - `artifacts/`: concrete work products, whiteboard snapshots, promoted artifacts, and Scenario Lab comparison hubs.
@@ -127,7 +128,7 @@ The repository is currently a Markdown-backed local product database:
 - `state/`: active whiteboard/workspace and experiment state.
 - `users/<username>/`: isolated profile stores when multi-user Basic Auth mode is enabled.
 
-Experiment mode swaps the writable stores to session-local directories while durable stores remain readable reference context.
+Experiment mode swaps the writable stores to session-local directories while durable stores remain readable reference context. Canonical defaults remain the lowest-priority read-through layer in both durable and experiment modes, so a user can override a default without changing it for other profiles.
 
 ## Frontend Architecture
 

@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 
+import pytest
 from fastapi.testclient import TestClient
 
 from vantage_v5.config import AppConfig
@@ -38,7 +39,7 @@ def _test_repo(tmp_path: Path) -> Path:
     source = _repo_root()
     repo_root = tmp_path / "vantage-v5"
     repo_root.mkdir()
-    for folder in ["concepts", "memories", "memory_trace", "artifacts", "workspaces", "fixtures"]:
+    for folder in ["canonical", "concepts", "memories", "memory_trace", "artifacts", "workspaces", "fixtures"]:
         ignore = shutil.ignore_patterns("launch-strategy*.md") if folder == "workspaces" else None
         shutil.copytree(source / folder, repo_root / folder, ignore=ignore)
     # Build a fresh state directory so tests never inherit a live experiment
@@ -77,6 +78,11 @@ def _client(
     auth_username: str = "vantage",
     auth_password: str | None = None,
     auth_users: dict[str, str] | None = None,
+    host: str = "127.0.0.1",
+    allowed_hosts: list[str] | None = None,
+    allowed_origins: list[str] | None = None,
+    cookie_secure: bool = False,
+    allow_unsafe_public_no_auth: bool = False,
 ) -> tuple[TestClient, Path]:
     repo_root = _test_repo(tmp_path)
     app = create_app(
@@ -84,6 +90,7 @@ def _client(
             repo_root=repo_root,
             openai_api_key=openai_api_key,
             model="gpt-4.1",
+            host=host,
             port=8005,
             active_workspace="v5-milestone-1",
             nexus_root=repo_root / "fixtures" / "nexus",
@@ -92,6 +99,10 @@ def _client(
             auth_username=auth_username,
             auth_password=auth_password,
             auth_users=auth_users or {},
+            allowed_hosts=allowed_hosts or [],
+            allowed_origins=allowed_origins or [],
+            cookie_secure=cookie_secure,
+            allow_unsafe_public_no_auth=allow_unsafe_public_no_auth,
         )
     )
     return TestClient(app), repo_root
@@ -488,6 +499,58 @@ def test_basic_auth_protects_ui_and_api_when_configured(tmp_path: Path) -> None:
     assert "<title>Vantage</title>" in index.text
 
 
+def test_public_bind_requires_auth_unless_explicitly_overridden(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="without authentication"):
+        _client(tmp_path, host="0.0.0.0")
+
+    unsafe_tmp_path = tmp_path / "unsafe-override"
+    unsafe_tmp_path.mkdir()
+    client, _ = _client(
+        unsafe_tmp_path,
+        host="0.0.0.0",
+        allow_unsafe_public_no_auth=True,
+    )
+    assert client.get("/api/health").status_code == 200
+
+
+def test_cross_origin_mutating_requests_are_blocked(tmp_path: Path) -> None:
+    client, _ = _client(
+        tmp_path,
+        auth_users={
+            "eden": "eden-password",
+        },
+    )
+
+    blocked = client.post(
+        "/api/login",
+        json={"username": "eden", "password": "eden-password"},
+        headers={"Origin": "https://attacker.example"},
+    )
+    assert blocked.status_code == 403
+
+    allowed = client.post(
+        "/api/login",
+        json={"username": "eden", "password": "eden-password"},
+        headers={"Origin": "http://testserver"},
+    )
+    assert allowed.status_code == 200
+
+
+def test_secure_cookie_setting_for_https_proxy_deployments(tmp_path: Path) -> None:
+    client, _ = _client(
+        tmp_path,
+        auth_users={
+            "eden": "eden-password",
+        },
+        cookie_secure=True,
+    )
+
+    login = client.post("/api/login", json={"username": "eden", "password": "eden-password"})
+
+    assert login.status_code == 200
+    assert "Secure" in login.headers.get("set-cookie", "")
+
+
 def test_cookie_login_protects_user_scoped_routes(tmp_path: Path) -> None:
     client, repo_root = _client(
         tmp_path,
@@ -511,12 +574,12 @@ def test_cookie_login_protects_user_scoped_routes(tmp_path: Path) -> None:
     assert health.json()["authenticated"] is True
     assert health.json()["user"] == {"id": "eden"}
     protocol_path = repo_root / "users" / "eden" / "concepts" / "email-drafting-protocol.md"
-    assert protocol_path.exists()
+    assert not protocol_path.exists()
 
     protocols = client.get("/api/protocols")
     assert protocols.status_code == 200
     protocols_by_id = {item["id"]: item for item in protocols.json()["protocols"]}
-    assert protocols_by_id["email-drafting-protocol"]["scope"] == "durable"
+    assert protocols_by_id["email-drafting-protocol"]["scope"] == "canonical"
     assert protocols_by_id["email-drafting-protocol"]["protocol"]["protocol_kind"] == "email"
 
     update = client.post(
@@ -573,7 +636,12 @@ def test_create_account_hashes_password_and_creates_user_session(tmp_path: Path)
     assert account["password"]["algorithm"] == "pbkdf2_sha256"
     assert password not in account_path.read_text(encoding="utf-8")
     assert (repo_root / "users" / "taylor_01" / "workspaces" / "v5-milestone-1.md").exists()
-    assert (repo_root / "users" / "taylor_01" / "concepts" / "email-drafting-protocol.md").exists()
+    assert not (repo_root / "users" / "taylor_01" / "concepts" / "email-drafting-protocol.md").exists()
+
+    protocols = client.get("/api/protocols")
+    assert protocols.status_code == 200
+    protocols_by_id = {item["id"]: item for item in protocols.json()["protocols"]}
+    assert protocols_by_id["email-drafting-protocol"]["scope"] == "canonical"
 
     duplicate_local_user = client.post("/api/accounts", json={"username": "taylor_01", "password": password})
     assert duplicate_local_user.status_code == 409
@@ -966,6 +1034,52 @@ def test_protocol_apis_include_builtins_and_persist_builtin_override(tmp_path: P
     matches = [item for item in protocols_after.json()["protocols"] if item["id"] == "scenario-lab-protocol"]
     assert len(matches) == 1
     assert matches[0]["scope"] == "durable"
+
+
+def test_canonical_protocols_are_read_through_and_user_overrides_are_private(tmp_path: Path) -> None:
+    client, repo_root = _client(
+        tmp_path,
+        auth_users={
+            "eden": "eden-password",
+            "jordan": "jordan-password",
+        },
+    )
+    eden_headers = _basic_auth_header("eden", "eden-password")
+    jordan_headers = _basic_auth_header("jordan", "jordan-password")
+
+    protocols = client.get("/api/protocols", headers=eden_headers)
+    assert protocols.status_code == 200
+    by_id = {item["id"]: item for item in protocols.json()["protocols"]}
+    assert by_id["email-drafting-protocol"]["scope"] == "canonical"
+    assert by_id["email-drafting-protocol"]["protocol"]["is_canonical"] is True
+    assert not (repo_root / "users" / "eden" / "concepts" / "email-drafting-protocol.md").exists()
+
+    updated = client.put(
+        "/api/protocols/email",
+        headers=eden_headers,
+        json={
+            "variables": {"signature": "Eden Vale"},
+            "applies_to": ["email", "investor update"],
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["scope"] == "durable"
+    assert updated.json()["protocol"]["overrides_canonical"] is True
+    assert updated.json()["protocol"]["variables"]["signature"] == "Eden Vale"
+    assert (repo_root / "users" / "eden" / "concepts" / "email-drafting-protocol.md").exists()
+    assert "Eden Vale" not in (repo_root / "canonical" / "concepts" / "email-drafting-protocol.md").read_text(encoding="utf-8")
+
+    eden_protocols = client.get("/api/protocols", headers=eden_headers)
+    assert eden_protocols.status_code == 200
+    eden_by_id = {item["id"]: item for item in eden_protocols.json()["protocols"]}
+    assert eden_by_id["email-drafting-protocol"]["scope"] == "durable"
+    assert eden_by_id["email-drafting-protocol"]["protocol"]["variables"]["signature"] == "Eden Vale"
+
+    jordan_protocols = client.get("/api/protocols", headers=jordan_headers)
+    assert jordan_protocols.status_code == 200
+    jordan_by_id = {item["id"]: item for item in jordan_protocols.json()["protocols"]}
+    assert jordan_by_id["email-drafting-protocol"]["scope"] == "canonical"
+    assert jordan_by_id["email-drafting-protocol"]["protocol"]["variables"]["signature"] == ""
 
 
 def test_protocol_edit_in_experiment_writes_to_experiment_concepts(tmp_path: Path) -> None:

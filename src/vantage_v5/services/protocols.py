@@ -272,6 +272,7 @@ def build_protocol_write_from_update(
     metadata = {
         "learned_by": "protocol_api",
         "override_of_builtin": supported_kind in BUILT_IN_PROTOCOLS,
+        "override_of_canonical": _is_canonical_record(existing) if existing is not None else False,
     }
     return ProtocolWrite(
         protocol_id=_protocol_id(supported_kind),
@@ -332,6 +333,8 @@ def protocol_candidates_for_kinds(
         record_kind = str(record.metadata.get("protocol_kind") or "").strip().lower()
         if record_kind not in supported_kinds:
             continue
+        if record_kind in seen:
+            continue
         seen.add(record_kind)
         label = record_kind.replace("_", " ")
         candidates.append(
@@ -353,7 +356,9 @@ def protocol_candidates_for_kinds(
                     "applies_to": record.metadata.get("applies_to") or [],
                     "modifiable": bool(record.metadata.get("modifiable", True)),
                     "is_builtin": False,
+                    "is_canonical": _is_canonical_record(record),
                     "overrides_builtin": bool(record.metadata.get("override_of_builtin")),
+                    "overrides_canonical": bool(record.metadata.get("override_of_canonical")),
                 },
             )
         )
@@ -416,6 +421,10 @@ def _find_protocol(records: list[MarkdownRecord], protocol_kind: str) -> Markdow
         if record.type == "protocol" and (record.id == protocol_id or record_kind == protocol_kind):
             return record
     return None
+
+
+def _is_canonical_record(record: MarkdownRecord) -> bool:
+    return "canonical" in record.path.parts
 
 
 def _protocol_variables(record: MarkdownRecord | None) -> dict[str, Any]:

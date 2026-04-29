@@ -56,6 +56,118 @@ export function normalizeResponseMode(responseMode, workingMemoryCount) {
   };
 }
 
+export function normalizeAnswerBasis(answerBasis = null, {
+  responseMode = null,
+  recallItems = [],
+  workingMemoryItems = [],
+} = {}) {
+  const visibleRecallItems = Array.isArray(recallItems) && recallItems.length
+    ? recallItems
+    : Array.isArray(workingMemoryItems)
+      ? workingMemoryItems
+      : [];
+  const fallbackResponseMode = responseMode && typeof responseMode === "object"
+    ? normalizeResponseMode(responseMode, visibleRecallItems.length)
+    : normalizeResponseMode(null, visibleRecallItems.length);
+  const provided = answerBasis && typeof answerBasis === "object" ? answerBasis : null;
+  const visibleProtocolCount = visibleRecallItems.filter(isProtocolAnswerBasisItem).length;
+  const visibleMemoryCount = Math.max(0, visibleRecallItems.length - visibleProtocolCount);
+  const responseRecallCount = Number.isFinite(Number(fallbackResponseMode?.recallCount))
+    ? Number(fallbackResponseMode.recallCount)
+    : visibleRecallItems.length;
+  const derivedProtocolCount = visibleProtocolCount;
+  const derivedMemoryCount = visibleRecallItems.length
+    ? (visibleMemoryCount > 0
+      ? Math.max(visibleMemoryCount, responseRecallCount - derivedProtocolCount)
+      : 0)
+    : Math.max(0, responseRecallCount);
+
+  const providedContextSources = provided
+    ? normalizeAnswerBasisSources(provided.context_sources || provided.contextSources)
+    : [];
+  const providedEvidenceSources = provided
+    ? normalizeAnswerBasisSources(provided.evidence_sources || provided.evidenceSources)
+    : [];
+  const providedGuidanceSources = provided
+    ? normalizeAnswerBasisSources(provided.guidance_sources || provided.guidanceSources)
+    : [];
+  const responseContextSources = normalizeAnswerBasisSources(
+    fallbackResponseMode?.contextSources || fallbackResponseMode?.context_sources || fallbackResponseMode?.groundingSources || fallbackResponseMode?.grounding_sources,
+  );
+  const fallbackContextSources = deriveAnswerBasisContextSources({
+    responseContextSources,
+    memoryCount: derivedMemoryCount,
+    protocolCount: derivedProtocolCount,
+  });
+  const guidanceSources = providedGuidanceSources.length
+    ? providedGuidanceSources
+    : (derivedProtocolCount > 0 ? ["protocol"] : []);
+  const evidenceSources = providedEvidenceSources.length
+    ? providedEvidenceSources
+    : deriveAnswerBasisEvidenceSources({
+      contextSources: providedContextSources.length ? providedContextSources : fallbackContextSources,
+      memoryCount: derivedMemoryCount,
+      protocolCount: derivedProtocolCount,
+    });
+  const contextSources = providedContextSources.length
+    ? providedContextSources
+    : normalizeAnswerBasisSources([
+      ...fallbackContextSources,
+      ...guidanceSources,
+    ]);
+  const sources = normalizeAnswerBasisSources(
+    provided?.sources || [
+      ...contextSources,
+      ...evidenceSources,
+      ...guidanceSources,
+    ],
+  );
+  const hasFactualGrounding = normalizeInterpretationBoolean(
+    provided?.has_factual_grounding ?? provided?.hasFactualGrounding,
+  ) ?? evidenceSources.length > 0;
+  const counts = normalizeAnswerBasisCounts(provided?.counts, {
+    recall: derivedMemoryCount,
+    memory: derivedMemoryCount,
+    protocol: derivedProtocolCount,
+    whiteboard: contextSources.includes("whiteboard") ? 1 : 0,
+    recentChat: contextSources.includes("recent_chat") ? 1 : 0,
+    pendingWhiteboard: contextSources.includes("pending_whiteboard") ? 1 : 0,
+    evidence: derivedMemoryCount + countIncludedContextSources(evidenceSources, ["whiteboard", "recent_chat", "pending_whiteboard"]),
+    guidance: guidanceSources.length,
+    context: contextSources.length,
+    sources: sources.length,
+  });
+  const kind = normalizeAnswerBasisKind(
+    provided?.kind || provided?.basis_kind || provided?.basisKind,
+    {
+      responseMode: fallbackResponseMode,
+      contextSources,
+      evidenceSources,
+      guidanceSources,
+      counts,
+      hasFactualGrounding,
+    },
+  );
+  const label = answerBasisLabelForKind(kind, provided?.label);
+  const note = sanitizeAnswerBasisCopy(
+    provided?.note || answerBasisNoteForKind(kind, counts, contextSources, evidenceSources, guidanceSources),
+  );
+  const summary = sanitizeAnswerBasisCopy(provided?.summary || note);
+
+  return {
+    kind,
+    label,
+    note,
+    summary,
+    hasFactualGrounding,
+    sources,
+    contextSources,
+    evidenceSources,
+    guidanceSources,
+    counts,
+  };
+}
+
 export function normalizeLearnedItems(payload) {
   if (Array.isArray(payload?.learned)) {
     return payload.learned;
@@ -160,12 +272,18 @@ export function normalizeTurnPayload(payload) {
   const recallItems = normalizeRecallItems(normalizedPayload);
   const pinnedContext = normalizedPayload.pinned_context || normalizedPayload.pinnedContext || normalizedPayload.selected_record || normalizedPayload.selectedRecord || null;
   const semanticFrame = normalizeSemanticFrame(normalizedPayload.semantic_frame || normalizedPayload.semanticFrame);
+  const responseMode = normalizeResponseMode(normalizedPayload.response_mode || normalizedPayload.responseMode, recallItems.length);
+  const answerBasis = normalizeAnswerBasis(normalizedPayload.answer_basis || normalizedPayload.answerBasis, {
+    responseMode,
+    recallItems,
+  });
   return {
     recallItems,
     workingMemoryItems: recallItems,
     learnedItems: normalizeLearnedItems(normalizedPayload),
     memoryTraceRecord: normalizeMemoryTraceRecord(normalizedPayload.memory_trace_record || normalizedPayload.memoryTraceRecord),
-    responseMode: normalizeResponseMode(normalizedPayload.response_mode, recallItems.length),
+    responseMode,
+    answerBasis,
     scenarioLab: normalizeScenarioLabPayload(normalizedPayload.scenario_lab),
     semanticFrame,
     semanticPolicy: normalizeSemanticPolicy(normalizedPayload.semantic_policy || normalizedPayload.semanticPolicy, semanticFrame),
@@ -792,6 +910,310 @@ function normalizeContextSource(source) {
     return "recall";
   }
   return normalized;
+}
+
+function normalizeAnswerBasisSources(sources) {
+  const sourceList = Array.isArray(sources)
+    ? sources
+    : typeof sources === "string"
+      ? [sources]
+      : [];
+  return [...new Set(
+    sourceList
+      .map((source) => normalizeAnswerBasisSource(source))
+      .filter(Boolean),
+  )];
+}
+
+function normalizeAnswerBasisSource(source) {
+  const normalized = String(source || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  switch (normalized) {
+    case "working_memory":
+    case "memory":
+    case "memories":
+    case "recalled_memory":
+    case "recalled_items":
+      return "recall";
+    case "draft":
+    case "active_whiteboard":
+    case "whiteboard_context":
+      return "whiteboard";
+    case "prior_whiteboard":
+    case "earlier_whiteboard":
+      return "pending_whiteboard";
+    case "conversation":
+    case "recent_conversation":
+      return "recent_chat";
+    case "protocol":
+    case "protocols":
+    case "protocol_guidance":
+    case "guidance":
+      return "protocol";
+    case "recall":
+    case "whiteboard":
+    case "recent_chat":
+    case "pending_whiteboard":
+      return normalized;
+    default:
+      return "";
+  }
+}
+
+function deriveAnswerBasisContextSources({
+  responseContextSources = [],
+  memoryCount = 0,
+  protocolCount = 0,
+} = {}) {
+  return normalizeAnswerBasisSources([
+    ...responseContextSources.filter((source) => source !== "recall" || memoryCount > 0 || protocolCount === 0),
+    ...(memoryCount > 0 ? ["recall"] : []),
+    ...(protocolCount > 0 ? ["protocol"] : []),
+  ]);
+}
+
+function deriveAnswerBasisEvidenceSources({
+  contextSources = [],
+  memoryCount = 0,
+  protocolCount = 0,
+} = {}) {
+  return normalizeAnswerBasisSources(
+    contextSources.filter((source) => source !== "protocol" && (
+      source !== "recall" || memoryCount > 0 || protocolCount === 0
+    )),
+  );
+}
+
+function normalizeAnswerBasisCounts(counts, fallback = {}) {
+  const source = counts && typeof counts === "object" ? counts : {};
+  const recall = normalizeCountAlias(source, ["recall", "recall_count", "recallCount", "recalled", "recalled_count", "working_memory", "workingMemory", "working_memory_count", "workingMemoryCount"], fallback.recall);
+  const memory = normalizeCountAlias(source, ["memory", "memory_count", "memoryCount", "evidence_memory", "evidenceMemory"], fallback.memory ?? recall);
+  const protocol = normalizeCountAlias(source, ["protocol", "protocol_count", "protocolCount", "protocols", "protocols_count", "protocolsCount"], fallback.protocol);
+  const whiteboard = normalizeCountAlias(source, ["whiteboard", "whiteboard_count", "whiteboardCount"], fallback.whiteboard);
+  const recentChat = normalizeCountAlias(source, ["recent_chat", "recentChat", "recent_chat_count", "recentChatCount"], fallback.recentChat);
+  const pendingWhiteboard = normalizeCountAlias(source, ["pending_whiteboard", "pendingWhiteboard", "pending_whiteboard_count", "pendingWhiteboardCount"], fallback.pendingWhiteboard);
+  const evidence = normalizeCountAlias(source, ["evidence", "evidence_count", "evidenceCount", "factual", "factual_count", "factualCount"], fallback.evidence);
+  const guidance = normalizeCountAlias(source, ["guidance", "guidance_count", "guidanceCount"], fallback.guidance);
+  const context = normalizeCountAlias(source, ["context", "context_count", "contextCount"], fallback.context);
+  const sources = normalizeCountAlias(source, ["sources", "source_count", "sourceCount"], fallback.sources);
+  return {
+    recall,
+    memory,
+    protocol,
+    protocols: protocol,
+    whiteboard,
+    recentChat,
+    pendingWhiteboard,
+    evidence,
+    guidance,
+    context,
+    sources,
+  };
+}
+
+function normalizeCountAlias(source, aliases, fallback = 0) {
+  for (const alias of aliases) {
+    if (Number.isFinite(Number(source[alias]))) {
+      return Math.max(0, Number(source[alias]));
+    }
+  }
+  return Number.isFinite(Number(fallback)) ? Math.max(0, Number(fallback)) : 0;
+}
+
+function normalizeAnswerBasisKind(kind, {
+  responseMode = null,
+  contextSources = [],
+  evidenceSources = [],
+  guidanceSources = [],
+  counts = {},
+  hasFactualGrounding = false,
+} = {}) {
+  const normalizedKind = String(kind || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  switch (normalizedKind) {
+    case "intuitive":
+    case "intuitive_answer":
+    case "best_guess":
+    case "ungrounded":
+      return "intuitive_answer";
+    case "memory":
+    case "memory_backed":
+    case "recall":
+    case "recall_grounded":
+    case "working_memory":
+    case "working_memory_grounded":
+      return "memory_backed";
+    case "protocol":
+    case "protocol_guided":
+    case "guided":
+      return "protocol_guided";
+    case "whiteboard":
+    case "whiteboard_grounded":
+    case "pending_whiteboard":
+    case "pending_whiteboard_grounded":
+    case "prior_whiteboard":
+      return "whiteboard_grounded";
+    case "recent_chat":
+    case "recent_chat_grounded":
+      return "recent_chat";
+    case "mixed":
+    case "mixed_context":
+    case "mixed_context_grounded":
+      return "mixed_context";
+    case "idle":
+      return "idle";
+    default:
+      break;
+  }
+
+  const sourceGroups = new Set();
+  if ((counts.memory || counts.recall) > 0 || evidenceSources.includes("recall")) {
+    sourceGroups.add("memory");
+  }
+  if (guidanceSources.includes("protocol") || contextSources.includes("protocol") || counts.protocol > 0) {
+    sourceGroups.add("protocol");
+  }
+  if (
+    contextSources.includes("whiteboard")
+    || contextSources.includes("pending_whiteboard")
+    || evidenceSources.includes("whiteboard")
+    || evidenceSources.includes("pending_whiteboard")
+  ) {
+    sourceGroups.add("whiteboard");
+  }
+  if (contextSources.includes("recent_chat") || evidenceSources.includes("recent_chat")) {
+    sourceGroups.add("recent_chat");
+  }
+  if (sourceGroups.size > 1) {
+    return "mixed_context";
+  }
+  if (sourceGroups.has("memory")) {
+    return "memory_backed";
+  }
+  if (sourceGroups.has("protocol")) {
+    return "protocol_guided";
+  }
+  if (sourceGroups.has("whiteboard")) {
+    return "whiteboard_grounded";
+  }
+  if (sourceGroups.has("recent_chat")) {
+    return "recent_chat";
+  }
+  if (hasFactualGrounding) {
+    return "memory_backed";
+  }
+
+  const responseKind = String(responseMode?.kind || "").trim().toLowerCase();
+  const groundingMode = String(responseMode?.groundingMode || responseMode?.grounding_mode || "").trim().toLowerCase();
+  if (responseKind === "idle" || (!responseKind && !groundingMode)) {
+    return "idle";
+  }
+  if (responseKind === "best_guess" || groundingMode === "ungrounded") {
+    return "intuitive_answer";
+  }
+  if (groundingMode === "whiteboard" || groundingMode === "pending_whiteboard") {
+    return "whiteboard_grounded";
+  }
+  if (groundingMode === "recent_chat") {
+    return "recent_chat";
+  }
+  if (groundingMode === "mixed_context") {
+    return "mixed_context";
+  }
+  if (groundingMode === "recall" || groundingMode === "working_memory" || responseKind === "grounded") {
+    return "memory_backed";
+  }
+  return "intuitive_answer";
+}
+
+function answerBasisLabelForKind(kind, fallbackLabel = "") {
+  switch (kind) {
+    case "intuitive_answer":
+      return "Intuitive Answer";
+    case "memory_backed":
+      return "Memory-Backed";
+    case "protocol_guided":
+      return "Protocol-Guided";
+    case "whiteboard_grounded":
+      return "Whiteboard-Grounded";
+    case "mixed_context":
+      return "Mixed Context";
+    case "recent_chat":
+      return "Recent Chat";
+    case "idle":
+      return "Idle";
+    default: {
+      const label = sanitizeAnswerBasisCopy(fallbackLabel);
+      return label || "Intuitive Answer";
+    }
+  }
+}
+
+function answerBasisNoteForKind(kind, counts = {}, contextSources = [], evidenceSources = [], guidanceSources = []) {
+  switch (kind) {
+    case "intuitive_answer":
+      return "This was an intuitive answer from the current request, without grounded Vantage context.";
+    case "memory_backed": {
+      const count = counts.memory || counts.recall || 0;
+      return count
+        ? `Backed by ${count} memory item${count === 1 ? "" : "s"} from Recall.`
+        : "Backed by surfaced memory context.";
+    }
+    case "protocol_guided":
+      return "Guided by reusable protocol context; no factual memory evidence was used.";
+    case "whiteboard_grounded":
+      return contextSources.includes("pending_whiteboard") && !contextSources.includes("whiteboard")
+        ? "Grounded in prior whiteboard context."
+        : "Grounded in the whiteboard draft context.";
+    case "mixed_context":
+      return `Combined ${describeAnswerBasisSources([...evidenceSources, ...guidanceSources, ...contextSources])}.`;
+    case "recent_chat":
+      return "Grounded in recent chat continuity.";
+    default:
+      return "Waiting for a turn.";
+  }
+}
+
+function describeAnswerBasisSources(sources = []) {
+  const labels = normalizeAnswerBasisSources(sources)
+    .map((source) => {
+      switch (source) {
+        case "recall":
+          return "memory";
+        case "protocol":
+          return "protocol guidance";
+        case "whiteboard":
+          return "whiteboard context";
+        case "pending_whiteboard":
+          return "prior whiteboard context";
+        case "recent_chat":
+          return "recent chat";
+        default:
+          return "";
+      }
+    })
+    .filter(Boolean);
+  return joinReadableList([...new Set(labels)]) || "multiple context sources";
+}
+
+function sanitizeAnswerBasisCopy(value) {
+  return String(value || "").trim().replace(/\bbest guess\b/ig, "Intuitive Answer");
+}
+
+function countIncludedContextSources(sources, included) {
+  return included.filter((source) => sources.includes(source)).length;
+}
+
+function isProtocolAnswerBasisItem(item) {
+  if (!item || typeof item !== "object") {
+    return false;
+  }
+  const type = String(item.type || "").trim().toLowerCase();
+  const kind = String(item.kind || "").trim().toLowerCase();
+  const source = String(item.source || "").trim().toLowerCase();
+  const protocol = normalizeProtocolMetadata(item);
+  return type === "protocol"
+    || kind === "protocol"
+    || source === "protocol"
+    || Boolean(protocol.protocolKind);
 }
 
 function normalizeRecallCount(count) {

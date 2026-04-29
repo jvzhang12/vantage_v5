@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from vantage_v5.services.navigator import NavigationDecision
+from vantage_v5.services.response_mode import build_answer_basis_payload
 from vantage_v5.services.turn_staging import StageAuditResult
 from vantage_v5.services.turn_staging import StageProgressEvent
 from vantage_v5.services.turn_staging import TurnStage
@@ -336,7 +337,7 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
     created_record = parts.created_record or (parts.learned[0] if parts.learned else None)
     selected_memory = _turn_memory_payload(parts.saved_notes, parts.vault_notes)
     candidate_memory = _turn_memory_payload(parts.candidate_saved_notes, parts.candidate_vault_notes)
-    return {
+    payload = {
         "user_message": parts.user_message,
         "assistant_message": parts.assistant_message,
         "workspace": {
@@ -373,13 +374,15 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
         "stage_progress": parts.stage_progress or [],
         "stage_audit": parts.stage_audit,
     }
+    payload["answer_basis"] = build_answer_basis_payload(payload)
+    return payload
 
 
 def assemble_scenario_lab_turn_body(parts: ScenarioLabTurnBodyParts) -> dict[str, Any]:
     created_record = parts.created_record or (parts.learned[0] if parts.learned else None)
     selected_memory = _turn_memory_payload(parts.saved_notes, parts.vault_notes)
     candidate_memory = _turn_memory_payload(parts.candidate_saved_notes, parts.candidate_vault_notes)
-    return {
+    payload = {
         "user_message": parts.user_message,
         "assistant_message": parts.assistant_message,
         "workspace": {
@@ -424,6 +427,8 @@ def assemble_scenario_lab_turn_body(parts: ScenarioLabTurnBodyParts) -> dict[str
             "comparison_artifact": parts.comparison_artifact,
         },
     }
+    payload["answer_basis"] = build_answer_basis_payload(payload)
+    return payload
 
 
 def assemble_scenario_lab_fallback_payload(
@@ -540,11 +545,22 @@ def finalize_turn_payload(
         if workspace_status is not None:
             workspace_update["status"] = workspace_status
 
+    recall = payload.get("recall")
+    working_memory = payload.get("working_memory")
+    if isinstance(recall, list) and not isinstance(working_memory, list):
+        payload["working_memory"] = recall
+    elif isinstance(working_memory, list) and not isinstance(recall, list):
+        payload["recall"] = working_memory
+    elif not isinstance(recall, list) and not isinstance(working_memory, list):
+        payload["recall"] = []
+        payload["working_memory"] = []
+
     payload["pinned_context_id"] = pinned_context_id
     payload["pinned_context"] = pinned_context
     payload["selected_record_id"] = pinned_context_id
     payload["selected_record"] = pinned_context
     _preserve_stage_payloads(payload)
+    payload["answer_basis"] = build_answer_basis_payload(payload)
     return payload
 
 
@@ -607,6 +623,7 @@ def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
     workspace_update = payload.get("workspace_update") if isinstance(payload.get("workspace_update"), dict) else {}
     scenario_lab = payload.get("scenario_lab") if isinstance(payload.get("scenario_lab"), dict) else {}
     response_mode = payload.get("response_mode") if isinstance(payload.get("response_mode"), dict) else {}
+    answer_basis = payload.get("answer_basis") if isinstance(payload.get("answer_basis"), dict) else {}
     summary = (
         str(graph_action.get("summary") or "").strip()
         or str(workspace_update.get("summary") or "").strip()
@@ -615,6 +632,7 @@ def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
     )
     mode = _activity_kind(payload)
     recall_count = response_mode.get("recall_count", len(payload.get("working_memory") or []))
+    context_summary = _activity_context_summary(answer_basis, recall_count=recall_count)
     steps = [
         {
             "id": "interpret",
@@ -626,7 +644,7 @@ def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "id": "context",
             "label": "Prepared context",
             "status": "completed",
-            "summary": f"{recall_count} recalled item(s) in scope.",
+            "summary": context_summary,
         },
     ]
     if mode == "scenario_lab":
@@ -679,6 +697,30 @@ def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "graph_action_type": graph_action.get("type"),
         "workspace_update_status": workspace_update.get("status"),
     }
+
+
+def _activity_context_summary(answer_basis: dict[str, Any], *, recall_count: Any) -> str:
+    counts = answer_basis.get("counts") if isinstance(answer_basis.get("counts"), dict) else {}
+    memory_count = counts.get("memory")
+    protocol_count = counts.get("protocol")
+    if not isinstance(memory_count, int):
+        memory_count = int(memory_count) if str(memory_count or "").isdigit() else None
+    if not isinstance(protocol_count, int):
+        protocol_count = int(protocol_count) if str(protocol_count or "").isdigit() else 0
+    if memory_count is None:
+        memory_count = recall_count if isinstance(recall_count, int) else len(answer_basis.get("evidence_sources") or [])
+    parts: list[str] = []
+    if memory_count:
+        parts.append(f"{memory_count} recalled memory item{'s' if memory_count != 1 else ''}")
+    if protocol_count:
+        parts.append(f"{protocol_count} protocol item{'s' if protocol_count != 1 else ''}")
+    if parts:
+        return f"{' and '.join(parts)} in scope."
+    label = str(answer_basis.get("label") or "").strip()
+    if label:
+        return f"{label} basis prepared."
+    normalized_recall_count = recall_count if isinstance(recall_count, int) else 0
+    return f"{normalized_recall_count} recalled item(s) in scope."
 
 
 def _activity_kind(payload: dict[str, Any]) -> str:

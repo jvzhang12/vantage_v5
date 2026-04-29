@@ -34,7 +34,7 @@ test("buildChatTurnEvidence reports recalled items and learned memories from the
 
   assert.deepEqual(
     evidence.map((item) => item.label),
-    ["Used 2 recalled items", "Learned 1 note"],
+    ["Memory-Backed", "Learned 1 note"],
   );
   assert.deepEqual(
     evidence.map((item) => item.emphasis),
@@ -55,7 +55,7 @@ test("buildChatTurnEvidence trusts canonical working-memory counts over a shorte
 
   assert.deepEqual(
     evidence.map((item) => item.label),
-    ["Used 4 recalled items"],
+    ["Memory-Backed"],
   );
 });
 
@@ -76,7 +76,7 @@ test("buildChatTurnEvidence surfaces Scenario Lab identity without over-repeatin
 
   assert.deepEqual(
     evidence.map((item) => item.label),
-    ["Scenario Lab", "3 branches", "Best Guess"],
+    ["Scenario Lab", "3 branches", "Intuitive Answer"],
   );
   assert.deepEqual(
     evidence.map((item) => item.emphasis),
@@ -104,7 +104,7 @@ test("buildChatTurnEvidence and guided inspection count branches from the compar
 
   assert.deepEqual(
     buildChatTurnEvidence(payload).map((item) => item.label),
-    ["Scenario Lab", "2 branches", "Used 1 recalled item"],
+    ["Scenario Lab", "2 branches", "Memory-Backed"],
   );
   assert.equal(
     buildGuidedInspectionSummary({
@@ -132,7 +132,7 @@ test("buildChatTurnEvidence keeps Scenario Lab fallback visible in chat", () => 
 
   assert.deepEqual(
     evidence.map((item) => item.label),
-    ["Scenario Lab", "Back to chat", "Best Guess"],
+    ["Scenario Lab", "Back to chat", "Intuitive Answer"],
   );
   assert.deepEqual(
     evidence.map((item) => item.emphasis),
@@ -155,7 +155,7 @@ test("buildChatTurnEvidence surfaces product-specific grounding labels for white
 
   assert.deepEqual(
     evidence.map((item) => item.label),
-    ["Used your draft"],
+    ["Whiteboard-Grounded"],
   );
   assert.deepEqual(
     evidence.map((item) => item.emphasis),
@@ -185,7 +185,54 @@ test("buildChatTurnEvidence leaves whiteboard offer and draft state to the dedic
   );
 });
 
+test("buildChatTurnEvidence prefers answer basis over legacy response mode labels", () => {
+  assert.deepEqual(
+    buildChatTurnEvidence({
+      mode: "chat",
+      answer_basis: {
+        kind: "protocol_guided",
+        guidance_sources: ["protocol"],
+        counts: { protocol_count: 1 },
+      },
+      response_mode: {
+        kind: "best_guess",
+        grounding_mode: "ungrounded",
+      },
+    }).map((item) => item.label),
+    ["Protocol-Guided"],
+  );
+
+  assert.deepEqual(
+    buildChatTurnEvidence({
+      mode: "chat",
+      answerBasis: {
+        kind: "memory_backed",
+        hasFactualGrounding: true,
+        evidenceSources: ["recall"],
+        counts: { recall: 2 },
+      },
+      response_mode: {
+        kind: "best_guess",
+        grounding_mode: "ungrounded",
+      },
+    }).map((item) => item.label),
+    ["Memory-Backed"],
+  );
+});
+
 test("buildChatTurnEvidence uses product-facing labels for prior whiteboard and mixed-context grounding", () => {
+  assert.deepEqual(
+    buildChatTurnEvidence({
+      mode: "chat",
+      response_mode: {
+        kind: "grounded",
+        grounding_mode: "recent_chat",
+        context_sources: ["recent_chat"],
+      },
+    }).map((item) => item.label),
+    ["Recent Chat"],
+  );
+
   assert.deepEqual(
     buildChatTurnEvidence({
       mode: "chat",
@@ -195,7 +242,7 @@ test("buildChatTurnEvidence uses product-facing labels for prior whiteboard and 
         context_sources: ["pending_whiteboard"],
       },
     }).map((item) => item.label),
-    ["From your earlier draft"],
+    ["Whiteboard-Grounded"],
   );
 
   assert.deepEqual(
@@ -207,7 +254,7 @@ test("buildChatTurnEvidence uses product-facing labels for prior whiteboard and 
         context_sources: ["working_memory", "recent_chat"],
       },
     }).map((item) => item.label),
-    ["From earlier + Recent conversation"],
+    ["Mixed Context"],
   );
 });
 
@@ -232,7 +279,7 @@ test("describeResponseModeLabel keeps the guided-inspection badges compact", () 
       label: "Recall + Recent Chat",
       contextSources: ["recall", "recent_chat"],
     }),
-    "Recall + Recent Chat",
+    "Memory + Recent Chat",
   );
   assert.equal(
     describeResponseModeLabel({
@@ -245,7 +292,7 @@ test("describeResponseModeLabel keeps the guided-inspection badges compact", () 
   );
   assert.equal(
     describeResponseModeLabel({ kind: "best_guess", groundingMode: "ungrounded", label: "Best Guess" }),
-    "Best Guess",
+    "Intuitive Answer",
   );
 });
 
@@ -457,6 +504,15 @@ test("buildTurnAtAGlanceSummary keeps the first Vantage summary short and outcom
     }),
     "Scenario Lab fell back to chat. Learned 1 item from this turn.",
   );
+
+  assert.equal(
+    buildTurnAtAGlanceSummary({
+      groundingLabel: "Protocol-Guided",
+      hasGroundedContext: true,
+      learnedCount: 0,
+    }),
+    "Reusable protocol guidance shaped this answer.",
+  );
 });
 
 test("buildGuidedInspectionSummary keeps the Vantage header aligned with turn truth", () => {
@@ -542,11 +598,11 @@ test("buildGuidedInspectionSummary preserves broader grounding when working memo
       learnedCount: 0,
       libraryCount: 5,
     }),
-    "Recall: 2 items • Grounding: Recall + Recent Chat • What I learned: nothing new yet • Library: 5 items",
+    "Recall: 2 items • Grounding: Memory + Recent Chat • What I learned: nothing new yet • Library: 5 items",
   );
 });
 
-test("buildGuidedInspectionSummary surfaces best-guess grounding explicitly", () => {
+test("buildGuidedInspectionSummary surfaces intuitive answer grounding explicitly", () => {
   assert.equal(
     buildGuidedInspectionSummary({
       responseMode: { kind: "best_guess", groundingMode: "ungrounded", label: "Best Guess" },
@@ -554,7 +610,7 @@ test("buildGuidedInspectionSummary surfaces best-guess grounding explicitly", ()
       learnedCount: 0,
       libraryCount: 2,
     }),
-    "Grounding: Best Guess • What I learned: nothing new yet • Library: 2 items",
+    "Grounding: Intuitive Answer • What I learned: nothing new yet • Library: 2 items",
   );
 });
 
@@ -590,8 +646,11 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
         mode: "chat",
         reason: "Recall grounded this answer.",
       },
-      expectedGrounding: "Recall",
-      expectedWorkingMemory: "In scope for generation: Recall.",
+      recallItems: [{ id: "recall-1" }, { id: "recall-2" }],
+      expectedGrounding: "Memory-Backed",
+      expectedWorkingMemory: "In scope for generation: Memory-Backed.",
+      expectedRecallText: "2 recalled items entered Recall.",
+      expectedRecallItemCount: 2,
     },
     {
       name: "whiteboard grounded",
@@ -605,8 +664,11 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
         resolvedWhiteboardMode: "draft",
         reason: "The whiteboard handled the draft.",
       },
-      expectedGrounding: "Whiteboard",
-      expectedWorkingMemory: "In scope for generation: Whiteboard.",
+      recallItems: [],
+      expectedGrounding: "Whiteboard-Grounded",
+      expectedWorkingMemory: "In scope for generation: Whiteboard-Grounded.",
+      expectedRecallText: "No recalled items entered Recall.",
+      expectedRecallItemCount: 0,
     },
     {
       name: "recent-chat grounded",
@@ -619,8 +681,11 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
         mode: "chat",
         reason: "Recent chat carried the answer.",
       },
+      recallItems: [],
       expectedGrounding: "Recent Chat",
       expectedWorkingMemory: "In scope for generation: Recent Chat.",
+      expectedRecallText: "No recalled items entered Recall.",
+      expectedRecallItemCount: 0,
     },
     {
       name: "pending-whiteboard grounded",
@@ -634,8 +699,11 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
         resolvedWhiteboardMode: "chat",
         reason: "The prior whiteboard still mattered.",
       },
-      expectedGrounding: "Prior Whiteboard",
-      expectedWorkingMemory: "In scope for generation: Prior Whiteboard.",
+      recallItems: [],
+      expectedGrounding: "Whiteboard-Grounded",
+      expectedWorkingMemory: "In scope for generation: Whiteboard-Grounded.",
+      expectedRecallText: "No recalled items entered Recall.",
+      expectedRecallItemCount: 0,
     },
     {
       name: "mixed-context grounded",
@@ -649,8 +717,11 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
         mode: "chat",
         reason: "Recall and recent chat both shaped the answer.",
       },
-      expectedGrounding: "Recall + Recent Chat",
-      expectedWorkingMemory: "In scope for generation: Recall + Recent Chat.",
+      recallItems: [{ id: "recall-1" }, { id: "recall-2" }],
+      expectedGrounding: "Mixed Context",
+      expectedWorkingMemory: "In scope for generation: Mixed Context.",
+      expectedRecallText: "2 recalled items entered Recall.",
+      expectedRecallItemCount: 2,
     },
     {
       name: "true best guess",
@@ -662,8 +733,11 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
         mode: "chat",
         reason: "The answer was not grounded in recalled context.",
       },
-      expectedGrounding: "Best Guess",
-      expectedWorkingMemory: "In scope for generation: no grounded context (Best Guess).",
+      recallItems: [],
+      expectedGrounding: "Intuitive Answer",
+      expectedWorkingMemory: "In scope for generation: current request only (Intuitive Answer).",
+      expectedRecallText: "No recalled items entered Recall.",
+      expectedRecallItemCount: 0,
     },
   ];
 
@@ -675,7 +749,7 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
       candidateConcepts: [{ id: "concept-1" }],
       candidateSavedNotes: [{ id: "memory-1" }],
       candidateVaultNotes: [{ id: "vault-1" }],
-      recallItems: [{ id: "recall-1" }, { id: "recall-2" }],
+      recallItems: testCase.recallItems,
     });
 
     assert.equal(inspection.label, "Reasoning Path", testCase.name);
@@ -688,8 +762,8 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
     assert.equal(inspection.stages[2].detail.groups[0].items.length, 1, testCase.name);
     assert.equal(inspection.stages[2].detail.groups[2].items.length, 0, testCase.name);
     assert.equal(inspection.stages[3].label, "Recall", testCase.name);
-    assert.equal(inspection.stages[3].text, "2 recalled items entered Recall.", testCase.name);
-    assert.equal(inspection.stages[3].detail.groups[0].items.length, 2, testCase.name);
+    assert.equal(inspection.stages[3].text, testCase.expectedRecallText, testCase.name);
+    assert.equal(inspection.stages[3].detail.groups[0].items.length, testCase.expectedRecallItemCount, testCase.name);
     assert.equal(inspection.stages[4].label, "Working Memory", testCase.name);
     assert.equal(inspection.stages[4].text, testCase.expectedWorkingMemory, testCase.name);
     assert.equal(inspection.stages[5].label, "Outcome", testCase.name);
@@ -745,7 +819,7 @@ test("buildReasoningPathInspection surfaces continuity, working-memory scope, an
   assert.match(inspection.stages[3].text, /1 recalled item entered Recall\./);
   assert.equal(inspection.stages[3].detail.groups[0].items.length, 1);
   assert.equal(inspection.stages[4].label, "Working Memory");
-  assert.match(inspection.stages[4].text, /In scope for generation: Recall \+ Whiteboard\./);
+  assert.match(inspection.stages[4].text, /In scope for generation: Mixed Context\./);
   assert.deepEqual(
     inspection.stages[4].detail.notes.map((item) => [item.label, item.value]),
     [
@@ -774,6 +848,32 @@ test("buildReasoningPathInspection surfaces continuity, working-memory scope, an
   assert.equal(inspection.stages[5].detail.groups.length, 2);
   assert.match(inspection.summary, /3 supporting items were considered before Recall was narrowed/);
   assert.match(inspection.summary, /1 recalled item entered Working Memory\./);
+});
+
+test("buildReasoningPathInspection labels protocol-only turns as guidance instead of recall or intuitive fallback", () => {
+  const inspection = buildReasoningPathInspection({
+    userMessage: "Draft this using the email protocol.",
+    interpretation: {
+      mode: "chat",
+      reason: "A reusable protocol guided the answer.",
+    },
+    responseMode: {
+      kind: "best_guess",
+      groundingMode: "ungrounded",
+      contextSources: [],
+    },
+    recallItems: [
+      { id: "email-protocol", type: "protocol", protocol: { protocol_kind: "email" } },
+    ],
+  });
+
+  assert.equal(inspection.groundingLabel, "Protocol-Guided");
+  assert.equal(inspection.stages[3].text, "No recalled items entered Recall.");
+  assert.equal(inspection.stages[4].text, "In scope for generation: Protocol-Guided.");
+  assert.ok(
+    inspection.stages[4].detail.scopeRows.some((row) => row.label === "Protocol" && row.status === "Included"),
+  );
+  assert.match(inspection.summary, /Protocol-Guided/);
 });
 
 test("buildReasoningPathInspection includes memory-trace candidates in candidate context details", () => {
@@ -847,7 +947,7 @@ test("deriveTurnGrounding trusts canonical recall counts over visible list lengt
   assert.equal(grounding.workingMemoryCount, 4);
   assert.equal(grounding.visibleWorkingMemoryCount, 1);
   assert.equal(grounding.recallCount, 4);
-  assert.equal(grounding.groundingLabel, "Recall");
+  assert.equal(grounding.groundingLabel, "Memory-Backed");
   assert.equal(grounding.hasGroundedContext, true);
   assert.equal(grounding.hasBroaderGrounding, false);
 });
@@ -874,8 +974,52 @@ test("deriveTurnGrounding surfaces product-facing labels for broader grounding m
     learnedItems: [],
   });
 
-  assert.equal(mixed.groundingLabel, "Recall + Recent Chat");
-  assert.equal(prior.groundingLabel, "Prior Whiteboard");
+  assert.equal(mixed.groundingLabel, "Mixed Context");
+  assert.equal(prior.groundingLabel, "Whiteboard-Grounded");
+});
+
+test("deriveTurnGrounding separates protocol guidance, memory evidence, and mixed context", () => {
+  const protocolOnly = deriveTurnGrounding({
+    responseMode: {
+      kind: "best_guess",
+      groundingMode: "ungrounded",
+      contextSources: [],
+    },
+    recallItems: [
+      { id: "protocol-1", type: "protocol", protocol: { protocol_kind: "email" } },
+    ],
+  });
+  assert.equal(protocolOnly.groundingLabel, "Protocol-Guided");
+  assert.equal(protocolOnly.recallCount, 0);
+  assert.equal(protocolOnly.hasFactualGrounding, false);
+  assert.deepEqual(protocolOnly.guidanceSources, ["protocol"]);
+
+  const memoryOnly = deriveTurnGrounding({
+    responseMode: {
+      kind: "grounded",
+      groundingMode: "recall",
+      recallCount: 1,
+      contextSources: ["recall"],
+    },
+    recallItems: [{ id: "memory-1", source: "memory" }],
+  });
+  assert.equal(memoryOnly.groundingLabel, "Memory-Backed");
+  assert.equal(memoryOnly.recallCount, 1);
+  assert.equal(memoryOnly.hasFactualGrounding, true);
+  assert.deepEqual(memoryOnly.evidenceSources, ["recall"]);
+
+  const mixed = deriveTurnGrounding({
+    responseMode: {
+      kind: "grounded",
+      groundingMode: "mixed_context",
+      contextSources: ["recall", "whiteboard"],
+      recallCount: 1,
+    },
+    recallItems: [{ id: "memory-1", source: "memory" }],
+  });
+  assert.equal(mixed.groundingLabel, "Mixed Context");
+  assert.equal(mixed.hasBroaderGrounding, true);
+  assert.deepEqual(mixed.groundingSources, ["recall", "whiteboard"]);
 });
 
 test("deriveWhiteboardLifecycle distinguishes transient draft, saved whiteboard, and promoted artifact", () => {

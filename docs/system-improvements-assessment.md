@@ -37,7 +37,7 @@ It should be a thin user-facing layer over existing `response_mode`, recalled it
 
 Recommended badge set:
 
-- `Intuitive Answer`: no grounded Vantage context supported the answer.
+- `Intuitive Answer`: the answer came from general learned capability rather than a specific recalled Vantage context object.
 - `Memory-Backed`: recalled non-protocol Library or Memory Trace items supported the answer.
 - `Protocol-Guided`: a reusable protocol shaped the answer.
 - `Whiteboard-Grounded`: active or pending whiteboard content supported the answer.
@@ -48,6 +48,20 @@ Important distinction:
 `Protocol-Guided` should be treated as guidance, not factual evidence.
 
 Protocols are recipes for how to perform a task. They should not inflate the user's confidence that the answer was factually grounded in memory.
+
+Draft taxonomy:
+
+| Label | Trigger | Counts as factual grounding? | Shown in chat? | Shown in Inspect? |
+| --- | --- | --- | --- | --- |
+| `Intuitive Answer` | The answer was generated from general learned capability, without a specific recalled Library record, Memory Trace item, whiteboard, pinned item, or pending-draft context materially supporting it. This is the normal LLM-style response path: useful pattern-based judgment without an explicit remembered source to point at. | No | Yes, as the compact answer-basis badge. | Yes, with copy explaining that the answer came from general model intuition rather than supplied Vantage context. |
+| `Memory-Backed` | One or more recalled non-protocol Library or Memory Trace records supported the answer. | Yes | Yes, as the compact answer-basis badge. | Yes, with the supporting recalled records listed separately from protocol guidance. |
+| `Protocol-Guided` | A reusable protocol shaped the task behavior, format, variables, or procedure. | No | Yes, when protocol guidance is the main differentiator. | Yes, with the applied protocol shown as task guidance rather than evidence. |
+| `Whiteboard-Grounded` | Active whiteboard, pending whiteboard offer, or reopened draft content materially supported the answer. | Yes, when the draft content supplies task facts or source material. | Yes, as the compact answer-basis badge. | Yes, with whiteboard scope shown separately from recalled Library records. |
+| `Mixed Context` | More than one meaningful context source supported or shaped the answer, such as memory plus protocol, whiteboard plus memory, or pinned context plus protocol. | Depends on included sources; protocol guidance alone does not make the factual grounding stronger. | Yes, as the compact answer-basis badge. | Yes, with each contributing source bucket separated so guidance, evidence, and draft context do not collapse together. |
+
+Definition note:
+
+`Intuitive Answer` should not mean random, unsupported, or mystical. It means Vantage is answering the way humans often speak from intuition: drawing on general learned understanding without recalling a specific source, memory, draft, or protocol that can be cited as the basis for the answer.
 
 ### 2. Unified "Why This Answer" Surface
 
@@ -115,7 +129,7 @@ Do not make protocols look like factual evidence, saved drafts, or ordinary conc
 
 ### 6. Recall Failure UX
 
-The current `Best Guess` behavior is already close.
+The current `Best Guess` behavior is already close, but the user-facing label should become `Intuitive Answer`.
 
 The improvement is clearer product copy:
 
@@ -123,9 +137,9 @@ The improvement is clearer product copy:
 - the answer came from general model understanding
 - user can save, correct, or pin context if useful
 
-The product may use `Intuitive Answer` as the softer badge label, but its meaning should remain precise:
+The product should use `Intuitive Answer` as the softer badge label, but its meaning should remain precise:
 
-`No grounded Vantage context supported this answer.`
+`The answer came from general learned capability rather than a specific recalled Vantage context object.`
 
 ## Ideas That Need Care
 
@@ -188,7 +202,7 @@ Recommended emphasis:
 - Making memory review interrupt normal chat.
 - Turning concept key/value into confusing ML jargon for ordinary users.
 - Adding confidence/freshness labels before correction paths exist.
-- Making answer-basis badges sound like claims about the model's hidden reasoning rather than claims about supplied Vantage context.
+- Making answer-basis badges sound like claims about the model's hidden reasoning rather than claims about whether supplied Vantage context shaped the answer.
 
 ## Recommended Implementation Order
 

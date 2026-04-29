@@ -42,6 +42,7 @@ import {
   describeSemanticClarificationCopy,
 } from "../src/vantage_v5/webapp/product_identity.mjs";
 import {
+  normalizeAnswerBasis,
   normalizeLearnedItems,
   normalizeComparisonBranchIndex,
   normalizeActivity,
@@ -710,6 +711,79 @@ test("turn payload normalization surfaces the returned memory trace record", () 
   });
 });
 
+test("answer basis normalization accepts backend DTO aliases and derives legacy fallbacks", () => {
+  const explicit = normalizeAnswerBasis({
+    kind: "protocol-guided",
+    label: "Protocol",
+    note: "Best Guess should not leak.",
+    has_factual_grounding: false,
+    sources: ["protocol_guidance"],
+    context_sources: ["protocol"],
+    guidance_sources: ["protocol"],
+    counts: {
+      protocol_count: 1,
+    },
+  });
+
+  assert.equal(explicit.kind, "protocol_guided");
+  assert.equal(explicit.label, "Protocol-Guided");
+  assert.equal(explicit.note, "Intuitive Answer should not leak.");
+  assert.equal(explicit.hasFactualGrounding, false);
+  assert.deepEqual(explicit.sources, ["protocol"]);
+  assert.deepEqual(explicit.contextSources, ["protocol"]);
+  assert.deepEqual(explicit.evidenceSources, []);
+  assert.deepEqual(explicit.guidanceSources, ["protocol"]);
+  assert.equal(explicit.counts.protocol, 1);
+
+  const intuitive = normalizeAnswerBasis(null, {
+    responseMode: {
+      kind: "best_guess",
+      grounding_mode: "ungrounded",
+      context_sources: [],
+    },
+    recallItems: [],
+  });
+  assert.equal(intuitive.kind, "intuitive_answer");
+  assert.equal(intuitive.label, "Intuitive Answer");
+  assert.equal(intuitive.hasFactualGrounding, false);
+  assert.deepEqual(intuitive.contextSources, []);
+
+  const protocolOnly = normalizeAnswerBasis(null, {
+    responseMode: {
+      kind: "best_guess",
+      grounding_mode: "ungrounded",
+      context_sources: [],
+    },
+    recallItems: [
+      { id: "email-protocol", type: "protocol", protocol: { protocol_kind: "email" } },
+    ],
+  });
+  assert.equal(protocolOnly.kind, "protocol_guided");
+  assert.equal(protocolOnly.label, "Protocol-Guided");
+  assert.equal(protocolOnly.counts.recall, 0);
+  assert.equal(protocolOnly.counts.protocol, 1);
+  assert.deepEqual(protocolOnly.evidenceSources, []);
+  assert.deepEqual(protocolOnly.guidanceSources, ["protocol"]);
+
+  const mixed = normalizeAnswerBasis(null, {
+    responseMode: {
+      kind: "grounded",
+      grounding_mode: "recall",
+      recall_count: 2,
+      context_sources: ["recall"],
+    },
+    recallItems: [
+      { id: "email-protocol", type: "protocol", protocol: { protocol_kind: "email" } },
+      { id: "memory-1", source: "memory" },
+    ],
+  });
+  assert.equal(mixed.kind, "mixed_context");
+  assert.equal(mixed.label, "Mixed Context");
+  assert.equal(mixed.counts.recall, 1);
+  assert.equal(mixed.counts.protocol, 1);
+  assert.deepEqual(mixed.contextSources, ["recall", "protocol"]);
+});
+
 test("turn interpretation normalization prefers pinned context semantics while keeping legacy aliases", () => {
   const normalized = normalizeTurnInterpretation({
     preserve_pinned_context: true,
@@ -771,7 +845,7 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
     {
       name: "recall grounded",
       grounding: {
-        groundingLabel: "Recall",
+        groundingLabel: "Memory-Backed",
         recallCount: 2,
         workingMemoryCount: 2,
         hasBroaderGrounding: false,
@@ -780,15 +854,15 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
       },
       learnedCount: 1,
       expected: {
-        metaText: "Recall: 2 items • What I learned: 1",
-        answerDockLabel: "Recall",
-        turnIntentLabel: "Recall",
+        metaText: "Recall: 2 items • Grounding: Memory-Backed • What I learned: 1",
+        answerDockLabel: "Memory-Backed",
+        turnIntentLabel: "Memory-Backed",
       },
     },
     {
       name: "whiteboard grounded",
       grounding: {
-        groundingLabel: "Whiteboard",
+        groundingLabel: "Whiteboard-Grounded",
         workingMemoryCount: 0,
         hasBroaderGrounding: true,
         hasGroundedContext: true,
@@ -796,9 +870,9 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
       },
       learnedCount: 0,
       expected: {
-        metaText: "Grounding: Whiteboard",
-        answerDockLabel: "Whiteboard",
-        turnIntentLabel: "Whiteboard",
+        metaText: "Grounding: Whiteboard-Grounded",
+        answerDockLabel: "Whiteboard-Grounded",
+        turnIntentLabel: "Whiteboard-Grounded",
       },
     },
     {
@@ -820,7 +894,7 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
     {
       name: "pending-whiteboard grounded",
       grounding: {
-        groundingLabel: "Prior Whiteboard",
+        groundingLabel: "Whiteboard-Grounded",
         workingMemoryCount: 0,
         hasBroaderGrounding: true,
         hasGroundedContext: true,
@@ -828,15 +902,15 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
       },
       learnedCount: 0,
       expected: {
-        metaText: "Grounding: Prior Whiteboard",
-        answerDockLabel: "Prior Whiteboard",
-        turnIntentLabel: "Prior Whiteboard",
+        metaText: "Grounding: Whiteboard-Grounded",
+        answerDockLabel: "Whiteboard-Grounded",
+        turnIntentLabel: "Whiteboard-Grounded",
       },
     },
     {
       name: "mixed-context grounded",
       grounding: {
-        groundingLabel: "Recall + Recent Chat",
+        groundingLabel: "Mixed Context",
         recallCount: 2,
         workingMemoryCount: 2,
         hasBroaderGrounding: true,
@@ -845,15 +919,15 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
       },
       learnedCount: 0,
       expected: {
-        metaText: "Recall: 2 items • Grounding: Recall + Recent Chat",
-        answerDockLabel: "Recall + Recent Chat",
-        turnIntentLabel: "Recall + Recent Chat",
+        metaText: "Recall: 2 items • Grounding: Mixed Context",
+        answerDockLabel: "Mixed Context",
+        turnIntentLabel: "Mixed Context",
       },
     },
     {
       name: "true best guess",
       grounding: {
-        groundingLabel: "Best Guess",
+        groundingLabel: "Intuitive Answer",
         workingMemoryCount: 0,
         hasBroaderGrounding: false,
         hasGroundedContext: false,
@@ -861,9 +935,9 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
       },
       learnedCount: 0,
       expected: {
-        metaText: "Grounding: Best Guess",
-        answerDockLabel: "Best Guess",
-        turnIntentLabel: "Best Guess",
+        metaText: "Grounding: Intuitive Answer",
+        answerDockLabel: "Intuitive Answer",
+        turnIntentLabel: "Intuitive Answer",
       },
     },
   ];
@@ -1153,6 +1227,30 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
         groundingMode: "recall",
         groundingSources: ["recall"],
         contextSources: ["recall"],
+      },
+      answerBasis: {
+        kind: "memory_backed",
+        label: "Memory-Backed",
+        note: "Backed by 1 memory item from Recall.",
+        summary: "Backed by 1 memory item from Recall.",
+        hasFactualGrounding: true,
+        sources: ["recall"],
+        contextSources: ["recall"],
+        evidenceSources: ["recall"],
+        guidanceSources: [],
+        counts: {
+          recall: 1,
+          memory: 1,
+          protocol: 0,
+          protocols: 0,
+          whiteboard: 0,
+          recentChat: 0,
+          pendingWhiteboard: 0,
+          evidence: 1,
+          guidance: 0,
+          context: 1,
+          sources: 1,
+        },
       },
       workspaceUpdate: {
         status: "draft_ready",

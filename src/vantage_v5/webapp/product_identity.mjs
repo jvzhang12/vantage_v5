@@ -1,8 +1,9 @@
 import {
+  normalizeAnswerBasis,
   normalizeLearnedItems,
   normalizeProtocolMetadata,
   normalizeResponseMode,
-} from "./turn_payloads.mjs";
+} from "./turn_payloads.mjs?v=20260429-answer-basis-2";
 
 function pluralize(word, count) {
   if (word === "branch") {
@@ -73,15 +74,21 @@ function learnedEvidenceLabel(items) {
 }
 
 function groundingEvidenceLabel(payload) {
-  const responseMode = normalizeResponseMode(payload?.response_mode, recallCountFromPayload(payload));
-  const responseModeLabel = responseModeEvidenceLabel(responseMode, payload);
-  if (responseModeLabel) {
-    return responseModeLabel;
+  const answerBasis = normalizeAnswerBasisFromPayload(payload);
+  if (answerBasis && answerBasis.kind !== "idle") {
+    return answerBasis.label;
   }
-  return null;
+  const responseMode = normalizeResponseMode(payload?.response_mode, recallCountFromPayload(payload));
+  return responseModeEvidenceLabel(responseMode, payload);
 }
 
-export function describeResponseModeLabel(responseMode = null, recallCount = 0) {
+export function describeResponseModeLabel(responseMode = null, recallCount = 0, answerBasis = null) {
+  const normalizedAnswerBasis = answerBasis && typeof answerBasis === "object"
+    ? normalizeAnswerBasis(answerBasis, { responseMode })
+    : null;
+  if (normalizedAnswerBasis && normalizedAnswerBasis.kind !== "idle") {
+    return normalizedAnswerBasis.label;
+  }
   const kind = String(responseMode?.kind || "").trim().toLowerCase();
   const groundingMode = String(responseMode?.groundingMode || responseMode?.grounding_mode || "").trim().toLowerCase();
   const contextSources = responseModeContextSources(responseMode);
@@ -89,7 +96,7 @@ export function describeResponseModeLabel(responseMode = null, recallCount = 0) 
     return "";
   }
   if (kind === "best_guess" || groundingMode === "ungrounded") {
-    return "Best Guess";
+    return "Intuitive Answer";
   }
   if (groundingMode === "whiteboard") {
     return "Whiteboard";
@@ -114,6 +121,7 @@ export function describeResponseModeLabel(responseMode = null, recallCount = 0) 
 
 export function deriveTurnGrounding({
   responseMode = null,
+  answerBasis = null,
   recallItems = [],
   workingMemoryItems = [],
   learnedItems = [],
@@ -127,29 +135,48 @@ export function deriveTurnGrounding({
   const normalizedResponseMode = responseMode && typeof responseMode === "object"
     ? normalizeResponseMode(responseMode, visibleRecallCount)
     : normalizeResponseMode(null, visibleRecallCount);
-  const recallCount = Number.isFinite(Number(normalizedResponseMode?.recallCount))
+  const normalizedAnswerBasis = normalizeAnswerBasis(answerBasis, {
+    responseMode: normalizedResponseMode,
+    recallItems: Array.isArray(recallItems) && recallItems.length ? recallItems : workingMemoryItems,
+  });
+  const responseRecallCount = Number.isFinite(Number(normalizedResponseMode?.recallCount))
     ? Number(normalizedResponseMode.recallCount)
     : Number.isFinite(Number(normalizedResponseMode?.workingMemoryCount))
       ? Number(normalizedResponseMode.workingMemoryCount)
       : visibleRecallCount;
-  const groundingLabel = describeResponseModeLabel(normalizedResponseMode, recallCount) || "Idle";
+  const answerBasisRecallCount = Number.isFinite(Number(normalizedAnswerBasis?.counts?.recall))
+    ? Number(normalizedAnswerBasis.counts.recall)
+    : null;
+  const recallCount = normalizedAnswerBasis?.kind && normalizedAnswerBasis.kind !== "idle"
+    ? (answerBasisRecallCount ?? responseRecallCount)
+    : responseRecallCount;
+  const groundingLabel = describeResponseModeLabel(normalizedResponseMode, recallCount, normalizedAnswerBasis) || "Idle";
   const responseKind = String(normalizedResponseMode?.kind || "").trim().toLowerCase();
   const groundingMode = String(normalizedResponseMode?.groundingMode || "").trim().toLowerCase();
-  const groundingSources = Array.isArray(normalizedResponseMode?.contextSources)
-    ? normalizedResponseMode.contextSources
-    : Array.isArray(normalizedResponseMode?.groundingSources)
-      ? normalizedResponseMode.groundingSources
-      : [];
-  const isIdle = responseKind === "idle";
-  const isBestGuess = responseKind === "best_guess";
-  const hasGroundedContext = responseKind === "grounded";
+  const groundingSources = normalizedAnswerBasis?.kind && normalizedAnswerBasis.kind !== "idle"
+    ? normalizedAnswerBasis.contextSources
+    : Array.isArray(normalizedResponseMode?.contextSources)
+      ? normalizedResponseMode.contextSources
+      : Array.isArray(normalizedResponseMode?.groundingSources)
+        ? normalizedResponseMode.groundingSources
+        : [];
+  const isIdle = responseKind === "idle" && normalizedAnswerBasis?.kind === "idle";
+  const hasAnswerBasisContext = Boolean(
+    normalizedAnswerBasis?.kind
+      && !["idle", "intuitive_answer"].includes(normalizedAnswerBasis.kind),
+  );
+  const isBestGuess = normalizedAnswerBasis?.kind === "intuitive_answer"
+    || (responseKind === "best_guess" && !hasAnswerBasisContext);
+  const hasGroundedContext = responseKind === "grounded" || hasAnswerBasisContext;
   const hasBroaderGrounding = hasGroundedContext && (
     ["whiteboard", "recent_chat", "pending_whiteboard", "mixed_context"].includes(groundingMode)
     || groundingSources.some((source) => normalizeContextSourceName(source) !== "recall")
+    || ["protocol_guided", "whiteboard_grounded", "mixed_context", "recent_chat"].includes(normalizedAnswerBasis?.kind)
   );
 
   return {
     responseMode: normalizedResponseMode,
+    answerBasis: normalizedAnswerBasis,
     groundingLabel,
     recallCount,
     workingMemoryCount: recallCount,
@@ -160,6 +187,9 @@ export function deriveTurnGrounding({
     groundingSources,
     hasBroaderGrounding,
     hasGroundedContext,
+    hasFactualGrounding: Boolean(normalizedAnswerBasis?.hasFactualGrounding),
+    evidenceSources: Array.isArray(normalizedAnswerBasis?.evidenceSources) ? normalizedAnswerBasis.evidenceSources : [],
+    guidanceSources: Array.isArray(normalizedAnswerBasis?.guidanceSources) ? normalizedAnswerBasis.guidanceSources : [],
     isBestGuess,
     isIdle,
   };
@@ -390,11 +420,11 @@ export function buildTurnAtAGlanceSummary({
         : "Scenario Lab ran for this turn.",
     );
   } else if (isBestGuess) {
-    parts.push("This answer is a best guess.");
+    parts.push("This was an intuitive answer from the current request.");
   } else if (recallCount > 0) {
     parts.push(`This answer used ${recallCount} recalled ${pluralize("item", recallCount)}.`);
   } else if ((hasGroundedContext || hasBroaderGrounding) && normalizedGrounding) {
-    parts.push(`This answer used ${normalizedGrounding.toLowerCase()}.`);
+    parts.push(answerBasisSummarySentence(normalizedGrounding));
   } else if (graphActionSummary) {
     parts.push(graphActionSummary);
   }
@@ -404,6 +434,23 @@ export function buildTurnAtAGlanceSummary({
   }
 
   return parts.join(" ") || "This view explains why the answer happened, what entered Recall, and what changed after the turn.";
+}
+
+function answerBasisSummarySentence(label) {
+  switch (String(label || "").trim()) {
+    case "Protocol-Guided":
+      return "Reusable protocol guidance shaped this answer.";
+    case "Whiteboard-Grounded":
+      return "Whiteboard context supported this answer.";
+    case "Mixed Context":
+      return "Multiple context sources shaped this answer.";
+    case "Recent Chat":
+      return "Recent chat continuity supported this answer.";
+    case "Memory-Backed":
+      return "Recalled memory supported this answer.";
+    default:
+      return `This answer used ${String(label || "").trim().toLowerCase()}.`;
+  }
 }
 
 export function describeSemanticActionCopy({
@@ -636,7 +683,7 @@ function responseModeEvidenceLabel(responseMode, payload) {
   const count = recallCountFromPayload(payload);
 
   if (kind === "best_guess" || groundingMode === "ungrounded") {
-    return "Best Guess";
+    return "Intuitive Answer";
   }
   if (groundingMode === "recall" || groundingMode === "working_memory") {
     return count > 0 ? `Used ${count} recalled ${pluralize("item", count)}` : "From earlier";
@@ -694,9 +741,24 @@ function responseModeContextSources(responseMode = null) {
   return [];
 }
 
+function normalizeAnswerBasisFromPayload(payload = null) {
+  if (!payload || typeof payload !== "object") {
+    return normalizeAnswerBasis(null);
+  }
+  const recallItems = Array.isArray(payload.recall)
+    ? payload.recall
+    : Array.isArray(payload.working_memory)
+      ? payload.working_memory
+      : [];
+  return normalizeAnswerBasis(payload.answer_basis || payload.answerBasis, {
+    responseMode: payload.response_mode || payload.responseMode || null,
+    recallItems,
+  });
+}
+
 function normalizeContextSourceName(source) {
   const normalizedSource = String(source || "").trim().toLowerCase();
-  if (normalizedSource === "working_memory") {
+  if (normalizedSource === "working_memory" || normalizedSource === "memory") {
     return "recall";
   }
   return normalizedSource;
@@ -726,13 +788,15 @@ function describeContextSourceLabel(source) {
   switch (String(source || "").trim().toLowerCase()) {
     case "recall":
     case "working_memory":
-      return "Recall";
+      return "Memory";
     case "whiteboard":
       return "Whiteboard";
     case "recent_chat":
       return "Recent Chat";
     case "pending_whiteboard":
       return "Prior Whiteboard";
+    case "protocol":
+      return "Protocol";
     default:
       return "";
   }
@@ -749,6 +813,8 @@ function describeContextSourceEvidenceLabel(source) {
       return "Recent conversation";
     case "pending_whiteboard":
       return "Earlier draft";
+    case "protocol":
+      return "Protocol guidance";
     default:
       return "";
   }
@@ -774,6 +840,7 @@ function normalizePinnedContinuityReason(interpretation) {
 
 export function buildGuidedInspectionSummary({
   responseMode = null,
+  answerBasis = null,
   scenarioLab = null,
   recallCount = 0,
   recalledCount = 0,
@@ -798,7 +865,10 @@ export function buildGuidedInspectionSummary({
           : "Scenario Lab: ready",
     );
   }
-  const responseModeLabel = describeResponseModeLabel(responseMode, normalizedRecallCount);
+  const answerBasisLabel = answerBasis && typeof answerBasis === "object"
+    ? normalizeAnswerBasis(answerBasis, { responseMode }).label
+    : "";
+  const responseModeLabel = answerBasisLabel || describeResponseModeLabel(responseMode, normalizedRecallCount);
   if (normalizedRecallCount > 0) {
     parts.push(`Recall: ${normalizedRecallCount} ${pluralize("item", normalizedRecallCount)}`);
     if (responseModeLabel && responseModeLabel !== "Recall") {
@@ -986,7 +1056,7 @@ function describeReasoningRecall(grounding, recallItems = []) {
 
 function describeReasoningWorkingMemory(grounding) {
   if (grounding?.isBestGuess) {
-    return "In scope for generation: no grounded context (Best Guess).";
+    return "In scope for generation: current request only (Intuitive Answer).";
   }
   if (grounding?.groundingLabel && grounding.groundingLabel !== "Idle") {
     return `In scope for generation: ${grounding.groundingLabel}.`;
@@ -998,6 +1068,7 @@ export function buildReasoningPathInspection({
   userMessage = "",
   interpretation = null,
   responseMode = null,
+  answerBasis = null,
   candidateConcepts = [],
   candidateSavedNotes = [],
   candidateTraceNotes = [],
@@ -1013,6 +1084,7 @@ export function buildReasoningPathInspection({
 } = {}) {
   const grounding = deriveTurnGrounding({
     responseMode,
+    answerBasis,
     recallItems,
     learnedItems,
   });
@@ -1254,6 +1326,7 @@ export function buildReasoningPathInspection({
     summary: summaryPieces.join(" ").replace(/\s+/g, " ").trim(),
     groundingLabel: deriveTurnGrounding({
       responseMode,
+      answerBasis,
       recallItems,
       learnedItems,
     }).groundingLabel,
@@ -1346,7 +1419,9 @@ function buildWorkingMemoryScopeSummary({
   const traceCount = Array.isArray(recallItems)
     ? recallItems.filter((item) => String(item?.source || "").trim().toLowerCase() === "memory_trace").length
     : 0;
-  const contextSources = responseModeContextSources(grounding?.responseMode);
+  const contextSources = Array.isArray(grounding?.answerBasis?.contextSources) && grounding.answerBasis.contextSources.length
+    ? grounding.answerBasis.contextSources.map(normalizeContextSourceName)
+    : responseModeContextSources(grounding?.responseMode);
   const additionalContextLabels = contextSources
     .filter((source) => source !== "recall")
     .map((source) => describeContextSourceLabel(source))
@@ -1366,7 +1441,7 @@ function buildWorkingMemoryScopeSummary({
   if (additionalContextLabels.length) {
     parts.push(`Additional context in scope: ${additionalContextLabels.join(", ")}.`);
   } else if (grounding?.isBestGuess) {
-    parts.push("The answer was generated as a best guess without surfaced recall.");
+    parts.push("The answer was generated as an Intuitive Answer without surfaced memory.");
   }
   if (traceCount > 0) {
     parts.push(`Memory Trace contributed ${traceCount} recalled item${traceCount === 1 ? "" : "s"}.`);
@@ -1408,6 +1483,13 @@ function buildWorkingMemoryScopeSummary({
         ? "The recent conversation was part of the bounded context."
         : "Recent chat was not surfaced for this answer.",
     },
+    ...(contextSources.includes("protocol")
+      ? [{
+          label: "Protocol",
+          status: "Included",
+          detail: "Reusable protocol guidance shaped the answer basis without counting as factual memory evidence.",
+        }]
+      : []),
     ...(hasPriorWhiteboardInScope
       ? [{
           label: "Prior whiteboard",
@@ -1441,6 +1523,9 @@ function buildWorkingMemoryScopeSummary({
       ? { label: "Whiteboard scope hint", value: humanizeWorkspaceContextScope(workspaceContextScope) }
       : null,
     { label: "Recent chat", value: hasRecentChatInScope ? "Included" : "Excluded" },
+    ...(contextSources.includes("protocol")
+      ? [{ label: "Protocol", value: "Included" }]
+      : []),
     ...(hasPriorWhiteboardInScope
       ? [{ label: "Prior whiteboard", value: "Included" }]
       : []),
@@ -1473,6 +1558,7 @@ export function buildReasoningPathStages({
   userMessage = "",
   interpretation = null,
   responseMode = null,
+  answerBasis = null,
   recallItems = [],
   learnedItems = [],
   traceNotes = [],
@@ -1484,6 +1570,7 @@ export function buildReasoningPathStages({
 } = {}) {
   const grounding = deriveTurnGrounding({
     responseMode,
+    answerBasis,
     recallItems,
     learnedItems,
   });
@@ -1653,10 +1740,11 @@ export function buildChatTurnEvidence(payload) {
 
   const grounding = groundingEvidenceLabel(payload);
   if (grounding) {
+    const intuitive = grounding === "Intuitive Answer";
     evidence.push({
       label: grounding,
-      tone: grounding === "Best Guess" ? "warm" : "soft",
-      emphasis: grounding === "Best Guess" ? "strong" : "quiet",
+      tone: intuitive ? "warm" : "soft",
+      emphasis: intuitive ? "strong" : "quiet",
     });
   }
 

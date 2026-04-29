@@ -2,7 +2,8 @@ export function buildTurnPanelGroundingCopy({
   grounding = null,
   learnedCount = 0,
 } = {}) {
-  const groundingLabel = String(grounding?.groundingLabel || "").trim() || "Idle";
+  const rawGroundingLabel = String(grounding?.groundingLabel || "").trim() || "Idle";
+  const groundingLabel = rawGroundingLabel === "Best Guess" ? "Intuitive Answer" : rawGroundingLabel;
   const recallCount = Number.isFinite(Number(grounding?.recallCount))
     ? Number(grounding.recallCount)
     : Number.isFinite(Number(grounding?.workingMemoryCount))
@@ -15,7 +16,7 @@ export function buildTurnPanelGroundingCopy({
   const metaParts = [];
   if (recallCount > 0) {
     metaParts.push(`Recall: ${recallCount} item${recallCount === 1 ? "" : "s"}`);
-    if (hasBroaderGrounding) {
+    if (hasBroaderGrounding || (groundingLabel && groundingLabel !== "Recall")) {
       metaParts.push(`Grounding: ${groundingLabel}`);
     }
   } else if (hasGroundedContext || isBestGuess) {
@@ -34,7 +35,7 @@ export function buildTurnPanelGroundingCopy({
     answerDockLabel: hasBroaderGrounding
       ? groundingLabel
       : recallCount > 0
-        ? "Recall"
+        ? (groundingLabel && groundingLabel !== "Recall" ? groundingLabel : "Recall")
         : hasGroundedContext
           ? groundingLabel
           : learnedCount > 0

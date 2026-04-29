@@ -16,6 +16,7 @@ from vantage_v5.services.turn_payloads import assemble_workspace_payload_for_tur
 from vantage_v5.services.turn_payloads import assemble_chat_turn_body
 from vantage_v5.services.turn_payloads import build_local_turn_parts
 from vantage_v5.services.turn_payloads import ChatTurnBodyParts
+from vantage_v5.services.turn_payloads import finalize_turn_payload
 from vantage_v5.services.turn_payloads import LocalTurnBodyParts
 from vantage_v5.services.turn_payloads import LocalTurnContext
 from vantage_v5.services.turn_payloads import ScenarioLabTurnBodyParts
@@ -34,6 +35,194 @@ def _workspace(tmp_path: Path, content: str) -> WorkspaceDocument:
         path=tmp_path / "draft.md",
         scenario_metadata=None,
     )
+
+
+def _answer_basis_for(
+    *,
+    working_memory: list[dict[str, Any]] | None = None,
+    context_sources: list[str] | None = None,
+    learned: list[dict[str, Any]] | None = None,
+    created_record: dict[str, Any] | None = None,
+    recall_count: int = 0,
+) -> dict[str, Any]:
+    payload = finalize_turn_payload(
+        {
+            "working_memory": working_memory or [],
+            "learned": learned or [],
+            "created_record": created_record,
+            "response_mode": {
+                "kind": "grounded" if context_sources else "best_guess",
+                "grounding_mode": "mixed_context" if context_sources and len(context_sources) > 1 else "ungrounded",
+                "context_sources": context_sources or [],
+                "grounding_sources": context_sources or [],
+                "recall_count": recall_count,
+            },
+        },
+        pinned_context_id=None,
+        pinned_context=None,
+    )
+    return payload["answer_basis"]
+
+
+def _memory_item(record_id: str = "memory-1") -> dict[str, Any]:
+    return {
+        "id": record_id,
+        "title": "Useful Memory",
+        "type": "note",
+        "kind": "saved_note",
+        "memory_role": "saved_context",
+        "source_tier": "saved",
+        "source": "memory",
+    }
+
+
+def _protocol_item(record_id: str = "protocol-1") -> dict[str, Any]:
+    return {
+        "id": record_id,
+        "title": "Email Protocol",
+        "type": "protocol",
+        "kind": "protocol",
+        "memory_role": "protocol",
+        "source_tier": "instruction",
+        "source": "concept",
+        "protocol": {"protocol_kind": "email"},
+    }
+
+
+def test_answer_basis_maps_intuitive_without_context() -> None:
+    basis = _answer_basis_for(recall_count=4)
+
+    assert basis["kind"] == "intuitive"
+    assert basis["label"] == "Intuitive Answer"
+    assert basis["has_factual_grounding"] is False
+    assert basis["sources"] == []
+    assert basis["counts"] == {
+        "memory": 0,
+        "protocol": 0,
+        "whiteboard": 0,
+        "conversation": 0,
+        "recalled_items": 0,
+    }
+
+
+def test_answer_basis_maps_memory_only_from_actual_recall_items() -> None:
+    basis = _answer_basis_for(
+        working_memory=[_memory_item()],
+        context_sources=["recall"],
+        recall_count=0,
+    )
+
+    assert basis["kind"] == "memory_backed"
+    assert basis["label"] == "Memory-Backed"
+    assert basis["has_factual_grounding"] is True
+    assert basis["sources"] == ["memory"]
+    assert basis["evidence_sources"] == ["memory"]
+    assert basis["guidance_sources"] == []
+    assert basis["counts"]["memory"] == 1
+    assert basis["counts"]["recalled_items"] == 1
+
+
+def test_answer_basis_maps_protocol_only_as_guidance() -> None:
+    basis = _answer_basis_for(
+        working_memory=[_protocol_item()],
+        context_sources=["recall"],
+    )
+
+    assert basis["kind"] == "protocol_guided"
+    assert basis["label"] == "Protocol-Guided"
+    assert basis["has_factual_grounding"] is False
+    assert basis["sources"] == ["protocol"]
+    assert basis["evidence_sources"] == []
+    assert basis["guidance_sources"] == ["protocol"]
+    assert basis["counts"]["protocol"] == 1
+
+
+def test_answer_basis_maps_whiteboard_only_as_grounded() -> None:
+    basis = _answer_basis_for(context_sources=["whiteboard"])
+
+    assert basis["kind"] == "whiteboard_grounded"
+    assert basis["label"] == "Whiteboard-Grounded"
+    assert basis["has_factual_grounding"] is True
+    assert basis["sources"] == ["whiteboard"]
+    assert basis["evidence_sources"] == ["whiteboard"]
+    assert basis["counts"]["whiteboard"] == 1
+
+
+def test_answer_basis_maps_pending_whiteboard_only_as_grounded() -> None:
+    basis = _answer_basis_for(context_sources=["pending_whiteboard"])
+
+    assert basis["kind"] == "whiteboard_grounded"
+    assert basis["label"] == "Whiteboard-Grounded"
+    assert basis["has_factual_grounding"] is True
+    assert basis["sources"] == ["pending_whiteboard"]
+    assert basis["evidence_sources"] == ["pending_whiteboard"]
+    assert basis["counts"]["whiteboard"] == 1
+
+
+def test_answer_basis_maps_recent_chat_only_with_compatibility_label() -> None:
+    basis = _answer_basis_for(context_sources=["recent_chat"])
+
+    assert basis["kind"] == "recent_chat"
+    assert basis["label"] == "Recent Chat"
+    assert basis["has_factual_grounding"] is True
+    assert basis["sources"] == ["recent_chat"]
+    assert basis["evidence_sources"] == ["recent_chat"]
+    assert basis["counts"]["conversation"] == 1
+
+
+def test_answer_basis_maps_protocol_plus_memory_as_mixed_context() -> None:
+    basis = _answer_basis_for(
+        working_memory=[_protocol_item(), _memory_item()],
+        context_sources=["recall"],
+    )
+
+    assert basis["kind"] == "mixed_context"
+    assert basis["label"] == "Mixed Context"
+    assert basis["has_factual_grounding"] is True
+    assert basis["sources"] == ["memory", "protocol"]
+    assert basis["evidence_sources"] == ["memory"]
+    assert basis["guidance_sources"] == ["protocol"]
+    assert basis["counts"]["memory"] == 1
+    assert basis["counts"]["protocol"] == 1
+
+
+def test_answer_basis_maps_protocol_plus_whiteboard_as_mixed_context() -> None:
+    basis = _answer_basis_for(
+        working_memory=[_protocol_item()],
+        context_sources=["recall", "whiteboard"],
+    )
+
+    assert basis["kind"] == "mixed_context"
+    assert basis["label"] == "Mixed Context"
+    assert basis["has_factual_grounding"] is True
+    assert basis["sources"] == ["protocol", "whiteboard"]
+    assert basis["evidence_sources"] == ["whiteboard"]
+    assert basis["guidance_sources"] == ["protocol"]
+    assert basis["counts"]["whiteboard"] == 1
+
+
+def test_answer_basis_ignores_current_turn_created_protocol() -> None:
+    created_protocol = {
+        "id": "email-drafting-protocol",
+        "title": "Email Protocol",
+        "type": "protocol",
+        "source": "concept",
+    }
+
+    basis = _answer_basis_for(
+        working_memory=[_protocol_item("email-drafting-protocol")],
+        context_sources=["recall"],
+        learned=[created_protocol],
+        created_record=created_protocol,
+    )
+
+    assert basis["kind"] == "intuitive"
+    assert basis["label"] == "Intuitive Answer"
+    assert basis["has_factual_grounding"] is False
+    assert basis["sources"] == []
+    assert basis["guidance_sources"] == []
+    assert basis["counts"]["protocol"] == 0
+    assert basis["counts"]["recalled_items"] == 0
 
 
 def test_assemble_turn_interpretation_payload_preserves_navigation_contract() -> None:
@@ -480,6 +669,8 @@ def test_assemble_chat_turn_body_preserves_chat_payload_aliases() -> None:
     assert payload["recall_details"][0]["why_recalled"] == "Relevant."
     assert payload["learned"] == learned
     assert payload["created_record"] == learned[0]
+    assert payload["answer_basis"]["kind"] == "memory_backed"
+    assert payload["answer_basis"]["label"] == "Memory-Backed"
 
 
 def test_assemble_scenario_lab_turn_body_preserves_scenario_payload_aliases() -> None:
@@ -534,3 +725,5 @@ def test_assemble_scenario_lab_turn_body_preserves_scenario_payload_aliases() ->
     assert payload["scenario_lab"]["recommendation"] == "Run the private beta."
     assert payload["scenario_lab"]["branches"] == [{"workspace_id": "launch--private-beta", "title": "Private Beta"}]
     assert payload["scenario_lab"]["comparison_artifact"] == comparison_artifact
+    assert payload["answer_basis"]["kind"] == "memory_backed"
+    assert payload["answer_basis"]["label"] == "Memory-Backed"

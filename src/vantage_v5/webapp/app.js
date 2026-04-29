@@ -28,7 +28,7 @@ import {
   describeResponseModeLabel,
   deriveTurnGrounding,
   deriveWhiteboardLifecycle,
-} from "./product_identity.mjs?v=20260426-protocol-editor";
+} from "./product_identity.mjs?v=20260429-answer-basis-2";
 import {
   buildWorkspaceContextPayload,
   deriveChatWhiteboardMode,
@@ -54,8 +54,9 @@ import {
 } from "./workspace_state.mjs?v=20260421-scenario-fix";
 import {
   buildTurnPanelGroundingCopy,
-} from "./turn_panel_grounding.mjs?v=20260421-scenario-fix";
+} from "./turn_panel_grounding.mjs?v=20260429-answer-basis-2";
 import {
+  normalizeAnswerBasis,
   normalizeLearnedItems,
   normalizeComparisonBranchIndex,
   normalizeProtocolMetadata,
@@ -70,7 +71,7 @@ import {
   normalizeTurnInterpretation,
   normalizeSemanticPolicy,
   normalizeWorkspaceUpdate,
-} from "./turn_payloads.mjs?v=20260426-protocol-editor";
+} from "./turn_payloads.mjs?v=20260429-answer-basis-2";
 import {
   deriveWhiteboardPreviewState,
   renderRichText,
@@ -326,6 +327,7 @@ const state = {
       groundingSources: [],
       contextSources: [],
     },
+    answerBasis: normalizeAnswerBasis(null),
     workspaceContextScope: "excluded",
     workspaceUpdate: null,
     vetting: null,
@@ -358,6 +360,7 @@ function createIdleTurnState() {
       groundingSources: [],
       contextSources: [],
     },
+    answerBasis: normalizeAnswerBasis(null),
     workspaceContextScope: "excluded",
     workspaceUpdate: null,
     vetting: null,
@@ -555,11 +558,20 @@ function restoreTurnSnapshot() {
         content: state.workspace.content,
       },
     );
+    const restoredResponseMode = normalizeResponseMode(
+      snapshot.turn?.responseMode,
+      Array.isArray(snapshot.turnWorkingMemory) ? snapshot.turnWorkingMemory.length : 0,
+    );
+    const restoredAnswerBasis = normalizeAnswerBasis(snapshot.turn?.answerBasis, {
+      responseMode: restoredResponseMode,
+      recallItems: Array.isArray(snapshot.turnWorkingMemory) ? snapshot.turnWorkingMemory : [],
+    });
     state.turn = {
       userMessage: snapshot.turn?.userMessage || "",
       assistantMessage: snapshot.turn?.assistantMessage || "",
       mode: snapshot.turn?.mode || "idle",
-      responseMode: normalizeResponseMode(snapshot.turn?.responseMode, Array.isArray(snapshot.turnWorkingMemory) ? snapshot.turnWorkingMemory.length : 0),
+      responseMode: restoredResponseMode,
+      answerBasis: restoredAnswerBasis,
       workspaceContextScope: restoredTurnState.workspaceContextScope,
       workspaceUpdate: restoredWorkspaceUpdate,
       vetting: snapshot.turn?.vetting || null,
@@ -1542,6 +1554,7 @@ function buildVantageSummary() {
   const grounding = currentTurnGrounding();
   return `Start here: ${buildGuidedInspectionSummary({
     responseMode: grounding.responseMode,
+    answerBasis: grounding.answerBasis,
     scenarioLab: state.turn.scenarioLab,
     recallCount: grounding.recallCount,
     learnedCount: grounding.learnedCount,
@@ -1554,6 +1567,7 @@ function buildVantageSummary() {
 function currentTurnGrounding() {
   return deriveTurnGrounding({
     responseMode: state.turn.responseMode,
+    answerBasis: state.turn.answerBasis,
     recallItems: state.turnWorkingMemory,
     learnedItems: state.turnLearned,
   });
@@ -1968,26 +1982,31 @@ function ensureReopenTargetAvailable(target) {
 
 function recordLocalWhiteboardReopenTurn({ message, assistantMessage, target, queued = false } = {}) {
   const normalizedTarget = normalizeMemoryItem(target, "turn-recall");
+  const localResponseMode = normalizeResponseMode(
+    {
+      kind: "grounded",
+      label: queued ? "Recall" : "Recall + Whiteboard",
+      note: queued
+        ? "Supported by the recalled item while the whiteboard replacement waits for your decision."
+        : "Supported by the recalled item and the reopened whiteboard.",
+      grounding_mode: queued ? "recall" : "mixed_context",
+      grounding_sources: queued ? ["recall"] : ["recall", "whiteboard"],
+      context_sources: queued ? ["recall"] : ["recall", "whiteboard"],
+      recall_count: normalizedTarget.id ? 1 : 0,
+      working_memory_count: normalizedTarget.id ? 1 : 0,
+    },
+    normalizedTarget.id ? 1 : 0,
+  );
   state.turn = {
     ...createIdleTurnState(),
     userMessage: message || "",
     assistantMessage: assistantMessage || "",
     mode: "local_action",
-    responseMode: normalizeResponseMode(
-      {
-        kind: "grounded",
-        label: queued ? "Recall" : "Recall + Whiteboard",
-        note: queued
-          ? "Supported by the recalled item while the whiteboard replacement waits for your decision."
-          : "Supported by the recalled item and the reopened whiteboard.",
-        grounding_mode: queued ? "recall" : "mixed_context",
-        grounding_sources: queued ? ["recall"] : ["recall", "whiteboard"],
-        context_sources: queued ? ["recall"] : ["recall", "whiteboard"],
-        recall_count: normalizedTarget.id ? 1 : 0,
-        working_memory_count: normalizedTarget.id ? 1 : 0,
-      },
-      normalizedTarget.id ? 1 : 0,
-    ),
+    responseMode: localResponseMode,
+    answerBasis: normalizeAnswerBasis(null, {
+      responseMode: localResponseMode,
+      recallItems: normalizedTarget.id ? [normalizedTarget] : [],
+    }),
     workspaceContextScope: queued ? "excluded" : "requested",
     workspaceUpdate: null,
     vetting: null,
@@ -2091,6 +2110,7 @@ function applyChatPayload(payload) {
     assistantMessage: payload.assistant_message || "",
     mode: payload.mode || "chat",
     responseMode: normalizedTurnPayload.responseMode,
+    answerBasis: normalizedTurnPayload.answerBasis,
     workspaceContextScope: normalizedTurnPayload.workspaceContextScope,
     workspaceUpdate: normalizedTurnPayload.workspaceUpdate,
     vetting: payload.vetting || null,
@@ -2887,6 +2907,7 @@ function renderTurnPanel() {
   const grounding = currentTurnGrounding();
   const {
     responseMode,
+    answerBasis,
     recallCount,
     learnedCount,
     hasGroundedContext,
@@ -2905,6 +2926,7 @@ function renderTurnPanel() {
     userMessage: state.turn.userMessage,
     interpretation,
     responseMode,
+    answerBasis,
     candidateConcepts: state.candidateConcepts,
     candidateSavedNotes: state.candidateSavedNotes,
     candidateTraceNotes: state.candidateTraceNotes,
@@ -3279,7 +3301,7 @@ function renderWorkingMemoryPanel({
   }
   if (grounding?.isBestGuess) {
     turnWorkingMemoryFactsEl.append(
-      createMiniMeta("Response", "Best Guess"),
+      createMiniMeta("Response", "Intuitive Answer"),
     );
   }
 }
@@ -3377,7 +3399,7 @@ function workingMemorySourceLabels(grounding = null) {
 
 function normalizeWorkingMemorySource(source) {
   const normalized = String(source || "").trim().toLowerCase();
-  return normalized === "working_memory" ? "recall" : normalized;
+  return normalized === "working_memory" || normalized === "memory" ? "recall" : normalized;
 }
 
 function describeWorkingMemorySource(source) {
@@ -3388,6 +3410,8 @@ function describeWorkingMemorySource(source) {
       return "Recent Chat";
     case "pending_whiteboard":
       return "Prior Draft";
+    case "protocol":
+      return "Protocol";
     default:
       return "";
   }
@@ -3916,13 +3940,14 @@ function renderScenarioLabPanel(scenarioLab) {
   const grounding = currentTurnGrounding();
   const {
     responseMode,
+    answerBasis,
     groundingLabel: currentGroundingLabel,
     recallCount,
     learnedCount,
     hasGroundedContext,
     isBestGuess,
   } = grounding;
-  const responseModeNote = responseMode.note || currentGroundingLabel || "";
+  const responseModeNote = answerBasis?.note || answerBasis?.summary || responseMode.note || currentGroundingLabel || "";
   const navigatorReason = scenarioLab.navigator?.reason || scenarioLab.navigator?.note || scenarioLab.reason || "";
   const confidence = describeScenarioRouteConfidence(scenarioLab.navigator?.confidence);
   const comparisonArtifact = scenarioLab.comparisonArtifact
@@ -4017,7 +4042,7 @@ function renderScenarioLabPanel(scenarioLab) {
     || (hasGroundedContext
       ? `Grounded by ${currentGroundingLabel}.`
       : isBestGuess
-        ? "No grounded context was used for this Scenario Lab turn."
+        ? "This Scenario Lab turn used an Intuitive Answer basis without grounded Vantage context."
         : "Grounding details were not returned for this Scenario Lab turn.");
 
   const branchLabel = document.createElement("div");

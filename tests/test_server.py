@@ -478,7 +478,8 @@ def test_basic_auth_protects_ui_and_api_when_configured(tmp_path: Path) -> None:
 
     unauthenticated_workspace = client.get("/api/workspace")
     assert unauthenticated_workspace.status_code == 401
-    assert unauthenticated_workspace.headers["www-authenticate"] == 'Basic realm="Vantage"'
+    assert unauthenticated_workspace.json()["detail"] == "Authentication required."
+    assert "www-authenticate" not in unauthenticated_workspace.headers
 
     bad_credentials = client.get(
         "/api/workspace",
@@ -1345,6 +1346,8 @@ def test_multi_user_auth_isolates_markdown_storage(tmp_path: Path) -> None:
 
     unauthenticated_workspace = client.get("/api/workspace")
     assert unauthenticated_workspace.status_code == 401
+    assert unauthenticated_workspace.json()["detail"] == "Authentication required."
+    assert "www-authenticate" not in unauthenticated_workspace.headers
 
     eden_auth = _basic_auth_header("eden", "eden-password")
     jordan_auth = _basic_auth_header("jordan", "jordan-password")

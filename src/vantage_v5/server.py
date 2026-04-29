@@ -227,11 +227,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return await call_next(request)
         if public_path:
             return await call_next(request)
-        return Response(
-            "Authentication required.",
-            status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="Vantage"'},
-        )
+        return JSONResponse({"detail": "Authentication required."}, status_code=401)
 
     def _request_authorized_user(request: Request) -> str | None:
         basic_user = _basic_auth_authorized_user(

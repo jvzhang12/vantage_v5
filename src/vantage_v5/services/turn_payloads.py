@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from vantage_v5.services.context_budget import build_context_budget_payload
 from vantage_v5.services.learned_review import ensure_write_review
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.response_mode import build_answer_basis_payload
@@ -330,6 +331,7 @@ def assemble_service_turn_payload(
     payload["turn_stage"] = parts.turn_stage or payload.get("turn_stage")
     payload["stage_progress"] = parts.stage_progress or payload.get("stage_progress")
     payload["stage_audit"] = parts.stage_audit or payload.get("stage_audit")
+    payload["context_budget"] = build_context_budget_payload(payload)
     _preserve_stage_payloads(payload)
     return attach_safe_turn_state(payload)
 
@@ -482,6 +484,7 @@ def assemble_scenario_lab_fallback_payload(
     payload["turn_stage"] = parts.turn_stage or payload.get("turn_stage")
     payload["stage_progress"] = parts.stage_progress or payload.get("stage_progress")
     payload["stage_audit"] = parts.stage_audit or payload.get("stage_audit")
+    payload["context_budget"] = build_context_budget_payload(payload)
     _preserve_stage_payloads(payload)
     return attach_safe_turn_state(payload)
 
@@ -580,6 +583,7 @@ def finalize_turn_payload(
     payload["selected_record"] = pinned_context
     _preserve_stage_payloads(payload)
     payload["answer_basis"] = build_answer_basis_payload(payload)
+    payload["context_budget"] = build_context_budget_payload(payload)
     return payload
 
 

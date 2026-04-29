@@ -39,6 +39,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Avoid noisy automatic durable writes.
 - [x] Add answer-basis payload and badge language for intuitive, memory-backed, protocol-guided, whiteboard-grounded, and mixed-context turns.
 - [x] Keep protocol guidance separate from factual grounding in answer-basis payloads and UI.
+- [x] Add a Context Budget receipt in Inspect for included / excluded turn context.
 - [ ] Keep grounding disclosures clear when an answer uses no recalled context.
 
 ## Library And Durable Stores

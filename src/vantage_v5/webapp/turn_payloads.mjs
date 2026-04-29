@@ -231,6 +231,281 @@ export function normalizeLearnedItems(payload) {
   return [];
 }
 
+export function normalizeContextBudget(contextBudget = null, {
+  responseMode = null,
+  answerBasis = null,
+  recallItems = [],
+  workspaceContextScope = "excluded",
+  interpretation = null,
+} = {}) {
+  const source = contextBudget && typeof contextBudget === "object" ? contextBudget : null;
+  const rows = source
+    ? normalizeContextBudgetRows(source.rows || source.items)
+    : deriveContextBudgetRows({
+      responseMode,
+      answerBasis,
+      recallItems,
+      workspaceContextScope,
+      interpretation,
+    });
+  const counts = source?.counts && typeof source.counts === "object"
+    ? normalizeContextBudgetCounts(source.counts, rows)
+    : contextBudgetCountsFromRows(rows);
+  const contextSources = normalizeAnswerBasisSources(
+    source?.context_sources
+      || source?.contextSources
+      || answerBasis?.contextSources
+      || answerBasis?.context_sources
+      || responseMode?.contextSources
+      || responseMode?.context_sources
+      || responseMode?.groundingSources
+      || responseMode?.grounding_sources
+      || [],
+  );
+  const summary = firstNonEmptyString(source?.summary, describeContextBudgetRows(rows));
+  return {
+    label: firstNonEmptyString(source?.label, "Context Budget"),
+    summary,
+    rows,
+    items: rows,
+    counts,
+    contextSources,
+    context_sources: contextSources,
+  };
+}
+
+function normalizeContextBudgetRows(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => normalizeContextBudgetRow(row))
+    .filter(Boolean);
+}
+
+function normalizeContextBudgetRow(row) {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+  const key = normalizeSemanticToken(row.key || row.id || row.name, "");
+  const label = firstNonEmptyString(row.label, humanizeContextBudgetKey(key));
+  if (!key || !label) {
+    return null;
+  }
+  const status = normalizeContextBudgetStatus(row.status || row.state || row.display_status || row.displayStatus);
+  const count = normalizeContextBudgetCount(row.count);
+  const detail = firstNonEmptyString(row.detail, row.summary, row.note, "");
+  const scope = firstNonEmptyString(row.scope, row.scope_label, row.scopeLabel, "");
+  return {
+    ...row,
+    key,
+    label,
+    status,
+    displayStatus: status === "included" ? "Included" : "Excluded",
+    display_status: status === "included" ? "Included" : "Excluded",
+    ...(Number.isFinite(count) ? { count } : {}),
+    ...(detail ? { detail } : {}),
+    ...(scope ? { scope } : {}),
+  };
+}
+
+function deriveContextBudgetRows({
+  responseMode = null,
+  answerBasis = null,
+  recallItems = [],
+  workspaceContextScope = "excluded",
+  interpretation = null,
+} = {}) {
+  const sources = normalizeAnswerBasisSources([
+    ...(answerBasis?.contextSources || answerBasis?.context_sources || []),
+    ...(answerBasis?.guidanceSources || answerBasis?.guidance_sources || []),
+    ...(responseMode?.contextSources || responseMode?.context_sources || responseMode?.groundingSources || responseMode?.grounding_sources || []),
+  ]);
+  const counts = answerBasis?.counts && typeof answerBasis.counts === "object" ? answerBasis.counts : {};
+  const recallCount = normalizeCountAlias(
+    counts,
+    ["recalled_items", "recalledItems", "recall", "recall_count", "recallCount"],
+    Number.isFinite(Number(responseMode?.recallCount ?? responseMode?.recall_count))
+      ? Number(responseMode?.recallCount ?? responseMode?.recall_count)
+      : Array.isArray(recallItems)
+        ? recallItems.length
+        : 0,
+  );
+  const protocolCount = normalizeCountAlias(
+    counts,
+    ["protocol", "protocols", "guidance"],
+    Array.isArray(recallItems) ? recallItems.filter(isProtocolAnswerBasisItem).length : 0,
+  );
+  const traceCount = Array.isArray(recallItems)
+    ? recallItems.filter((item) => String(item?.source || item?.type || "").trim().toLowerCase() === "memory_trace").length
+    : 0;
+  const whiteboardIncluded = sources.includes("whiteboard");
+  const recentChatIncluded = sources.includes("recent_chat");
+  const pendingWhiteboardIncluded = sources.includes("pending_whiteboard");
+  const pinnedPreserved = interpretation
+    ? normalizeInterpretationBoolean(
+      interpretation.preservePinnedContext
+        ?? interpretation.preserve_pinned_context
+        ?? interpretation.preserveSelectedRecord
+        ?? interpretation.preserve_selected_record,
+    )
+    : null;
+  const scope = humanizeContextBudgetScope(workspaceContextScope);
+  const rows = [
+    createDerivedContextBudgetRow("user_request", "User request", true, "The current user message is always included."),
+    createDerivedContextBudgetRow(
+      "recall",
+      "Recall",
+      recallCount > 0,
+      recallCount > 0 ? `${recallCount} item${recallCount === 1 ? "" : "s"} entered Recall.` : "No recalled Library or Memory Trace item entered Recall.",
+      recallCount,
+    ),
+    createDerivedContextBudgetRow(
+      "protocol",
+      "Protocols",
+      protocolCount > 0,
+      protocolCount > 0 ? `${protocolCount} protocol${protocolCount === 1 ? "" : "s"} shaped the task as guidance.` : "No reusable protocol guidance was applied.",
+      protocolCount,
+    ),
+    createDerivedContextBudgetRow(
+      "whiteboard",
+      "Whiteboard",
+      whiteboardIncluded,
+      whiteboardIncluded
+        ? (scope ? `Whiteboard content was included. Scope hint: ${scope}.` : "Whiteboard content was included.")
+        : (scope ? `Whiteboard scope hint was ${scope}, but it was not listed as a generation source.` : "No whiteboard content was included."),
+      whiteboardIncluded ? 1 : 0,
+      scope,
+    ),
+    createDerivedContextBudgetRow(
+      "recent_chat",
+      "Recent chat",
+      recentChatIncluded,
+      recentChatIncluded ? "Recent conversation context was included." : "Recent chat was not included as a separate grounding source.",
+      recentChatIncluded ? 1 : 0,
+    ),
+    createDerivedContextBudgetRow(
+      "pending_whiteboard",
+      "Prior draft",
+      pendingWhiteboardIncluded,
+      pendingWhiteboardIncluded ? "A prior pending whiteboard draft was included." : "No prior pending whiteboard draft was included.",
+      pendingWhiteboardIncluded ? 1 : 0,
+    ),
+    createDerivedContextBudgetRow(
+      "pinned_context",
+      "Pinned context",
+      pinnedPreserved === true,
+      pinnedPreserved === true
+        ? firstNonEmptyString(interpretation?.pinnedContextReason, interpretation?.pinned_context_reason, interpretation?.selectedRecordReason, interpretation?.selected_record_reason, "Pinned context stayed in scope.")
+        : "No pinned context was preserved for this turn.",
+      pinnedPreserved === true ? 1 : 0,
+    ),
+  ];
+  if (traceCount > 0) {
+    rows.push(createDerivedContextBudgetRow(
+      "memory_trace",
+      "Memory Trace",
+      true,
+      `${traceCount} recent history item${traceCount === 1 ? "" : "s"} entered Recall.`,
+      traceCount,
+    ));
+  }
+  return rows;
+}
+
+function createDerivedContextBudgetRow(key, label, included, detail, count = null, scope = "") {
+  return {
+    key,
+    label,
+    status: included ? "included" : "excluded",
+    displayStatus: included ? "Included" : "Excluded",
+    display_status: included ? "Included" : "Excluded",
+    detail,
+    ...(Number.isFinite(Number(count)) ? { count: Number(count) } : {}),
+    ...(scope ? { scope } : {}),
+  };
+}
+
+function normalizeContextBudgetStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["included", "include", "used", "active", "preserved", "yes", "true"].includes(normalized)) {
+    return "included";
+  }
+  return "excluded";
+}
+
+function normalizeContextBudgetCount(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, numeric) : null;
+}
+
+function normalizeContextBudgetCounts(counts, rows) {
+  return {
+    ...contextBudgetCountsFromRows(rows),
+    ...Object.fromEntries(
+      Object.entries(counts)
+        .map(([key, value]) => [key, normalizeContextBudgetCount(value)])
+        .filter(([, value]) => Number.isFinite(value)),
+    ),
+  };
+}
+
+function contextBudgetCountsFromRows(rows) {
+  return rows.reduce((counts, row) => {
+    counts[row.key] = Number.isFinite(Number(row.count)) ? Number(row.count) : (row.status === "included" ? 1 : 0);
+    return counts;
+  }, {});
+}
+
+function describeContextBudgetRows(rows) {
+  const included = rows
+    .filter((row) => row.status === "included")
+    .map((row) => {
+      if (Number.isFinite(Number(row.count)) && Number(row.count) > 0 && !["user_request", "whiteboard", "recent_chat", "pending_whiteboard", "pinned_context"].includes(row.key)) {
+        return `${row.label}: ${Number(row.count)}`;
+      }
+      return row.label;
+    });
+  return included.length
+    ? `Context budget: ${included.join(", ")}.`
+    : "Context budget: current request only.";
+}
+
+function humanizeContextBudgetKey(key) {
+  switch (String(key || "").trim().toLowerCase()) {
+    case "user_request":
+      return "User request";
+    case "recall":
+      return "Recall";
+    case "protocol":
+      return "Protocols";
+    case "whiteboard":
+      return "Whiteboard";
+    case "recent_chat":
+      return "Recent chat";
+    case "pending_whiteboard":
+      return "Prior draft";
+    case "pinned_context":
+      return "Pinned context";
+    case "memory_trace":
+      return "Memory Trace";
+    default:
+      return "";
+  }
+}
+
+function humanizeContextBudgetScope(scope) {
+  switch (String(scope || "").trim().toLowerCase()) {
+    case "visible":
+      return "Visible";
+    case "pinned":
+      return "Pinned";
+    case "requested":
+      return "Requested";
+    case "auto":
+      return "Auto";
+    default:
+      return "";
+  }
+}
+
 export function normalizeMemoryTraceRecord(record) {
   if (!record || typeof record !== "object") {
     return null;
@@ -330,6 +605,18 @@ export function normalizeTurnPayload(payload) {
     responseMode,
     recallItems,
   });
+  const workspaceContextScope = normalizeWorkspaceContextScope(normalizedPayload.workspace?.context_scope);
+  const interpretation = normalizeTurnInterpretation(normalizedPayload.turn_interpretation || normalizedPayload.turnInterpretation);
+  const providedContextBudget = normalizedPayload.context_budget || normalizedPayload.contextBudget;
+  const contextBudget = providedContextBudget
+    ? normalizeContextBudget(providedContextBudget, {
+      responseMode,
+      answerBasis,
+      recallItems,
+      workspaceContextScope,
+      interpretation,
+    })
+    : null;
   return {
     recallItems,
     workingMemoryItems: recallItems,
@@ -337,6 +624,7 @@ export function normalizeTurnPayload(payload) {
     memoryTraceRecord: normalizeMemoryTraceRecord(normalizedPayload.memory_trace_record || normalizedPayload.memoryTraceRecord),
     responseMode,
     answerBasis,
+    contextBudget,
     scenarioLab: normalizeScenarioLabPayload(normalizedPayload.scenario_lab),
     semanticFrame,
     semanticPolicy: normalizeSemanticPolicy(normalizedPayload.semantic_policy || normalizedPayload.semanticPolicy, semanticFrame),
@@ -346,7 +634,7 @@ export function normalizeTurnPayload(payload) {
     stageProgress: normalizeStageProgress(normalizedPayload.stage_progress || normalizedPayload.stageProgress),
     stageAudit: normalizeStageAudit(normalizedPayload.stage_audit || normalizedPayload.stageAudit),
     workspaceUpdate: normalizeWorkspaceUpdate(normalizedPayload.workspace_update, normalizedPayload.workspace),
-    workspaceContextScope: normalizeWorkspaceContextScope(normalizedPayload.workspace?.context_scope),
+    workspaceContextScope,
     pinnedContextId: normalizedPayload.pinned_context_id || normalizedPayload.pinnedContextId || normalizedPayload.selected_record_id || normalizedPayload.selectedRecordId || null,
     pinnedContext,
     selectedRecordId: normalizedPayload.selected_record_id || normalizedPayload.selectedRecordId || normalizedPayload.pinned_context_id || normalizedPayload.pinnedContextId || null,

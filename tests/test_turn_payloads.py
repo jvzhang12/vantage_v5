@@ -108,6 +108,11 @@ def _assert_review_first_write_review(record: dict[str, Any]) -> None:
     ]
 
 
+def _budget_row(payload: dict[str, Any], key: str) -> dict[str, Any]:
+    rows = payload["context_budget"]["rows"]
+    return next(row for row in rows if row["key"] == key)
+
+
 def test_answer_basis_maps_intuitive_without_context() -> None:
     basis = _answer_basis_for(recall_count=4)
 
@@ -242,6 +247,55 @@ def test_answer_basis_ignores_current_turn_created_protocol() -> None:
     assert basis["guidance_sources"] == []
     assert basis["counts"]["protocol"] == 0
     assert basis["counts"]["recalled_items"] == 0
+
+
+def test_context_budget_summarizes_turn_scope_without_token_counts() -> None:
+    payload = finalize_turn_payload(
+        {
+            "recall": [
+                _memory_item("memory-1"),
+                _protocol_item("protocol-1"),
+                {"id": "trace-1", "title": "Trace", "source": "memory_trace", "type": "memory_trace"},
+            ],
+            "response_mode": {
+                "kind": "grounded",
+                "grounding_mode": "mixed_context",
+                "context_sources": ["recall", "whiteboard", "recent_chat", "pending_whiteboard"],
+                "grounding_sources": ["recall", "whiteboard", "recent_chat", "pending_whiteboard"],
+                "recall_count": 3,
+            },
+            "workspace": {"context_scope": "visible"},
+            "turn_interpretation": {
+                "preserve_pinned_context": True,
+                "pinned_context_reason": "The selected comparison remains the anchor.",
+            },
+        },
+        pinned_context_id="comparison-1",
+        pinned_context={"id": "comparison-1", "title": "Comparison", "source": "artifact"},
+    )
+
+    budget = payload["context_budget"]
+    assert budget["label"] == "Context Budget"
+    assert "Context budget:" in budget["summary"]
+    assert "token" not in budget["summary"].lower()
+    assert budget["counts"] == {
+        "recall": 3,
+        "memory": 2,
+        "protocol": 1,
+        "whiteboard": 1,
+        "recent_chat": 1,
+        "pending_whiteboard": 1,
+        "pinned_context": 1,
+        "memory_trace": 1,
+    }
+    assert _budget_row(payload, "user_request")["status"] == "included"
+    assert _budget_row(payload, "recall")["count"] == 3
+    assert _budget_row(payload, "protocol")["count"] == 1
+    assert _budget_row(payload, "whiteboard")["scope"] == "Visible"
+    assert _budget_row(payload, "recent_chat")["status"] == "included"
+    assert _budget_row(payload, "pending_whiteboard")["status"] == "included"
+    assert _budget_row(payload, "pinned_context")["detail"] == "The selected comparison remains the anchor."
+    assert _budget_row(payload, "memory_trace")["count"] == 1
 
 
 def test_assemble_turn_interpretation_payload_preserves_navigation_contract() -> None:

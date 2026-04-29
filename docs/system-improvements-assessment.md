@@ -105,9 +105,11 @@ Deferred:
 
 ### 4. Context Budget View
 
-This fits if it is human-readable, not token-console-like.
+Status: implemented as a human-readable Inspect receipt.
 
-Recommended shape inside Inspect:
+The backend now emits a `context_budget` DTO for each turn, and Inspect renders it inside Context in Scope.
+
+Implemented shape inside Inspect:
 
 - user request: included
 - Recall: N items
@@ -117,7 +119,7 @@ Recommended shape inside Inspect:
 - pinned context: preserved / not preserved
 - pending whiteboard: included / excluded
 
-Avoid exact token counts until the backend can provide them reliably.
+The receipt intentionally avoids exact token counts. It is a scope receipt, not a provider-token console.
 
 ### 5. Protocol Library UX
 
@@ -219,7 +221,7 @@ Recommended emphasis:
 3. Complete: separate protocol guidance from factual grounding in payload and UI.
 4. Complete first pass: improve `Saved for Later` / `Learned` into a read-only memory write review surface.
 5. Deferred: add direct correction actions for saved items and bad recall once backend storage, search, and privacy semantics are explicit.
-6. Add Context Budget inside Inspect.
+6. Complete: add Context Budget inside Inspect.
 7. Build a more visible Protocol Library / protocol Inspect subview.
 8. Experiment with concept key/value terminology in docs or advanced metadata only.
 9. Add freshness/confidence labels once correction paths and semantics are clear.
@@ -237,7 +239,7 @@ Recommended emphasis:
 - [x] Add frontend tests for badge rendering.
 - [x] Improve Saved for Later with read-only review affordances.
 - [ ] Add direct Saved for Later mutation actions once backend storage/search/privacy semantics are explicit.
-- [ ] Add Context Budget to Inspect.
+- [x] Add Context Budget to Inspect.
 - [ ] Draft a small protocol-library UX plan.
 - [ ] Keep concept key/value terminology exploratory until validated.
 

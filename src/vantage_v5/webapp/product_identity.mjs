@@ -1,10 +1,11 @@
 import {
   normalizeAnswerBasis,
+  normalizeContextBudget,
   normalizeLearnedItems,
   normalizeProtocolMetadata,
   normalizeResponseMode,
   normalizeWriteReview,
-} from "./turn_payloads.mjs?v=20260429-write-review";
+} from "./turn_payloads.mjs?v=20260429-context-budget";
 
 function pluralize(word, count) {
   if (word === "branch") {
@@ -1089,6 +1090,7 @@ export function buildReasoningPathInspection({
   memoryTraceRecord = null,
   scenarioLab = null,
   graphAction = null,
+  contextBudget = null,
 } = {}) {
   const grounding = deriveTurnGrounding({
     responseMode,
@@ -1118,6 +1120,7 @@ export function buildReasoningPathInspection({
     workspaceContextScope,
     recallItems,
     traceNotes,
+    contextBudget,
   });
   const requestStage = {
     key: "request",
@@ -1422,7 +1425,37 @@ function buildWorkingMemoryScopeSummary({
   workspaceContextScope = "excluded",
   recallItems = [],
   traceNotes = [],
+  contextBudget = null,
 } = {}) {
+  const normalizedBudget = contextBudget && typeof contextBudget === "object"
+    ? normalizeContextBudget(contextBudget)
+    : null;
+  if (Array.isArray(normalizedBudget?.rows) && normalizedBudget.rows.length) {
+    const scopeTableRows = normalizedBudget.rows.map((row) => ({
+      label: row.label,
+      status: row.status === "included" ? "Included" : "Excluded",
+      detail: row.detail || "",
+      count: Number.isFinite(Number(row.count)) ? Number(row.count) : undefined,
+      scope: row.scope || "",
+    }));
+    const scopeRows = normalizedBudget.rows.map((row) => ({
+      label: row.label,
+      value: row.status === "included"
+        ? Number.isFinite(Number(row.count)) && Number(row.count) > 0 && !["user_request", "whiteboard", "recent_chat", "pending_whiteboard", "pinned_context"].includes(row.key)
+          ? `${Number(row.count)} item${Number(row.count) === 1 ? "" : "s"}`
+          : "Included"
+        : "Excluded",
+    }));
+    return {
+      summary: normalizedBudget.summary || "Context budget for this turn.",
+      meta: normalizeStageMeta([
+        { label: "Budget", value: `${normalizedBudget.rows.filter((row) => row.status === "included").length} included` },
+      ]),
+      scopeRows,
+      scopeTableRows,
+    };
+  }
+
   const recallCount = Number(grounding?.recallCount || 0);
   const traceCount = Array.isArray(recallItems)
     ? recallItems.filter((item) => String(item?.source || "").trim().toLowerCase() === "memory_trace").length
@@ -1575,6 +1608,7 @@ export function buildReasoningPathStages({
   memoryTraceRecord = null,
   scenarioLab = null,
   graphAction = null,
+  contextBudget = null,
 } = {}) {
   const grounding = deriveTurnGrounding({
     responseMode,
@@ -1594,6 +1628,7 @@ export function buildReasoningPathStages({
     workspaceContextScope,
     recallItems,
     traceNotes,
+    contextBudget,
   });
   const learnedCount = Array.isArray(learnedItems) ? learnedItems.length : 0;
   const hasTraceRecord = Boolean(memoryTraceRecord && typeof memoryTraceRecord === "object" && memoryTraceRecord.id);

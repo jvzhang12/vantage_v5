@@ -869,6 +869,49 @@ test("buildReasoningPathInspection surfaces continuity, working-memory scope, an
   assert.match(inspection.summary, /1 recalled item entered Working Memory\./);
 });
 
+test("buildReasoningPathInspection can render the canonical context budget receipt", () => {
+  const inspection = buildReasoningPathInspection({
+    userMessage: "Use the draft and the pinned launch comparison.",
+    interpretation: {
+      mode: "chat",
+      reason: "The answer should keep the comparison in scope.",
+      preservePinnedContext: true,
+      pinnedContextReason: "The selected comparison remains the anchor.",
+    },
+    responseMode: {
+      kind: "grounded",
+      groundingMode: "mixed_context",
+      contextSources: ["recall", "whiteboard"],
+      recallCount: 2,
+    },
+    recallItems: [{ id: "memory-1" }, { id: "protocol-1", type: "protocol" }],
+    contextBudget: {
+      summary: "Context budget: User request, Recall: 2, Protocols: 1, Whiteboard, Pinned context.",
+      rows: [
+        { key: "user_request", label: "User request", status: "included", detail: "The current user message is always included." },
+        { key: "recall", label: "Recall", status: "included", count: 2, detail: "2 items entered Recall." },
+        { key: "protocol", label: "Protocols", status: "included", count: 1, detail: "1 protocol shaped the task as guidance." },
+        { key: "whiteboard", label: "Whiteboard", status: "included", scope: "Visible", detail: "Whiteboard content was included." },
+        { key: "pinned_context", label: "Pinned context", status: "included", detail: "The selected comparison remains the anchor." },
+      ],
+    },
+  });
+
+  const workingMemoryStage = inspection.stages[4];
+  assert.equal(workingMemoryStage.label, "Working Memory");
+  assert.match(workingMemoryStage.detail.summary, /Context budget: User request/);
+  assert.deepEqual(
+    workingMemoryStage.detail.scopeRows.map((row) => [row.label, row.status, row.count ?? null, row.scope || ""]),
+    [
+      ["User request", "Included", null, ""],
+      ["Recall", "Included", 2, ""],
+      ["Protocols", "Included", 1, ""],
+      ["Whiteboard", "Included", null, "Visible"],
+      ["Pinned context", "Included", null, ""],
+    ],
+  );
+});
+
 test("buildReasoningPathInspection labels protocol-only turns as guidance instead of recall or intuitive fallback", () => {
   const inspection = buildReasoningPathInspection({
     userMessage: "Draft this using the email protocol.",

@@ -157,6 +157,23 @@ This distinction matters especially for:
 - opened library items
 - pinned context
 
+### Context Budget
+
+`Context Budget` is the Inspect receipt that says which broad context sources were included or excluded for a turn.
+
+It covers human-readable scope categories such as:
+
+- user request
+- Recall
+- protocols
+- whiteboard
+- recent chat
+- prior draft
+- pinned context
+- Memory Trace contribution
+
+It is not a token accounting view. Exact provider token counts should not appear there until the backend can compute and explain them reliably.
+
 ### Recent Chat
 
 `Recent Chat` is the bounded short-term conversation history automatically carried into the current turn.

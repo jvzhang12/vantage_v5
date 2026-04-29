@@ -43,6 +43,7 @@ import {
 } from "../src/vantage_v5/webapp/product_identity.mjs";
 import {
   normalizeAnswerBasis,
+  normalizeContextBudget,
   normalizeLearnedItems,
   normalizeComparisonBranchIndex,
   normalizeActivity,
@@ -809,6 +810,38 @@ test("turn interpretation normalization prefers pinned context semantics while k
   assert.equal(normalized.controlPanel.responseCall.after_working_memory, true);
 });
 
+test("context budget normalization keeps scope readable without token accounting", () => {
+  const budget = normalizeContextBudget({
+    summary: "Context budget: User request, Recall: 2, Protocols: 1.",
+    rows: [
+      { key: "user_request", label: "User request", status: "included", detail: "The request was included." },
+      { key: "recall", label: "Recall", status: "included", count: 2, detail: "2 items entered Recall." },
+      { key: "protocol", label: "Protocols", status: "included", count: 1, detail: "1 protocol shaped the task." },
+      { key: "whiteboard", label: "Whiteboard", status: "excluded", scope: "Visible", detail: "Visible but excluded." },
+    ],
+    counts: {
+      recall: 2,
+      protocol: 1,
+    },
+    context_sources: ["recall", "protocol"],
+  });
+
+  assert.equal(budget.label, "Context Budget");
+  assert.equal(budget.summary, "Context budget: User request, Recall: 2, Protocols: 1.");
+  assert.deepEqual(
+    budget.rows.map((row) => [row.key, row.displayStatus, row.count ?? null, row.scope || ""]),
+    [
+      ["user_request", "Included", null, ""],
+      ["recall", "Included", 2, ""],
+      ["protocol", "Included", 1, ""],
+      ["whiteboard", "Excluded", null, "Visible"],
+    ],
+  );
+  assert.deepEqual(budget.contextSources, ["recall", "protocol"]);
+  assert.equal(budget.counts.recall, 2);
+  assert.equal(budget.counts.protocol, 1);
+});
+
 test("reasoning path inspection uses pinned context labels for continuity", () => {
   const inspection = buildReasoningPathInspection({
     userMessage: "Please update the email with the pinned context in mind.",
@@ -1271,6 +1304,7 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
           sources: 1,
         },
       },
+      contextBudget: null,
       workspaceUpdate: {
         status: "draft_ready",
         summary: "Draft ready.",

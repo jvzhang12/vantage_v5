@@ -28,7 +28,7 @@ import {
   describeResponseModeLabel,
   deriveTurnGrounding,
   deriveWhiteboardLifecycle,
-} from "./product_identity.mjs?v=20260429-write-review";
+} from "./product_identity.mjs?v=20260429-context-budget";
 import {
   buildWorkspaceContextPayload,
   deriveChatWhiteboardMode,
@@ -54,9 +54,10 @@ import {
 } from "./workspace_state.mjs?v=20260421-scenario-fix";
 import {
   buildTurnPanelGroundingCopy,
-} from "./turn_panel_grounding.mjs?v=20260429-write-review";
+} from "./turn_panel_grounding.mjs?v=20260429-context-budget";
 import {
   normalizeAnswerBasis,
+  normalizeContextBudget,
   normalizeLearnedItems,
   normalizeComparisonBranchIndex,
   normalizeProtocolMetadata,
@@ -72,7 +73,7 @@ import {
   normalizeSemanticPolicy,
   normalizeWriteReview,
   normalizeWorkspaceUpdate,
-} from "./turn_payloads.mjs?v=20260429-write-review";
+} from "./turn_payloads.mjs?v=20260429-context-budget";
 import {
   deriveWhiteboardPreviewState,
   renderRichText,
@@ -153,6 +154,7 @@ const turnSummaryFactsEl = document.getElementById("turnSummaryFacts");
 const turnWorkingMemorySummaryMetaEl = document.getElementById("turnWorkingMemorySummaryMeta");
 const turnWorkingMemoryNoticeEl = document.getElementById("turnWorkingMemoryNotice");
 const turnWorkingMemoryFactsEl = document.getElementById("turnWorkingMemoryFacts");
+const turnContextBudgetRowsEl = document.getElementById("turnContextBudgetRows");
 const turnTraceNoticeEl = document.getElementById("turnTraceNotice");
 const workspaceUpdatePanelEl = document.getElementById("workspaceUpdatePanel");
 const workspaceUpdateLabelEl = document.getElementById("workspaceUpdateLabel");
@@ -329,6 +331,7 @@ const state = {
       contextSources: [],
     },
     answerBasis: normalizeAnswerBasis(null),
+    contextBudget: null,
     workspaceContextScope: "excluded",
     workspaceUpdate: null,
     vetting: null,
@@ -362,6 +365,7 @@ function createIdleTurnState() {
       contextSources: [],
     },
     answerBasis: normalizeAnswerBasis(null),
+    contextBudget: null,
     workspaceContextScope: "excluded",
     workspaceUpdate: null,
     vetting: null,
@@ -567,12 +571,21 @@ function restoreTurnSnapshot() {
       responseMode: restoredResponseMode,
       recallItems: Array.isArray(snapshot.turnWorkingMemory) ? snapshot.turnWorkingMemory : [],
     });
+    const restoredInterpretation = normalizeTurnInterpretation(snapshot.turn?.interpretation || null);
+    const restoredContextBudget = normalizeContextBudget(snapshot.turn?.contextBudget || snapshot.turn?.context_budget || null, {
+      responseMode: restoredResponseMode,
+      answerBasis: restoredAnswerBasis,
+      recallItems: Array.isArray(snapshot.turnWorkingMemory) ? snapshot.turnWorkingMemory : [],
+      workspaceContextScope: restoredTurnState.workspaceContextScope,
+      interpretation: restoredInterpretation,
+    });
     state.turn = {
       userMessage: snapshot.turn?.userMessage || "",
       assistantMessage: snapshot.turn?.assistantMessage || "",
       mode: snapshot.turn?.mode || "idle",
       responseMode: restoredResponseMode,
       answerBasis: restoredAnswerBasis,
+      contextBudget: restoredContextBudget,
       workspaceContextScope: restoredTurnState.workspaceContextScope,
       workspaceUpdate: restoredWorkspaceUpdate,
       vetting: snapshot.turn?.vetting || null,
@@ -589,7 +602,7 @@ function restoreTurnSnapshot() {
       scenarioBranchInspectionWorkspaceId: restoredFromScopeScopedKey
         ? ""
         : snapshot.turn?.scenarioBranchInspectionWorkspaceId || "",
-      interpretation: normalizeTurnInterpretation(snapshot.turn?.interpretation || null),
+      interpretation: restoredInterpretation,
     };
     state.selectedConceptId = restoredTurnState.selectedConceptId;
     state.selectedVaultNoteId = restoredTurnState.selectedVaultNoteId;
@@ -2112,6 +2125,7 @@ function applyChatPayload(payload) {
     mode: payload.mode || "chat",
     responseMode: normalizedTurnPayload.responseMode,
     answerBasis: normalizedTurnPayload.answerBasis,
+    contextBudget: normalizedTurnPayload.contextBudget,
     workspaceContextScope: normalizedTurnPayload.workspaceContextScope,
     workspaceUpdate: normalizedTurnPayload.workspaceUpdate,
     vetting: payload.vetting || null,
@@ -2940,6 +2954,7 @@ function renderTurnPanel() {
     memoryTraceRecord: state.turnMemoryTraceRecord,
     scenarioLab: state.turn.scenarioLab,
     graphAction: state.turn.graphAction,
+    contextBudget: state.turn.contextBudget,
   });
 
   turnTitleEl.textContent = "This turn";
@@ -2984,6 +2999,7 @@ function renderTurnPanel() {
     grounding,
     interpretation,
     workspaceContextScope: state.turn.workspaceContextScope,
+    contextBudget: state.turn.contextBudget,
   });
 
   renderWorkspaceUpdatePanel(workspaceUpdate, { hidden: Boolean(scenarioLab && !scenarioLabFailed) });
@@ -3252,6 +3268,7 @@ function renderWorkingMemoryPanel({
   grounding = null,
   interpretation = null,
   workspaceContextScope = "excluded",
+  contextBudget = null,
 } = {}) {
   if (!turnWorkingMemoryNoticeEl || !turnWorkingMemoryFactsEl) {
     return;
@@ -3261,12 +3278,15 @@ function renderWorkingMemoryPanel({
       grounding,
     });
   }
-  turnWorkingMemoryNoticeEl.textContent = buildWorkingMemoryNotice({
+  turnWorkingMemoryNoticeEl.textContent = contextBudget?.summary || buildWorkingMemoryNotice({
     grounding,
     interpretation,
     workspaceContextScope,
   });
   turnWorkingMemoryFactsEl.innerHTML = "";
+  if (turnContextBudgetRowsEl) {
+    turnContextBudgetRowsEl.innerHTML = "";
+  }
 
   const recallCount = Number.isFinite(Number(grounding?.recallCount))
     ? Number(grounding.recallCount)
@@ -3305,6 +3325,63 @@ function renderWorkingMemoryPanel({
       createMiniMeta("Response", "Intuitive Answer"),
     );
   }
+  renderContextBudgetRows(contextBudget);
+}
+
+function renderContextBudgetRows(contextBudget = null) {
+  if (!turnContextBudgetRowsEl) {
+    return;
+  }
+  const rows = Array.isArray(contextBudget?.rows) ? contextBudget.rows : [];
+  turnContextBudgetRowsEl.hidden = !rows.length;
+  if (!rows.length) {
+    return;
+  }
+  const priority = ["user_request", "recall", "protocol", "whiteboard", "recent_chat", "pending_whiteboard", "pinned_context", "memory_trace"];
+  const orderedRows = [...rows].sort((left, right) => {
+    const leftIndex = priority.indexOf(left.key);
+    const rightIndex = priority.indexOf(right.key);
+    return (leftIndex < 0 ? 99 : leftIndex) - (rightIndex < 0 ? 99 : rightIndex);
+  });
+  for (const row of orderedRows) {
+    turnContextBudgetRowsEl.appendChild(createContextBudgetRow(row));
+  }
+}
+
+function createContextBudgetRow(row) {
+  const article = document.createElement("article");
+  article.className = `context-budget-row context-budget-row--${row.status === "included" ? "included" : "excluded"}`;
+
+  const top = document.createElement("div");
+  top.className = "context-budget-row__top";
+
+  const label = document.createElement("div");
+  label.className = "context-budget-row__label";
+  label.textContent = row.label || "Context";
+
+  const status = createBadge(row.displayStatus || row.display_status || (row.status === "included" ? "Included" : "Excluded"), row.status === "included" ? "success" : "soft");
+  status.classList.add("badge--message");
+  top.append(label, status);
+
+  const detail = document.createElement("p");
+  detail.className = "context-budget-row__detail";
+  detail.textContent = row.detail || "";
+
+  article.append(top, detail);
+  const metaItems = [];
+  if (Number.isFinite(Number(row.count)) && Number(row.count) > 0) {
+    metaItems.push(createMiniMeta("Count", `${Number(row.count)} item${Number(row.count) === 1 ? "" : "s"}`));
+  }
+  if (row.scope) {
+    metaItems.push(createMiniMeta("Scope", row.scope));
+  }
+  if (metaItems.length) {
+    const meta = document.createElement("div");
+    meta.className = "context-budget-row__meta";
+    meta.append(...metaItems);
+    article.append(meta);
+  }
+  return article;
 }
 
 function buildWorkingMemoryNotice({

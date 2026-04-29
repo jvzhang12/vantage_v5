@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vantage</title>
     <link rel="stylesheet" href="/static/vendor/highlight-github.min.css?v=20260421-math-render-code" />
-    <link rel="stylesheet" href="/static/styles.css?v=20260429-key-warning" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260429-context-budget" />
   </head>
   <body>
     <div class="notice-rail" id="noticeRail" aria-live="polite"></div>
@@ -204,6 +204,7 @@
                 <section class="turn-working-memory-block">
                   <div class="turn-notice" id="turnWorkingMemoryNotice">Context in scope is the bounded context that was available for generation.</div>
                   <div class="turn-summary-facts turn-summary-facts--working-memory" id="turnWorkingMemoryFacts"></div>
+                  <div class="context-budget-list" id="turnContextBudgetRows" aria-label="Context budget"></div>
                 </section>
               </section>
               <section class="turn-support-group">
@@ -406,6 +407,6 @@
 
     <script src="/static/vendor/katex.min.js?v=20260421-math-render-code"></script>
     <script src="/static/vendor/highlight.min.js?v=20260421-math-render-code"></script>
-    <script type="module" src="/static/app.js?v=20260429-write-review"></script>
+    <script type="module" src="/static/app.js?v=20260429-context-budget"></script>
   </body>
 </html>

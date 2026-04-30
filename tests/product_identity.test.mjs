@@ -403,11 +403,14 @@ test("buildLearnedCorrectionModel keeps the first-pass correction loop truthful"
   assert.equal(temporary.primaryActionLabel, "Revise in whiteboard");
   assert.equal(temporary.keepContextLabel, "Pin for next turn");
   assert.equal(temporary.pinnedContextLabel, "Pinned for next turn");
+  assert.equal(temporary.markIncorrectActionLabel, "Hide as incorrect");
+  assert.equal(temporary.forgetActionLabel, "Don't use again");
+  assert.equal(temporary.directCorrectionSupported, true);
   assert.equal(temporary.scopeLabel, "Temporary in this experiment");
   assert.match(temporary.summary, /temporary in this experiment/i);
   assert.match(temporary.modeSummaries.overview, /whiteboard/i);
-  assert.match(temporary.modeSummaries.wrong, /not direct yet/i);
-  assert.match(temporary.modeSummaries.forget, /not supported/i);
+  assert.match(temporary.modeSummaries.wrong, /future recall/i);
+  assert.match(temporary.modeSummaries.forget, /not a hard delete/i);
   assert.equal(temporary.limitations.length, 2);
 
   const durableComparison = buildLearnedCorrectionModel({
@@ -419,10 +422,13 @@ test("buildLearnedCorrectionModel keeps the first-pass correction loop truthful"
   assert.equal(durableComparison.primaryActionLabel, "Continue comparison in whiteboard");
   assert.equal(durableComparison.keepContextLabel, "Pin for next turn");
   assert.equal(durableComparison.pinnedContextLabel, "Pinned for next turn");
+  assert.equal(durableComparison.markIncorrectActionLabel, "Hide as incorrect");
+  assert.equal(durableComparison.forgetActionLabel, "Don't use again");
+  assert.equal(durableComparison.directCorrectionSupported, true);
   assert.equal(durableComparison.scopeLabel, "Saved in your library");
   assert.match(durableComparison.summary, /library-saved item/i);
   assert.match(durableComparison.modeSummaries.temporary, /not direct yet/i);
-  assert.match(durableComparison.modeSummaries.forget, /not supported/i);
+  assert.match(durableComparison.modeSummaries.forget, /suppression action/i);
   assert.equal(durableComparison.limitations.length, 2);
 
   const writeReview = buildLearnedCorrectionModel({
@@ -459,11 +465,11 @@ test("buildLearnedCorrectionModel ignores misleading explicit labels for the whi
   assert.equal(corrected.keepContextLabel, "Pin for next turn");
 });
 
-test("describeLearnedCorrectionModeLabel keeps unsupported mutation affordances in helper language", () => {
-  assert.equal(describeLearnedCorrectionModeLabel("wrong", "Saved in your library"), "How to mark wrong");
+test("describeLearnedCorrectionModeLabel names supported hide actions and unsupported scope guidance", () => {
+  assert.equal(describeLearnedCorrectionModeLabel("wrong", "Saved in your library"), "Hide as incorrect");
   assert.equal(describeLearnedCorrectionModeLabel("temporary", "Saved in your library"), "How to make temporary");
   assert.equal(describeLearnedCorrectionModeLabel("temporary", "Temporary in this experiment"), "Already temporary");
-  assert.equal(describeLearnedCorrectionModeLabel("forget", "Saved in your library"), "How to forget");
+  assert.equal(describeLearnedCorrectionModeLabel("forget", "Saved in your library"), "Don't use again");
 });
 
 test("describeScenarioRouteConfidence keeps Scenario Lab confidence qualitative and product-facing", () => {

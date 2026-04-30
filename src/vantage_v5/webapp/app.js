@@ -58,11 +58,14 @@ import {
 import {
   normalizeAnswerBasis,
   normalizeContextBudget,
+  filterCorrectedSavedItems,
+  matchesSavedItemCorrection,
   normalizeLearnedItems,
   normalizeComparisonBranchIndex,
   normalizeProtocolMetadata,
   normalizeRecordId,
   normalizeResponseMode,
+  normalizeSavedItemCorrection,
   normalizeScenarioLabPayload,
   normalizeSemanticFrame,
   normalizeStageAudit,
@@ -5185,6 +5188,138 @@ function setLearnedCorrectionMode(mode, { persist = true } = {}) {
   }
 }
 
+function savedItemCorrectionSource(item) {
+  if (!item || item.isVaultNote || item.source === "memory_trace" || item.type === "memory_trace" || isProtocolGuidanceItem(item)) {
+    return "";
+  }
+  const source = String(item.source || "").trim().toLowerCase();
+  if (source === "concept" || source === "memory" || source === "artifact") {
+    return source;
+  }
+  if (source === "session") {
+    return savedNoteBucket(item) === "artifact" ? "artifact" : "memory";
+  }
+  if (item.type === "concept" || item.kind === "concept") {
+    return "concept";
+  }
+  return savedNoteBucket(item) === "artifact" ? "artifact" : "";
+}
+
+function canApplySavedItemCorrection(item) {
+  return Boolean(savedItemCorrectionSource(item) && normalizeRecordId(item, ""));
+}
+
+function correctedItemMatchesPinnedContext(correction) {
+  if (!state.pinnedContext?.id) {
+    return false;
+  }
+  const normalizedCorrection = normalizeSavedItemCorrection(correction);
+  if (!normalizedCorrection) {
+    return false;
+  }
+  return state.pinnedContext.id === normalizedCorrection.recordId
+    && state.pinnedContext.kind !== "vault_note";
+}
+
+function applySavedItemCorrectionToState(correction) {
+  const normalizedCorrection = normalizeSavedItemCorrection(correction);
+  if (!normalizedCorrection) {
+    return;
+  }
+  const correctedListNames = [
+    "catalogConcepts",
+    "sessionConcepts",
+    "catalogSavedNotes",
+    "sessionSavedNotes",
+    "allConcepts",
+    "allSavedNotes",
+    "allMemoryItems",
+    "turnConcepts",
+    "turnSavedNotes",
+    "turnWorkingMemory",
+    "turnLearned",
+    "candidateConcepts",
+    "candidateSavedNotes",
+  ];
+  for (const name of correctedListNames) {
+    state[name] = filterCorrectedSavedItems(state[name], normalizedCorrection);
+  }
+  if (matchesSavedItemCorrection(state.turnMemoryTraceRecord, normalizedCorrection)) {
+    state.turnMemoryTraceRecord = null;
+  }
+  if (correctedItemMatchesPinnedContext(normalizedCorrection)) {
+    state.pinnedContext = null;
+  }
+  if (state.selectedConceptId === normalizedCorrection.recordId) {
+    state.selectedConceptId = "";
+    state.selectionOrigin = "correction";
+  }
+  if (
+    state.learnedCorrection?.itemId === normalizedCorrection.recordId
+    && String(state.learnedCorrection?.source || "").trim().toLowerCase() === normalizedCorrection.source
+  ) {
+    state.learnedCorrection = createEmptyLearnedCorrectionState();
+  }
+  syncLearnedCorrectionState({ persist: false });
+  persistTurnSnapshot();
+  renderMemoryPanel();
+  renderTurnPanel();
+}
+
+function savedItemCorrectionReason(action) {
+  if (action === "forget") {
+    return "User asked Vantage not to use this saved item again from Saved for Later.";
+  }
+  return "User marked this saved item incorrect from Saved for Later.";
+}
+
+async function applySavedItemCorrection(item, action) {
+  const correctionSource = savedItemCorrectionSource(item);
+  const recordId = normalizeRecordId(item, "");
+  const normalizedAction = String(action || "").trim().toLowerCase();
+  if (!recordId || !correctionSource || !["mark_incorrect", "forget"].includes(normalizedAction)) {
+    pushNotice(
+      "Correction unavailable",
+      "This item can still be reviewed in the whiteboard, but it does not support direct hide-from-recall yet.",
+      "warning",
+    );
+    return;
+  }
+  setBusy(true);
+  try {
+    const { payload, response } = await fetchJson(
+      `/api/records/${encodeURIComponent(correctionSource)}/${encodeURIComponent(recordId)}/corrections`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: normalizedAction,
+          reason: savedItemCorrectionReason(normalizedAction),
+          scope: "current",
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(payload?.detail || "The saved item correction failed.");
+    }
+    const correction = normalizeSavedItemCorrection(payload?.correction);
+    if (!correction) {
+      throw new Error("The correction response was missing the corrected record.");
+    }
+    applySavedItemCorrectionToState(correction);
+    const title = item?.title || recordId;
+    pushNotice(
+      normalizedAction === "forget" ? "Hidden from future recall" : "Hidden as incorrect",
+      `${title} will stay out of future recall and saved-item search. The saved file was not deleted.`,
+      "success",
+    );
+  } catch (error) {
+    pushNotice("Correction failed", error.message || "The saved item could not be hidden yet.", "warning");
+  } finally {
+    setBusy(false);
+  }
+}
+
 function renderLearnedCorrectionPanel() {
   if (
     !turnLearnedCorrectionPanelEl
@@ -5222,6 +5357,7 @@ function renderLearnedCorrectionPanel() {
       ? "Collapsed"
       : describeLearnedCorrectionModeLabel(activeMode, correctionModel?.scopeLabel) || "Expanded";
   }
+  const correctionSupported = canApplySavedItemCorrection(item);
 
   const openButton = createActionButton(correctionModel?.primaryActionLabel || "Revise in whiteboard", "primary");
   openButton.addEventListener("click", async () => {
@@ -5248,15 +5384,18 @@ function renderLearnedCorrectionPanel() {
   });
 
   const wrongButton = createActionButton(
-    describeLearnedCorrectionModeLabel("wrong", correctionModel?.scopeLabel) || "How to mark wrong",
+    correctionModel?.markIncorrectActionLabel
+      || describeLearnedCorrectionModeLabel("wrong", correctionModel?.scopeLabel)
+      || "Hide as incorrect",
     "secondary",
   );
   if (activeMode === "wrong") {
     wrongButton.classList.add("is-active");
   }
-  wrongButton.addEventListener("click", () => {
-    setLearnedCorrectionMode("wrong");
-    renderTurnPanel();
+  wrongButton.disabled = state.busy || !correctionSupported;
+  wrongButton.addEventListener("click", async () => {
+    setLearnedCorrectionMode("overview", { persist: false });
+    await applySavedItemCorrection(item, "mark_incorrect");
   });
 
   const temporaryButton = createActionButton(
@@ -5274,15 +5413,18 @@ function renderLearnedCorrectionPanel() {
   });
 
   const forgetButton = createActionButton(
-    describeLearnedCorrectionModeLabel("forget", correctionModel?.scopeLabel) || "How to forget",
+    correctionModel?.forgetActionLabel
+      || describeLearnedCorrectionModeLabel("forget", correctionModel?.scopeLabel)
+      || "Don't use again",
     "secondary",
   );
   if (activeMode === "forget") {
     forgetButton.classList.add("is-active");
   }
-  forgetButton.addEventListener("click", () => {
-    setLearnedCorrectionMode("forget");
-    renderTurnPanel();
+  forgetButton.disabled = state.busy || !correctionSupported;
+  forgetButton.addEventListener("click", async () => {
+    setLearnedCorrectionMode("overview", { persist: false });
+    await applySavedItemCorrection(item, "forget");
   });
 
   turnLearnedCorrectionActionsEl.append(openButton, pinButton, wrongButton, temporaryButton, forgetButton);

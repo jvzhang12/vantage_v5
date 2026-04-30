@@ -270,6 +270,11 @@ export function describeLearnedScopeLabel(item = null) {
 
 export function buildLearnedCorrectionModel(item = null) {
   const writeReview = normalizeWriteReview(item?.write_review || item?.writeReview);
+  const source = String(item?.source || "").trim().toLowerCase();
+  const type = String(item?.type || item?.kind || "").trim().toLowerCase();
+  const directCorrectionSupported = ["concept", "memory", "artifact", "session"].includes(source)
+    && source !== "memory_trace"
+    && type !== "protocol";
   const correctionKind = String(
     writeReview?.primaryAction?.kind
     || writeReview?.primary_action?.kind
@@ -305,30 +310,33 @@ export function buildLearnedCorrectionModel(item = null) {
   const summary = writeReview?.summary || fallbackSummary;
   const modeSummaries = {
     overview: summary,
-    wrong: temporary
-      ? "Not direct yet. Vantage cannot mark this temporary item as wrong directly in this build. Revise it in the whiteboard and pin it for the next turn if you want the correction carried forward."
-      : "Not direct yet. Vantage cannot mark this library-saved item as wrong directly in this build. Revise it in the whiteboard and pin it for the next turn if you want the correction carried forward.",
+    wrong: directCorrectionSupported
+      ? "Hide this saved item as incorrect. Vantage will stop using it for future recall and saved-item search; the saved file is not deleted."
+      : "Not direct yet. This item can still be reviewed in the whiteboard, but it does not support direct hide-from-recall from this panel.",
     temporary: temporary
       ? "This item is already temporary in this experiment. It stays session-local unless you promote a later revision."
       : "Not direct yet. Changing this saved item from library-saved to temporary is not supported directly in this build. Revise it in the whiteboard during an experiment if you want a temporary follow-up instead.",
-    forget: temporary
-      ? "Not direct yet. Direct forget or delete is not supported here yet. This temporary item will disappear when the experiment ends unless you promote it."
-      : "Not direct yet. Direct forget or delete is not supported for library-saved items yet. Leave it unpinned so it stops carrying forward, or revise it in the whiteboard to make a corrected replacement.",
+    forget: directCorrectionSupported
+      ? "Hide this saved item from future recall and saved-item search. This is a suppression action, not a hard delete."
+      : "Not direct yet. Direct hide-from-recall is not supported for this item type; revise it in the whiteboard to make a corrected replacement.",
   };
   const limitations = temporary
     ? [
         "Pin it for the next turn if you want to explain what should change before deciding what to keep.",
-        "Direct mark-wrong, make-temporary, and forget actions are not available yet; revise it in the whiteboard to create the corrected follow-up.",
+        "Direct edit, hard delete, and make-temporary actions are not available yet; hide actions only suppress the saved item from future recall.",
       ]
     : [
         "Revise it in the whiteboard if you want a corrected follow-up without overwriting the saved original in place.",
-        "Direct mark-wrong, make-temporary, and forget actions are not available yet; pin it for the next turn or revise it in the whiteboard instead.",
+        "Direct edit, hard delete, and make-temporary actions are not available yet; hide actions only suppress the saved item from future recall.",
       ];
 
   return {
     primaryActionLabel,
     keepContextLabel: "Pin for next turn",
     pinnedContextLabel: "Pinned for next turn",
+    markIncorrectActionLabel: directCorrectionSupported ? "Hide as incorrect" : "Review correction path",
+    forgetActionLabel: directCorrectionSupported ? "Don't use again" : "Review forget path",
+    directCorrectionSupported,
     scopeLabel,
     summary,
     modeSummaries,
@@ -341,11 +349,11 @@ export function describeLearnedCorrectionModeLabel(mode, scopeLabel = "") {
   const temporary = String(scopeLabel || "").trim().toLowerCase() === "temporary in this experiment";
   switch (normalizedMode) {
     case "wrong":
-      return "How to mark wrong";
+      return "Hide as incorrect";
     case "temporary":
       return temporary ? "Already temporary" : "How to make temporary";
     case "forget":
-      return "How to forget";
+      return "Don't use again";
     default:
       return "";
   }

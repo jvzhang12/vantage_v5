@@ -20,6 +20,9 @@ Normalization layer between backend payload DTOs and the client’s rendering st
 - `normalizeResponseMode()`
 - `normalizeScenarioLabPayload()`
 - `normalizeLearnedItems()`
+- `normalizeSavedItemCorrection()`
+- `matchesSavedItemCorrection()`
+- `filterCorrectedSavedItems()`
 - `normalizeMemoryTraceRecord()`
 - `normalizeProtocolMetadata()`
 - `normalizeRecordId()`
@@ -45,6 +48,7 @@ Normalization layer between backend payload DTOs and the client’s rendering st
 - Preserves both `branchIndex` and `branch_index` aliases on the normalized Scenario Lab payload, and derives a richer fallback branch index from normalized branch cards when the saved comparison hub only carries bare workspace ids.
 - Exports `normalizeComparisonBranchIndex()` so the webapp renderer and payload normalizer can share the same branch-roster fallback without duplicating helper logic.
 - Centralizes the remaining C3 compatibility shims for `learned` versus `created_record`, `record_id` versus `concept_id`, and returned `workspace.context_scope`, so `app.js` and the identity helpers do not each re-implement those fallbacks.
+- Normalizes saved-item correction responses and exposes small list-filtering helpers so the UI can remove backend-suppressed records from stale client-side turn, catalog, selected, and pinned state without duplicating correction matching logic.
 - Normalizes pinned-context continuity with canonical `pinnedContext` / `pinnedContextId` plus legacy selected-record aliases, and does the same for interpretation payloads so the UI can stop talking about selected-record continuity when it really means pinned context.
 - Exposes a small `normalizeTurnPayload()` helper that packages the canonical turn-facing pieces the webapp actually consumes directly: normalized recall items, normalized response mode, normalized learned items, normalized `memoryTraceRecord`, normalized Scenario Lab state, normalized semantic frame, normalized semantic policy, normalized safe system state, normalized final-turn activity, normalized workspace updates, and the returned whiteboard scope disclosure.
 - Normalizes `semantic_frame` into `semanticFrame` with camelCase fields such as `userGoal`, `taskType`, `followUpType`, `targetSurface`, `referencedObject`, `signals`, and `commitments`, so `app.js` can present Vantage's understanding without parsing server DTOs inline.

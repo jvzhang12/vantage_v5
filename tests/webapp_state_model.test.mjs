@@ -42,6 +42,8 @@ import {
   describeSemanticClarificationCopy,
 } from "../src/vantage_v5/webapp/product_identity.mjs";
 import {
+  filterCorrectedSavedItems,
+  matchesSavedItemCorrection,
   normalizeAnswerBasis,
   normalizeContextBudget,
   normalizeLearnedItems,
@@ -50,6 +52,7 @@ import {
   normalizeProtocolMetadata,
   normalizeRecordId,
   normalizeResponseMode,
+  normalizeSavedItemCorrection,
   normalizeScenarioLabPayload,
   normalizeSemanticFrame,
   normalizeSemanticPolicy,
@@ -1100,6 +1103,42 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
   assert.equal(
     normalizeRecordId({ concept_id: "concept-123" }),
     "concept-123",
+  );
+
+  const correction = normalizeSavedItemCorrection({
+    source: "memory",
+    record_id: "learned-memory",
+    action: "forget",
+    hard_deleted: false,
+  });
+  assert.deepEqual(correction, {
+    source: "memory",
+    record_id: "learned-memory",
+    recordId: "learned-memory",
+    action: "forget",
+    hard_deleted: false,
+  });
+  assert.equal(
+    matchesSavedItemCorrection({ id: "learned-memory", source: "memory" }, correction),
+    true,
+  );
+  assert.equal(
+    matchesSavedItemCorrection({ id: "learned-memory", source: "artifact" }, correction),
+    false,
+  );
+  assert.equal(
+    matchesSavedItemCorrection({ id: "learned-memory", source: "session" }, correction),
+    true,
+  );
+  assert.deepEqual(
+    filterCorrectedSavedItems(
+      [
+        { id: "learned-memory", source: "memory", title: "Old" },
+        { id: "other-memory", source: "memory", title: "Keep" },
+      ],
+      correction,
+    ),
+    [{ id: "other-memory", source: "memory", title: "Keep" }],
   );
 
   assert.deepEqual(

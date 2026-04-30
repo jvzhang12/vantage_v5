@@ -63,7 +63,7 @@ Current status note:
 
 - `answer_basis` badges and protocol/evidence separation are implemented, but the broader Inspect consolidation remains ongoing.
 - `learned` remains the API field for turn-created or turn-saved records; UI copy may present the same review surface as `Saved for Later`.
-- Direct saved-item mutation actions such as mark wrong, forget, or make temporary are deferred until backend storage, search, and privacy semantics are explicit.
+- Saved for Later supports `Hide as incorrect` and `Don't use again` as hide/suppress corrections, not hard deletes. Direct edit, hard delete, make-temporary, freshness, and confidence actions remain deferred until their semantics are explicit.
 
 ### Deployment
 

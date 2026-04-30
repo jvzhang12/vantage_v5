@@ -39,6 +39,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Avoid noisy automatic durable writes.
   - [x] Add a narrow guard for obvious test/probe/freshness-marker prompts so they do not become durable concepts.
   - [x] Implement backend saved-item correction semantics for `mark_incorrect` and `forget` as hide/suppress actions.
+  - [x] Add Saved for Later `Hide as incorrect` and `Don't use again` controls backed by the correction route.
   - [ ] Add saved-item freshness/confidence labels only after the correction UI flow and semantics are product-tested.
 - [x] Add answer-basis payload and badge language for intuitive, memory-backed, protocol-guided, whiteboard-grounded, and mixed-context turns.
 - [x] Keep protocol guidance separate from factual grounding in answer-basis payloads and UI.
@@ -105,6 +106,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [x] Decide the current label set for answer-basis badges.
 - [ ] Revisit the answer-basis label set after more product use.
 - [x] Implement backend semantics for saved-item `mark_incorrect` and `forget` as hide/suppress corrections.
+- [x] Expose supported Saved for Later correction actions in the UI as hide/suppress controls, not hard delete.
 - [ ] Keep `make_temporary`, direct saved-item edit, hard delete, freshness, and confidence actions out of the correction route until separately specified.
 - [ ] Decide whether conversation resume should use Memory Trace reconstruction or a first-class thread snapshot.
 - [ ] Decide which internal details belong in Vantage versus developer/debug surfaces.

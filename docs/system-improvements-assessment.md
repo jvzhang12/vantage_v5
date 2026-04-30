@@ -82,7 +82,7 @@ This should live in `Vantage` / Inspect, not as a heavy default chat panel.
 
 ### 3. Memory Write Review
 
-Status: a read-only review slice is implemented, and the backend saved-item correction route now supports narrow negative correction.
+Status: a review slice is implemented, and Saved for Later now supports narrow negative correction for saved items.
 
 The API field remains `learned`; the UI may call the same turn-created/saved items `Saved for Later`. That label is product copy, not a payload rename. It means a turn-created/saved item exists in `learned`; it does not mean the item is verified, correct, fresh, or high confidence.
 
@@ -93,6 +93,7 @@ Implemented first pass:
 - show what was saved
 - explain why it was saved
 - expose durability / scope
+- provide direct `mark_incorrect` and `forget` controls only where backend hide/suppress semantics are explicit
 - keep direct correction affordances read-only or guidance-only where backend mutation is not explicit
 
 This keeps learning inspectable without interrupting normal chat.
@@ -105,7 +106,8 @@ Correction semantics decision:
 - These actions are not hard deletes; the underlying saved file or lower-priority record remains on disk.
 - Correction responses should expose a `correction` object with the corrected `source`, `record_id`, `action`, requested/effective scope, hidden-record scope, correction status, reason when supplied, and whether the correction suppresses canonical material.
 - Correction payloads should not add freshness or confidence fields.
-- Direct correction UI controls remain deferred until the product flow is explicit; the current visible review loop still favors whiteboard revision and pinning.
+- The Saved for Later UI now exposes `Hide as incorrect` and `Don't use again` as direct hide-from-recall actions. The controls remove stale records from the current client state after the backend confirms suppression, and the copy states that no hard delete occurred.
+- Whiteboard revision and pinning remain the corrective path for changing content or carrying context into the next turn.
 
 Deferred:
 
@@ -238,7 +240,7 @@ Recommended emphasis:
 2. Complete: update frontend badge copy to use the answer-basis mapping without adding a new top-level surface.
 3. Complete: separate protocol guidance from factual grounding in payload and UI.
 4. Complete first pass: improve `Saved for Later` / `Learned` into a read-only memory write review surface.
-5. Backend route implemented: `mark_incorrect` and `forget` are saved-item hide/suppress corrections; direct edit, hard delete, make-temporary, freshness, confidence, and direct UI controls stay deferred.
+5. Complete narrow correction flow: `mark_incorrect` and `forget` are saved-item hide/suppress corrections exposed in Saved for Later; direct edit, hard delete, make-temporary, freshness, and confidence stay deferred.
 6. Complete: add Context Budget inside Inspect.
 7. Complete: build a more visible Protocols guidance subview inside Inspect.
 8. Complete docs-only decision: accept concept key/value only as an advanced design metaphor, preserving `card`, `body`, and `links` / `links_to` as canonical terms.
@@ -257,6 +259,7 @@ Recommended emphasis:
 - [x] Add frontend tests for badge rendering.
 - [x] Improve Saved for Later with read-only review affordances.
 - [x] Implement backend saved-item correction semantics for `mark_incorrect` and `forget` as hide/suppress actions, not hard deletes.
+- [x] Expose Saved for Later `Hide as incorrect` and `Don't use again` controls backed by the correction route.
 - [ ] Add broader Saved for Later mutation actions such as direct edit, hard delete, or make temporary.
 - [x] Add Context Budget to Inspect.
 - [x] Draft and implement a small Protocols guidance UX inside Inspect.

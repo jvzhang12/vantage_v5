@@ -231,6 +231,47 @@ export function normalizeLearnedItems(payload) {
   return [];
 }
 
+export function normalizeSavedItemCorrection(correction = null) {
+  if (!correction || typeof correction !== "object") {
+    return null;
+  }
+  const recordId = normalizeRecordId(correction, correction.recordId || "");
+  const source = String(correction.source || "").trim().toLowerCase();
+  if (!recordId || !source) {
+    return null;
+  }
+  return {
+    ...correction,
+    source,
+    record_id: recordId,
+    recordId,
+    action: String(correction.action || "").trim().toLowerCase(),
+  };
+}
+
+export function matchesSavedItemCorrection(item = null, correction = null) {
+  const normalizedCorrection = normalizeSavedItemCorrection(correction);
+  if (!item || typeof item !== "object" || !normalizedCorrection) {
+    return false;
+  }
+  const itemId = normalizeRecordId(item, "");
+  const itemSource = String(item.source || "").trim().toLowerCase();
+  const sourceMatches = itemSource === normalizedCorrection.source
+    || (itemSource === "session" && ["concept", "memory", "artifact"].includes(normalizedCorrection.source));
+  return itemId === normalizedCorrection.recordId && sourceMatches;
+}
+
+export function filterCorrectedSavedItems(items = [], correction = null) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  const normalizedCorrection = normalizeSavedItemCorrection(correction);
+  if (!normalizedCorrection) {
+    return [...items];
+  }
+  return items.filter((item) => !matchesSavedItemCorrection(item, normalizedCorrection));
+}
+
 export function normalizeContextBudget(contextBudget = null, {
   responseMode = null,
   answerBasis = null,

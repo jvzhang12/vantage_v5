@@ -169,6 +169,21 @@ The meaning should remain precise:
 
 `The answer came from general learned capability rather than a specific recalled Vantage context object.`
 
+### 7. Library Category Separation
+
+Status: implemented in the frontend view model and visible Library copy.
+
+Vantage now keeps the four durable-store categories visibly separate in UI language:
+
+- concepts appear as `reusable ideas`
+- user memories appear as `memories`
+- saved artifacts and whiteboard outputs appear as `work products`
+- vault/reference records appear as `references`
+
+The implementation uses a shared source-first category helper instead of parsing display labels. This keeps the backend DTO contract stable, including `kind="saved_note"` where memories and artifacts share the saved-note transport shape, while the UI uses `source` and explicit metadata to separate memories from work products.
+
+Reasoning Path candidate context now keeps protocol guidance, reusable ideas, memories, work products, Memory Trace, and references in separate groups. Protocols remain guidance, Memory Trace remains recent continuity, and references remain read-only support.
+
 ## Ideas That Need Care
 
 ### Concept Key / Value Terminology
@@ -248,7 +263,8 @@ Recommended emphasis:
 6. Complete: add Context Budget inside Inspect.
 7. Complete: build a more visible Protocols guidance subview inside Inspect.
 8. Complete docs-only decision: accept concept key/value only as an advanced design metaphor, preserving `card`, `body`, and `links` / `links_to` as canonical terms.
-9. Deferred: add freshness/confidence labels once the correction UI flow and semantics are product-tested.
+9. Complete: keep concepts, memories, artifacts, and reference notes visibly separate in Library and Reasoning Path copy.
+10. Deferred: add freshness/confidence labels once the correction UI flow and semantics are product-tested.
 
 ## Concrete Checklist Additions
 
@@ -269,6 +285,7 @@ Recommended emphasis:
 - [x] Draft and implement a small Protocols guidance UX inside Inspect.
 - [x] Record concept key/value as an advanced design metaphor only, not UI/API/schema vocabulary.
 - [x] Add a narrow guard for obvious test/probe/freshness-marker prompts so they do not become durable concepts.
+- [x] Keep concepts, memories, artifacts, and reference notes visibly separate in UI category labels and Reasoning Path candidate groups.
 - [ ] Add Saved for Later freshness/confidence labels only after the correction UI flow and semantics are product-tested.
 
 ## Bottom Line

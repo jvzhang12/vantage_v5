@@ -19,7 +19,7 @@ Static shell for the Vantage web app.
   - a primary answer dock presented as `What I Used`, with the inner turn panel titled `This turn`, containing an at-a-glance summary first, then a dedicated `Context in Scope` narrative block, then separate `Pulled In` and `Saved for Later` sections, followed by a `Details` group for `Memory Trace` and the collapsed-by-default `Reasoning Path`
   - the support sections inside that primary dock use calmer collapsible summary rows with counts, so recalled items, learned items, and recent continuity stay legible without reading like one long always-open stack
   - a separate Scenario Lab review dock whose summary copy now frames the mode as one coherent reasoning experience: question, recommendation, durable hub, then the related branch set
-  - a Library dock with search, pinned-context controls, separate ideas/notes/work-products/references sections, and an inspector; the dock remains in the DOM for later reuse but is hidden from the current Vantage view while the product surface is being simplified
+  - a Library dock with search, pinned-context controls, separate reusable-ideas/memories/work-products/references sections, and an inspector; the dock remains in the DOM for later reuse but is hidden from the current Vantage view while the product surface is being simplified
 
 ## Notable Behavior
 
@@ -54,6 +54,7 @@ Static shell for the Vantage web app.
 - The app module cache-busting query string was bumped again for the protocol-editor lookup fix, so browsers pick up turn-scoped protocol inspection without requiring a manual hard refresh.
 - The app module cache-busting query string was bumped again for the visible protocol-editor fix, so browsers pick up the editor directly on applied protocol cards in Inspect.
 - The app module cache-busting query string was bumped again for the Scenario Lab chat-card action cleanup, so browsers pick up the single `Inspect comparison` action on comparison-hub transcript cards.
+- The app module cache-busting query string was bumped again for the Library category copy pass, so browsers pick up reusable idea, memory, work product, and reference labels consistently.
 - The Scenario Lab dock is framed as a comparison-first review surface, separate from the Working Memory dock, with summary copy that keeps the comparison question, recommendation, durable hub, and related branch set legible on first read.
 - The `Reasoning Path` region is a staged clickable inspection rail rather than a raw console: Request, Route, Considered context, Recall, Working Memory, and Outcome. It sits in the later `Details` group so the main turn explanation still leads.
 - Each stage card now opens turn-scoped detail inside the same dock so the user can inspect concrete candidates, recalled items, and route details without jumping into the general library inspector.

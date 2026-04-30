@@ -48,7 +48,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 
 ## Library And Durable Stores
 
-- [ ] Keep concepts, memories, artifacts, and reference notes visibly separate.
+- [x] Keep concepts, memories, artifacts, and reference notes visibly separate.
 - [ ] Make saved-item reopen flows reliable and non-destructive.
 - [ ] Improve artifact lifecycle metadata and presentation.
 - [ ] Keep protocols as guidance objects rather than drafts or evidence.

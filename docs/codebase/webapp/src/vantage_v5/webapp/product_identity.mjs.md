@@ -40,11 +40,13 @@ Presentation helpers for the small “this product is different” signals shown
 - `describeRecallReason()`
 - `describeResponseModeLabel()`
 - `deriveTurnGrounding()`
+- `deriveUiItemCategory()`
 - `deriveWhiteboardLifecycle()`
 
 ## Notable Behavior
 
-- Prefers short product-facing labels over raw internal payload names, including softer idea/note/work-product nouns for learned items and calmer `Considered context` wording ahead of Recall.
+- Prefers short product-facing labels over raw internal payload names, including reusable idea/memory/work-product/reference nouns for learned and Library items plus calmer `Considered context` wording ahead of Recall.
+- Centralizes source-first UI category derivation for protocol guidance, Memory Trace, reusable ideas, memories, work products, and references so the app does not parse labels or conflate backend `saved_note` transport shape with product categories.
 - Keeps compact transcript evidence a little more human than the deeper Vantage labels: chat chips now prefer phrases like `Used your draft`, `From recent conversation`, or `From earlier` instead of echoing internal nouns such as `Whiteboard` or `Recent Chat` in isolation.
 - Reads the canonical backend truth from `kind`, `groundingMode`, and recall counts instead of depending on synthetic client-only grounding kinds.
 - Reuses the shared turn-payload helpers for learned-item fallback and canonical recall counts, so compact evidence chips do not depend on their own parallel `created_record` or camelCase/snake_case parsing.
@@ -68,7 +70,7 @@ Presentation helpers for the small “this product is different” signals shown
 - Allows the Vantage summary to suppress the Library segment when the visible product surface hides the Library dock, while preserving the default Library count behavior for callers that still expose that surface.
 - Uses product-facing grounding labels even when the backend still reports machine-facing mixed-context modes, so the compact chat and Vantage surfaces explain what actually supported the answer.
 - Keeps `Reasoning Path` truthful to the repository’s current contract by summarizing full Working Memory as “what was in scope for this answer,” while leaving the narrower recalled-item list visible separately as `Recall`. The Working Memory drill-down is a scope table, so the user can see which inputs were included or excluded for generation. Candidate `memory_trace` items stay in `Considered context`, while recalled recent-history items contribute to the Memory Trace summary and the scope table. The path now uses softer route labels such as `used for recall`, `Kept in scope`, and humanized route confidence instead of colder console wording.
-- Exposes the concrete candidate pools and selected recall items in the stage drill-down so users can inspect what was actually pulled up without opening chat internals, including recent-history candidates from `candidate_trace_notes`.
+- Exposes the concrete candidate pools and selected recall items in the stage drill-down so users can inspect what was actually pulled up without opening chat internals, including protocol guidance, reusable ideas, memories, work products, recent-history candidates from `candidate_trace_notes`, and references as separate groups.
 - Carries requested whiteboard mode, resolved whiteboard mode, decision source, and pinned-context continuity reason into the path summary so the interpretation stage can explain route choices without exposing raw chain-of-thought text.
 - Adds a compact at-a-glance summary helper for the top of Vantage, so the first visible explanation can say things like `This answer used 2 recalled items` or `Scenario Lab prepared 3 branches` before the user opens deeper support sections.
 - Adds semantic policy copy helpers that convert action tokens such as `ask_clarification`, `draft_in_whiteboard`, `run_scenario_lab`, or `show_reasoning` into short product-facing labels and pair them with a concise clarification line.

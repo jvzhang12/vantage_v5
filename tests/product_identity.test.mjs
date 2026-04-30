@@ -17,6 +17,7 @@ import {
   describeResponseModeLabel,
   describeRecallReason,
   deriveTurnGrounding,
+  deriveUiItemCategory,
   deriveWhiteboardLifecycle,
 } from "../src/vantage_v5/webapp/product_identity.mjs";
 
@@ -34,11 +35,32 @@ test("buildChatTurnEvidence reports recalled items and learned memories from the
 
   assert.deepEqual(
     evidence.map((item) => item.label),
-    ["Memory-Backed", "Saved for Later: 1 note"],
+    ["Memory-Backed", "Saved for Later: 1 memory"],
   );
   assert.deepEqual(
     evidence.map((item) => item.emphasis),
     ["quiet", "strong"],
+  );
+});
+
+test("deriveUiItemCategory classifies source-first library item categories", () => {
+  assert.equal(deriveUiItemCategory({ source: "concept", kind: "saved_note" }), "concept");
+  assert.equal(deriveUiItemCategory({ source: "concept", type: "protocol" }), "protocol");
+  assert.equal(deriveUiItemCategory({ source: "memory", kind: "saved_note" }), "memory");
+  assert.equal(deriveUiItemCategory({ source: "memory", type: "artifact" }), "memory");
+  assert.equal(deriveUiItemCategory({ source: "artifact", kind: "saved_note" }), "artifact");
+  assert.equal(deriveUiItemCategory({ source: "vault_note", kind: "saved_note" }), "reference_note");
+  assert.equal(deriveUiItemCategory({ isVaultNote: true }), "reference_note");
+  assert.equal(deriveUiItemCategory({ source: "session", libraryBucket: "artifact" }), "artifact");
+  assert.equal(deriveUiItemCategory({ path: "artifacts/email-draft.md" }), "artifact");
+  assert.equal(deriveUiItemCategory({ source: "reference_note" }), "reference_note");
+  assert.equal(deriveUiItemCategory({ source: "memory_trace", type: "memory_trace" }), "memory_trace");
+  assert.equal(
+    deriveUiItemCategory({
+      source: "memory",
+      protocol: { protocol_kind: "email" },
+    }),
+    "protocol",
   );
 });
 
@@ -791,10 +813,10 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
     assert.equal(inspection.stages[0].label, "Request", testCase.name);
     assert.equal(inspection.stages[1].label, "Route", testCase.name);
     assert.equal(inspection.stages[2].label, "Considered context", testCase.name);
-    assert.equal(inspection.stages[2].text, "3 supporting items were considered before Recall was narrowed (1 idea, 1 note, 1 reference).", testCase.name);
-    assert.equal(inspection.stages[2].detail.groups.length, 4, testCase.name);
-    assert.equal(inspection.stages[2].detail.groups[0].items.length, 1, testCase.name);
-    assert.equal(inspection.stages[2].detail.groups[2].items.length, 0, testCase.name);
+    assert.equal(inspection.stages[2].text, "3 supporting items were considered before Recall was narrowed (1 reusable idea, 1 memory, 1 reference).", testCase.name);
+    assert.equal(inspection.stages[2].detail.groups.length, 6, testCase.name);
+    assert.equal(inspection.stages[2].detail.groups[1].items.length, 1, testCase.name);
+    assert.equal(inspection.stages[2].detail.groups[4].items.length, 0, testCase.name);
     assert.equal(inspection.stages[3].label, "Recall", testCase.name);
     assert.equal(inspection.stages[3].text, testCase.expectedRecallText, testCase.name);
     assert.equal(inspection.stages[3].detail.groups[0].items.length, testCase.expectedRecallItemCount, testCase.name);
@@ -842,13 +864,15 @@ test("buildReasoningPathInspection surfaces continuity, working-memory scope, an
   );
   assert.equal(inspection.stages[2].label, "Considered context");
   assert.match(inspection.stages[2].text, /3 supporting items were considered before Recall was narrowed/);
-  assert.match(inspection.stages[2].text, /1 idea, 1 note, 1 reference/);
-  assert.equal(inspection.stages[2].detail.groups.length, 4);
-  assert.equal(inspection.stages[2].detail.groups[0].items.length, 1);
-  assert.equal(inspection.stages[2].detail.groups[0].label, "Ideas considered");
-  assert.equal(inspection.stages[2].detail.groups[1].label, "Notes considered");
-  assert.equal(inspection.stages[2].detail.groups[2].label, "Memory Trace considered");
-  assert.equal(inspection.stages[2].detail.groups[3].label, "References considered");
+  assert.match(inspection.stages[2].text, /1 reusable idea, 1 memory, 1 reference/);
+  assert.equal(inspection.stages[2].detail.groups.length, 6);
+  assert.equal(inspection.stages[2].detail.groups[1].items.length, 1);
+  assert.equal(inspection.stages[2].detail.groups[0].label, "Protocol guidance");
+  assert.equal(inspection.stages[2].detail.groups[1].label, "Reusable ideas");
+  assert.equal(inspection.stages[2].detail.groups[2].label, "Memories");
+  assert.equal(inspection.stages[2].detail.groups[3].label, "Work products");
+  assert.equal(inspection.stages[2].detail.groups[4].label, "Memory Trace");
+  assert.equal(inspection.stages[2].detail.groups[5].label, "References");
   assert.equal(inspection.stages[3].label, "Recall");
   assert.match(inspection.stages[3].text, /1 recalled item entered Recall\./);
   assert.equal(inspection.stages[3].detail.groups[0].items.length, 1);
@@ -979,14 +1003,16 @@ test("buildReasoningPathInspection includes memory-trace candidates in candidate
 
   assert.equal(
     inspection.stages[2].text,
-    "4 supporting items were considered before Recall was narrowed (1 idea, 1 note, 1 memory trace item, 1 reference).",
+    "4 supporting items were considered before Recall was narrowed (1 reusable idea, 1 memory, 1 memory trace item, 1 reference).",
   );
-  assert.equal(inspection.stages[2].detail.groups[0].label, "Ideas considered");
-  assert.equal(inspection.stages[2].detail.groups[1].label, "Notes considered");
-  assert.equal(inspection.stages[2].detail.groups[2].label, "Memory Trace considered");
-  assert.equal(inspection.stages[2].detail.groups[3].label, "References considered");
-  assert.equal(inspection.stages[2].detail.groups[2].items.length, 1);
-  assert.equal(inspection.stages[2].detail.groups[2].items[0].reasoningStatusLabel, "used for recall");
+  assert.equal(inspection.stages[2].detail.groups[0].label, "Protocol guidance");
+  assert.equal(inspection.stages[2].detail.groups[1].label, "Reusable ideas");
+  assert.equal(inspection.stages[2].detail.groups[2].label, "Memories");
+  assert.equal(inspection.stages[2].detail.groups[3].label, "Work products");
+  assert.equal(inspection.stages[2].detail.groups[4].label, "Memory Trace");
+  assert.equal(inspection.stages[2].detail.groups[5].label, "References");
+  assert.equal(inspection.stages[2].detail.groups[4].items.length, 1);
+  assert.equal(inspection.stages[2].detail.groups[4].items[0].reasoningStatusLabel, "used for recall");
   assert.deepEqual(
     inspection.stages[4].detail.notes.map((item) => [item.label, item.value]),
     [
@@ -1007,6 +1033,45 @@ test("buildReasoningPathInspection includes memory-trace candidates in candidate
       ["Memory Trace contribution", "Included"],
     ],
   );
+});
+
+test("buildReasoningPathInspection splits saved-note candidates into memories and work products", () => {
+  const inspection = buildReasoningPathInspection({
+    userMessage: "What should I reuse from earlier?",
+    interpretation: {
+      mode: "chat",
+      reason: "Search saved context before answering.",
+    },
+    responseMode: {
+      kind: "grounded",
+      groundingMode: "working_memory",
+      recallCount: 1,
+      contextSources: ["recall"],
+    },
+    candidateSavedNotes: [
+      { id: "memory-1", title: "Preference", source: "memory", kind: "saved_note" },
+      { id: "artifact-1", title: "Draft", source: "artifact", kind: "saved_note" },
+    ],
+    recallItems: [{ id: "memory-1", source: "memory", kind: "saved_note" }],
+  });
+
+  assert.equal(
+    inspection.stages[2].text,
+    "2 supporting items were considered before Recall was narrowed (1 memory, 1 work product).",
+  );
+  assert.deepEqual(
+    inspection.stages[2].detail.groups.map((group) => [group.label, group.items.length]),
+    [
+      ["Protocol guidance", 0],
+      ["Reusable ideas", 0],
+      ["Memories", 1],
+      ["Work products", 1],
+      ["Memory Trace", 0],
+      ["References", 0],
+    ],
+  );
+  assert.equal(inspection.stages[2].detail.groups[2].items[0].reasoningStatusLabel, "used for recall");
+  assert.equal(inspection.stages[2].detail.groups[3].items[0].reasoningStatusLabel, "not used this turn");
 });
 
 test("deriveTurnGrounding trusts canonical recall counts over visible list length", () => {

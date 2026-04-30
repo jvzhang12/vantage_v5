@@ -27,8 +27,9 @@ import {
   describeRecallReason,
   describeResponseModeLabel,
   deriveTurnGrounding,
+  deriveUiItemCategory,
   deriveWhiteboardLifecycle,
-} from "./product_identity.mjs?v=20260429-context-budget";
+} from "./product_identity.mjs?v=20260430-library-categories";
 import {
   buildWorkspaceContextPayload,
   deriveChatWhiteboardMode,
@@ -821,7 +822,7 @@ clearSearchButtonEl.addEventListener("click", () => {
   memorySearchEl.value = "";
   state.memoryQuery = "";
   renderMemoryPanel();
-  pushNotice("Review cleared", "The full notes catalog is visible again.", "info");
+  pushNotice("Review cleared", "The full Library catalog is visible again.", "info");
 });
 
 refreshConceptsButtonEl.addEventListener("click", async () => {
@@ -1807,9 +1808,10 @@ async function loadConceptCatalog({ silent = false } = {}) {
     prunePinnedContextIfMissing();
     renderMemoryPanel();
     if (!silent) {
+      const refreshedSavedBuckets = splitSavedNotesByBucket(state.allSavedNotes);
       pushNotice(
-        "Notes refreshed",
-        `${state.allConcepts.length} concepts, ${state.allSavedNotes.length} durable notes, and ${state.allVaultNotes.length} reference notes are available.`,
+        "Library refreshed",
+        `${state.allConcepts.length} reusable ideas, ${refreshedSavedBuckets.memories.length} memories, ${refreshedSavedBuckets.artifacts.length} work products, and ${state.allVaultNotes.length} references are available.`,
         "success",
       );
     }
@@ -1819,8 +1821,8 @@ async function loadConceptCatalog({ silent = false } = {}) {
     }
     if (!silent) {
       pushNotice(
-        "Notes unavailable",
-        error instanceof Error ? error.message : "Could not load concepts, durable notes, and reference notes.",
+        "Library unavailable",
+        error instanceof Error ? error.message : "Could not load reusable ideas, memories, work products, and references.",
         "warning",
       );
     }
@@ -4541,8 +4543,8 @@ function renderMemoryPanel() {
   conceptsTitleEl.textContent = query ? "Search results" : "What Else Exists In The Library?";
   conceptsCountEl.textContent = query
     ? `${visibleItems} shown · ${totalItems} total`
-    : `${totalConcepts} ideas · ${totalMemories} notes · ${totalArtifacts} work products · ${totalVaultNotes} references`;
-  conceptsSummaryEl.textContent = `Ideas: ${visibleConcepts.length}`;
+    : `${totalConcepts} reusable ideas · ${totalMemories} memories · ${totalArtifacts} work products · ${totalVaultNotes} references`;
+  conceptsSummaryEl.textContent = `Reusable ideas: ${visibleConcepts.length}`;
   memoriesSummaryEl.textContent = `Memories: ${visibleMemories.length}`;
   artifactsSummaryEl.textContent = `Work products: ${visibleArtifacts.length}`;
   vaultNotesSummaryEl.textContent = `References: ${visibleVaultNotes.length}`;
@@ -4552,10 +4554,10 @@ function renderMemoryPanel() {
       ? "Temporary experiment ideas first, then saved ideas"
       : "Saved reusable ideas";
   memoriesHintEl.textContent = query
-    ? "Filtered notes"
+    ? "Filtered memories"
     : state.experiment.active
-      ? "Temporary experiment notes first, then saved notes"
-      : "Saved notes";
+      ? "Temporary experiment memories first, then saved memories"
+      : "Saved memories";
   artifactsHintEl.textContent = query
     ? "Filtered work products and snapshots"
     : state.experiment.active
@@ -4574,7 +4576,7 @@ function renderMemoryPanel() {
     memoryListEl,
     visibleMemories,
     "memory",
-    query ? "No notes matched that search. Try a title, phrase, or id." : "No notes found yet.",
+    query ? "No memories matched that search. Try a title, phrase, or id." : "No memories found yet.",
   );
   renderMemoryGroup(
     artifactListEl,
@@ -4703,7 +4705,7 @@ function renderMemoryInspector() {
   renderRichText(summary, item.card || (item.isVaultNote
     ? "This reference note has no excerpt yet."
     : item.type === "concept"
-      ? "This concept has no summary card yet."
+      ? "This reusable idea has no summary card yet."
       : savedNoteBucket(item) === "artifact"
         ? "This artifact has no summary card yet."
         : "This memory has no summary card yet."), { compact: true });
@@ -4742,10 +4744,10 @@ function renderMemoryInspector() {
   renderRichText(bodyText, item.body || (item.isVaultNote
       ? "Full reference note text is not available in this build. The memory panel has loaded the read-only excerpt."
       : item.type === "concept"
-        ? "Full idea text is not available in this build. The inspector has loaded the summary card and current excerpt."
+        ? "Full reusable idea text is not available in this build. The inspector has loaded the summary card and current excerpt."
         : savedNoteBucket(item) === "artifact"
           ? "Full work product text is not available in this build. The inspector has loaded the current summary card and excerpt."
-          : "Full note text is not available in this build. The inspector has loaded the current summary card and excerpt."));
+          : "Full memory text is not available in this build. The inspector has loaded the current summary card and excerpt."));
   body.append(bodyLabel, bodyText);
 
   const footer = document.createElement("div");
@@ -4766,7 +4768,7 @@ function renderMemoryInspector() {
     memorySearchEl.value = item.title || item.id;
     state.memoryQuery = memorySearchEl.value;
     renderMemoryPanel();
-    pushNotice("Related notes", `Showing notes related to ${item.title}.`, "info");
+    pushNotice("Related items", `Showing Library items related to ${item.title}.`, "info");
     openVantage({ focus: "library" });
     memoryDockEl.open = true;
   });
@@ -5038,21 +5040,11 @@ function humanizeRouteConfidence(confidence) {
 
 
 function savedNoteBucket(item) {
-  const fields = [
-    item?.libraryBucket,
-    item?.recordKind,
-    item?.kind,
-    item?.type,
-    item?.sourceLabel,
-    item?.path,
-    item?.filename,
-  ]
-    .map((value) => String(value || "").toLowerCase())
-    .join(" ");
-  if (fields.includes("artifact") || fields.includes("/artifacts/") || fields.includes("artifacts/")) {
-    return "artifact";
-  }
-  return "memory";
+  return uiItemCategoryKey(item) === "artifact" ? "artifact" : "memory";
+}
+
+function uiItemCategoryKey(item) {
+  return deriveUiItemCategory(item);
 }
 
 function isTurnLearnedItem(item) {
@@ -5431,73 +5423,84 @@ function renderLearnedCorrectionPanel() {
 }
 
 function learnedTypeLabel(item) {
-  if (item?.type === "concept" || item?.source === "concept") {
-    return "Idea";
+  switch (uiItemCategoryKey(item)) {
+    case "concept":
+      return "Reusable idea";
+    case "memory":
+      return "Memory";
+    case "artifact":
+      return "Work product";
+    case "reference_note":
+      return "Reference";
+    default:
+      return "Saved item";
   }
-  if (savedNoteBucket(item) === "artifact") {
-    return "Work product";
-  }
-  if (item?.source === "memory") {
-    return "Note";
-  }
-  return "Saved item";
 }
 
 function itemTypeLabel(item) {
-  if (item?.source === "memory_trace" || item?.type === "memory_trace") {
-    return "memory trace";
+  switch (uiItemCategoryKey(item)) {
+    case "memory_trace":
+      return "memory trace";
+    case "protocol":
+      return "protocol";
+    case "reference_note":
+      return "reference";
+    case "concept":
+      return "reusable idea";
+    case "artifact":
+      return "work product";
+    case "memory":
+      return "memory";
+    default:
+      return "saved item";
   }
-  if (item?.type === "protocol") {
-    return "protocol";
-  }
-  if (item?.isVaultNote) {
-    return "reference";
-  }
-  if (item?.type === "concept") {
-    return "insight";
-  }
-  return savedNoteBucket(item) === "artifact" ? "work product" : "memory";
 }
 
 function itemInspectorLabel(item) {
-  if (item?.source === "memory_trace" || item?.type === "memory_trace") {
-    return "Memory Trace";
-  }
-  if (item?.type === "protocol") {
-    return "Protocol";
-  }
-  if (item?.isVaultNote) {
-    return "Reference note";
-  }
-  if (item?.type === "concept") {
-    return "Reusable insight";
-  }
   if (isScenarioComparisonArtifact(item)) {
     return "Comparison hub";
   }
-  return savedNoteBucket(item) === "artifact" ? "Work product" : "Memory";
+  switch (uiItemCategoryKey(item)) {
+    case "memory_trace":
+      return "Memory Trace";
+    case "protocol":
+      return "Protocol";
+    case "reference_note":
+      return "Reference note";
+    case "concept":
+      return "Reusable idea";
+    case "artifact":
+      return "Work product";
+    case "memory":
+      return "Memory";
+    default:
+      return "Saved item";
+  }
 }
 
 function itemSourceSectionLabel(item) {
-  if (item?.source === "memory_trace" || item?.type === "memory_trace") {
-    return "Memory Trace";
-  }
-  if (item?.type === "protocol") {
-    return "Protocols";
-  }
-  if (item?.isVaultNote) {
-    return item.sourceLabel || "Reference notes";
-  }
-  if (item?.type === "concept") {
-    return "Reusable insights";
-  }
   if (isScenarioComparisonArtifact(item)) {
     return "Comparison hubs";
   }
   if (item?.source === "session") {
     return savedNoteBucket(item) === "artifact" ? "Staged work product" : "Staged memory";
   }
-  return savedNoteBucket(item) === "artifact" ? "Work products" : "Memories";
+  switch (uiItemCategoryKey(item)) {
+    case "memory_trace":
+      return "Memory Trace";
+    case "protocol":
+      return "Protocols";
+    case "reference_note":
+      return item.sourceLabel || "References";
+    case "concept":
+      return "Reusable ideas";
+    case "artifact":
+      return "Work products";
+    case "memory":
+      return "Memories";
+    default:
+      return "Saved items";
+  }
 }
 
 function isScenarioComparisonArtifact(item) {
@@ -5605,7 +5608,7 @@ function createMemoryCard(item, context) {
     article.classList.add("is-selected");
   }
   article.dataset.conceptId = item.id;
-  article.dataset.memoryKind = item.isVaultNote ? "vault_note" : item.type === "concept" ? "concept" : "saved_note";
+  article.dataset.memoryKind = uiItemCategoryKey(item);
 
   const top = document.createElement("div");
   top.className = "concept-header";
@@ -5628,8 +5631,10 @@ function createMemoryCard(item, context) {
     : item.source === "memory_trace" || item.type === "memory_trace"
       ? "No memory trace summary available."
     : item.type === "concept"
-      ? "No concept card available."
-      : "No saved note card available."), { compact: true });
+      ? "No reusable idea card available."
+      : savedNoteBucket(item) === "artifact"
+        ? "No work product card available."
+        : "No memory card available."), { compact: true });
 
   const recallReasonText = shouldShowRecallReason(item, context)
     ? describeRecallReason(item)
@@ -6141,7 +6146,7 @@ function selectVaultNote(vaultNoteId, { silent = false, source = "user" } = {}) 
 function pinSelectedMemoryForNextTurn() {
   const item = getSelectedMemoryItem();
   if (!item) {
-    pushNotice("Nothing selected", "Inspect an idea, note, or reference note before pinning it for the next turn.", "info");
+    pushNotice("Nothing selected", "Inspect a reusable idea, memory, work product, or reference before pinning it for the next turn.", "info");
     return;
   }
   pinMemoryItemForNextTurn(item);

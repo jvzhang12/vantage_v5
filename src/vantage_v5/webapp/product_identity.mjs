@@ -48,20 +48,143 @@ function recallCountFromPayload(payload) {
   return normalizeResponseMode(payload?.response_mode, visibleRecallCount).recallCount;
 }
 
+function normalizedItemTokens(item = null) {
+  const metadata = item?.metadata && typeof item.metadata === "object" ? item.metadata : {};
+  return [
+    item?.source,
+    item?.type,
+    item?.kind,
+    item?.recordKind,
+    item?.record_kind,
+    item?.libraryBucket,
+    item?.memory_role,
+    item?.memoryRole,
+    metadata.source,
+    metadata.type,
+    metadata.kind,
+    metadata.recordKind,
+    metadata.record_kind,
+    metadata.libraryBucket,
+    metadata.memory_role,
+    metadata.memoryRole,
+  ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
+}
+
+function categoryFromToken(value = "") {
+  const token = String(value || "").trim().toLowerCase();
+  if (["protocol"].includes(token)) {
+    return "protocol";
+  }
+  if (["memory_trace", "memory-trace", "memory trace", "trace"].includes(token)) {
+    return "memory_trace";
+  }
+  if (["reference_note", "reference-note", "reference note", "vault_note", "vault-note", "vault note", "vault", "reference"].includes(token)) {
+    return "reference_note";
+  }
+  if (["concept", "idea", "reusable_idea", "reusable idea"].includes(token)) {
+    return "concept";
+  }
+  if (["artifact", "work_product", "work-product", "work product", "workspace", "scenario_comparison", "scenario comparison"].includes(token)) {
+    return "artifact";
+  }
+  if (["memory", "saved_memory", "saved memory", "saved_note", "saved-note", "saved note", "note"].includes(token)) {
+    return "memory";
+  }
+  return "";
+}
+
+function itemHasProtocolMetadata(item = null) {
+  if (!item || typeof item !== "object") {
+    return false;
+  }
+  const protocol = normalizeProtocolMetadata(item);
+  return Boolean(
+    protocol.protocolKind
+      || item.protocol_kind
+      || item.protocolKind,
+  );
+}
+
+function categoryFromPathFallback(item = null) {
+  const path = String(item?.path || item?.file_path || item?.filePath || "").trim().toLowerCase();
+  if (!path) {
+    return "unknown";
+  }
+  if (/(^|\/)protocols?\//.test(path)) {
+    return "protocol";
+  }
+  if (/(^|\/)memory[_-]?traces?\//.test(path) || /(^|\/)traces?\//.test(path)) {
+    return "memory_trace";
+  }
+  if (/(^|\/)(references?|vault[_-]?notes?|notes?)\//.test(path)) {
+    return "reference_note";
+  }
+  if (/(^|\/)concepts?\//.test(path)) {
+    return "concept";
+  }
+  if (/(^|\/)(artifacts?|workspaces?|work[_-]?products?)\//.test(path)) {
+    return "artifact";
+  }
+  if (/(^|\/)memories\//.test(path)) {
+    return "memory";
+  }
+  return "unknown";
+}
+
+export function deriveUiItemCategory(item = null) {
+  if (!item || typeof item !== "object") {
+    return "unknown";
+  }
+  const sourceCategory = categoryFromToken(item.source || item.metadata?.source || "");
+  const typeCategories = normalizedItemTokens({
+    ...item,
+    source: "",
+    metadata: item.metadata && typeof item.metadata === "object"
+      ? { ...item.metadata, source: "" }
+      : {},
+  }).map(categoryFromToken).filter(Boolean);
+  if (typeCategories.includes("protocol") || itemHasProtocolMetadata(item)) {
+    return "protocol";
+  }
+  if (sourceCategory) {
+    return sourceCategory;
+  }
+  if (item.isVaultNote || item.is_vault_note) {
+    return "reference_note";
+  }
+  for (const category of ["memory_trace", "reference_note", "concept", "artifact", "memory"]) {
+    if (typeCategories.includes(category)) {
+      return category;
+    }
+  }
+  if (
+    item.artifactLifecycle
+    || item.artifact_lifecycle
+    || item.scenarioKind
+    || item.scenario_kind
+  ) {
+    return "artifact";
+  }
+  return categoryFromPathFallback(item);
+}
+
 function learnedKind(item) {
-  const source = String(item?.source || "").trim().toLowerCase();
-  const kind = String(item?.kind || "").trim().toLowerCase();
-  const type = String(item?.type || "").trim().toLowerCase();
-  if (source === "concept" || kind === "concept" || type === "concept") {
-    return "idea";
+  switch (deriveUiItemCategory(item)) {
+    case "protocol":
+      return "protocol guidance item";
+    case "memory_trace":
+      return "memory trace";
+    case "reference_note":
+      return "reference";
+    case "concept":
+      return "reusable idea";
+    case "artifact":
+      return "work product";
+    case "memory":
+      return "memory";
+    default:
+      return "item";
   }
-  if (source === "memory" || kind === "memory" || type === "memory") {
-    return "note";
-  }
-  if (source === "artifact" || kind === "artifact" || type === "artifact" || type === "scenario_comparison") {
-    return "work product";
-  }
-  return "item";
 }
 
 function learnedEvidenceLabel(items) {
@@ -221,33 +344,30 @@ export function describeRecallReason(item = null) {
     return provided;
   }
 
-  const source = String(item?.source || "").trim().toLowerCase();
-  const type = String(item?.type || "").trim().toLowerCase();
-  if (source === "memory_trace") {
+  const category = deriveUiItemCategory(item);
+  if (category === "memory_trace") {
     return "Recent memory trace looked relevant to this turn.";
   }
-  if (source === "vault_note") {
+  if (category === "reference_note") {
     return "A reference note looked relevant to this request.";
   }
-  if (source === "artifact" || type === "artifact" || type === "scenario_comparison" || type === "scenario comparison") {
+  if (category === "artifact") {
     return "A prior work product looked relevant to this request.";
   }
-  if (source === "memory") {
+  if (category === "memory") {
     return "A saved memory looked relevant to this request.";
   }
-  if (type === "protocol") {
+  if (category === "protocol") {
     return "A reusable protocol was applied to guide this turn.";
   }
-  if (source === "concept" || type === "concept") {
+  if (category === "concept") {
     return "A reusable idea in your library looked relevant to this request.";
   }
   return "";
 }
 
 function isLearnedArtifact(item = null) {
-  const source = String(item?.source || "").trim().toLowerCase();
-  const type = String(item?.type || "").trim().toLowerCase();
-  return source === "artifact" || type === "artifact" || type === "scenario_comparison" || type === "scenario comparison";
+  return deriveUiItemCategory(item) === "artifact";
 }
 
 function isLearnedScenarioComparison(item = null) {
@@ -683,15 +803,7 @@ function dedupeInspectItems(items = []) {
 }
 
 function isProtocolItem(item = null) {
-  const type = String(item?.type || item?.kind || "").trim().toLowerCase();
-  const protocolKind = String(
-    item?.protocol?.protocolKind
-      || item?.protocol?.protocol_kind
-      || item?.protocol_kind
-      || item?.protocolKind
-      || "",
-  ).trim();
-  return type === "protocol" || Boolean(protocolKind);
+  return deriveUiItemCategory(item) === "protocol";
 }
 
 function responseModeEvidenceLabel(responseMode, payload) {
@@ -943,22 +1055,68 @@ function summarizeReasoningText(text, fallback, maxLength = 180) {
   return summary.endsWith(".") ? summary : `${summary}.`;
 }
 
+function collectReasoningCandidates({
+  candidateConcepts = [],
+  candidateSavedNotes = [],
+  candidateTraceNotes = [],
+  candidateVaultNotes = [],
+} = {}) {
+  const groups = {
+    protocol: [],
+    concept: [],
+    memory: [],
+    artifact: [],
+    memory_trace: [],
+    reference_note: [],
+    unknown: [],
+  };
+  const addItems = (items, fallbackCategory) => {
+    for (const item of cloneReasoningItems(items)) {
+      const category = deriveUiItemCategory(item);
+      const groupedCategory = category === "unknown" ? fallbackCategory : category;
+      if (groups[groupedCategory]) {
+        groups[groupedCategory].push(item);
+      } else {
+        groups.unknown.push(item);
+      }
+    }
+  };
+  addItems(candidateConcepts, "concept");
+  addItems(candidateSavedNotes, "memory");
+  addItems(candidateTraceNotes, "memory_trace");
+  addItems(candidateVaultNotes, "reference_note");
+  return groups;
+}
+
 function countReasoningCandidates({
   candidateConcepts = [],
   candidateSavedNotes = [],
   candidateTraceNotes = [],
   candidateVaultNotes = [],
 } = {}) {
-  const conceptCount = Array.isArray(candidateConcepts) ? candidateConcepts.length : 0;
-  const savedCount = Array.isArray(candidateSavedNotes) ? candidateSavedNotes.length : 0;
-  const traceCount = Array.isArray(candidateTraceNotes) ? candidateTraceNotes.length : 0;
-  const vaultCount = Array.isArray(candidateVaultNotes) ? candidateVaultNotes.length : 0;
+  const candidates = collectReasoningCandidates({
+    candidateConcepts,
+    candidateSavedNotes,
+    candidateTraceNotes,
+    candidateVaultNotes,
+  });
+  const protocolCount = candidates.protocol.length;
+  const conceptCount = candidates.concept.length;
+  const memoryCount = candidates.memory.length;
+  const artifactCount = candidates.artifact.length;
+  const traceCount = candidates.memory_trace.length;
+  const referenceCount = candidates.reference_note.length;
+  const unknownCount = candidates.unknown.length;
   return {
+    protocolCount,
     conceptCount,
-    savedCount,
+    memoryCount,
+    artifactCount,
     traceCount,
-    vaultCount,
-    totalCount: conceptCount + savedCount + traceCount + vaultCount,
+    referenceCount,
+    unknownCount,
+    totalCount: protocolCount + conceptCount + memoryCount + artifactCount + traceCount + referenceCount + unknownCount,
+    candidates,
   };
 }
 
@@ -1042,17 +1200,26 @@ function describeReasoningCandidates(candidateCounts) {
     `${totalCount} supporting item${totalCount === 1 ? "" : "s"} ${totalCount === 1 ? "was" : "were"} considered before Recall was narrowed`,
   ];
   const detailParts = [];
-  if (candidateCounts.conceptCount) {
-    detailParts.push(`${candidateCounts.conceptCount} idea${candidateCounts.conceptCount === 1 ? "" : "s"}`);
+  if (candidateCounts.protocolCount) {
+    detailParts.push(`${candidateCounts.protocolCount} protocol guidance item${candidateCounts.protocolCount === 1 ? "" : "s"}`);
   }
-  if (candidateCounts.savedCount) {
-    detailParts.push(`${candidateCounts.savedCount} note${candidateCounts.savedCount === 1 ? "" : "s"}`);
+  if (candidateCounts.conceptCount) {
+    detailParts.push(`${candidateCounts.conceptCount} reusable idea${candidateCounts.conceptCount === 1 ? "" : "s"}`);
+  }
+  if (candidateCounts.memoryCount) {
+    detailParts.push(`${candidateCounts.memoryCount} memor${candidateCounts.memoryCount === 1 ? "y" : "ies"}`);
+  }
+  if (candidateCounts.artifactCount) {
+    detailParts.push(`${candidateCounts.artifactCount} work product${candidateCounts.artifactCount === 1 ? "" : "s"}`);
   }
   if (candidateCounts.traceCount) {
     detailParts.push(`${candidateCounts.traceCount} memory trace item${candidateCounts.traceCount === 1 ? "" : "s"}`);
   }
-  if (candidateCounts.vaultCount) {
-    detailParts.push(`${candidateCounts.vaultCount} reference${candidateCounts.vaultCount === 1 ? "" : "s"}`);
+  if (candidateCounts.referenceCount) {
+    detailParts.push(`${candidateCounts.referenceCount} reference${candidateCounts.referenceCount === 1 ? "" : "s"}`);
+  }
+  if (candidateCounts.unknownCount) {
+    detailParts.push(`${candidateCounts.unknownCount} uncategorized item${candidateCounts.unknownCount === 1 ? "" : "s"}`);
   }
   if (detailParts.length) {
     parts.push(`(${detailParts.join(", ")})`);
@@ -1113,6 +1280,7 @@ export function buildReasoningPathInspection({
     candidateTraceNotes,
     candidateVaultNotes,
   });
+  const candidateGroups = candidateCounts.candidates;
   const recallIds = new Set(
     Array.isArray(recallItems)
       ? recallItems.map((item) => String(item?.id || "").trim()).filter(Boolean)
@@ -1195,29 +1363,49 @@ export function buildReasoningPathInspection({
         : "No supporting items were surfaced before Recall was narrowed.",
       groups: [
         {
-          label: "Ideas considered",
-          items: annotateCandidateItems(candidateConcepts, recallIds),
+          label: "Protocol guidance",
+          items: annotateCandidateItems(candidateGroups.protocol, recallIds),
           context: "reasoning-candidate",
-          emptyMessage: "No ideas were considered.",
+          emptyMessage: "No protocol guidance was considered.",
         },
         {
-          label: "Notes considered",
-          items: annotateCandidateItems(candidateSavedNotes, recallIds),
+          label: "Reusable ideas",
+          items: annotateCandidateItems(candidateGroups.concept, recallIds),
           context: "reasoning-candidate",
-          emptyMessage: "No notes were considered.",
+          emptyMessage: "No reusable ideas were considered.",
         },
         {
-          label: "Memory Trace considered",
-          items: annotateCandidateItems(candidateTraceNotes, recallIds),
+          label: "Memories",
+          items: annotateCandidateItems(candidateGroups.memory, recallIds),
+          context: "reasoning-candidate",
+          emptyMessage: "No memories were considered.",
+        },
+        {
+          label: "Work products",
+          items: annotateCandidateItems(candidateGroups.artifact, recallIds),
+          context: "reasoning-candidate",
+          emptyMessage: "No work products were considered.",
+        },
+        {
+          label: "Memory Trace",
+          items: annotateCandidateItems(candidateGroups.memory_trace, recallIds),
           context: "reasoning-candidate",
           emptyMessage: "No Memory Trace items were considered.",
         },
         {
-          label: "References considered",
-          items: annotateCandidateItems(candidateVaultNotes, recallIds),
+          label: "References",
+          items: annotateCandidateItems(candidateGroups.reference_note, recallIds),
           context: "reasoning-candidate",
           emptyMessage: "No references were considered.",
         },
+        ...(candidateGroups.unknown.length
+          ? [{
+              label: "Other",
+              items: annotateCandidateItems(candidateGroups.unknown, recallIds),
+              context: "reasoning-candidate",
+              emptyMessage: "No uncategorized items were considered.",
+            }]
+          : []),
       ],
     },
   };
@@ -1359,7 +1547,7 @@ export function buildMemoryTraceInspectionSummary({
   recalledItems = [],
 } = {}) {
   const recalledTraceCount = Array.isArray(recalledItems)
-    ? recalledItems.filter((item) => String(item?.source || "").trim().toLowerCase() === "memory_trace").length
+    ? recalledItems.filter((item) => deriveUiItemCategory(item) === "memory_trace").length
     : 0;
   const traceTitle = String(memoryTraceRecord?.title || "").trim() || "Turn Trace";
   const traceCard = String(memoryTraceRecord?.card || "").trim();
@@ -1467,7 +1655,7 @@ function buildWorkingMemoryScopeSummary({
 
   const recallCount = Number(grounding?.recallCount || 0);
   const traceCount = Array.isArray(recallItems)
-    ? recallItems.filter((item) => String(item?.source || "").trim().toLowerCase() === "memory_trace").length
+    ? recallItems.filter((item) => deriveUiItemCategory(item) === "memory_trace").length
     : 0;
   const contextSources = Array.isArray(grounding?.answerBasis?.contextSources) && grounding.answerBasis.contextSources.length
     ? grounding.answerBasis.contextSources.map(normalizeContextSourceName)

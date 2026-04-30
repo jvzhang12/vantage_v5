@@ -153,13 +153,17 @@ Do not make protocols look like factual evidence, saved drafts, or ordinary conc
 
 ### 6. Recall Failure UX
 
+Status: implemented in the frontend disclosure copy.
+
 The current implementation keeps the backend `best_guess` response mode while using `Intuitive Answer` as the softer answer-basis label.
 
-The product copy should keep making this clear:
+The product copy now keeps making this clear:
 
 - no relevant Vantage memory was used
 - the answer came from general model understanding
 - user can save, correct, or pin context if useful
+- Inspect summary and answer-dock metadata say `Recall: none` before showing a non-recall grounding label such as `Intuitive Answer`, `Recent Chat`, or `Whiteboard-Grounded`
+- Reasoning Path says no Library or Memory Trace items entered Recall instead of using vague "no context" language
 
 The meaning should remain precise:
 

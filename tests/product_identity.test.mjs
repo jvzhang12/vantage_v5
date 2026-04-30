@@ -538,6 +538,15 @@ test("buildTurnAtAGlanceSummary keeps the first Vantage summary short and outcom
     }),
     "Reusable protocol guidance shaped this answer.",
   );
+
+  assert.equal(
+    buildTurnAtAGlanceSummary({
+      groundingLabel: "Intuitive Answer",
+      isBestGuess: true,
+      learnedCount: 0,
+    }),
+    "No recalled Vantage context was used. This answer came from the current request and general intuition.",
+  );
 });
 
 test("buildGuidedInspectionSummary keeps the Vantage header aligned with turn truth", () => {
@@ -552,7 +561,7 @@ test("buildGuidedInspectionSummary keeps the Vantage header aligned with turn tr
       libraryCount: 7,
       pinnedTitle: "Roadmap",
     }),
-    "Scenario Lab: 2 branches • Grounding: Whiteboard • Saved for Later: 1 item • Library: 7 items • Pinned: Roadmap",
+    "Scenario Lab: 2 branches • Recall: none • Grounding: Whiteboard • Saved for Later: 1 item • Library: 7 items • Pinned: Roadmap",
   );
 });
 
@@ -589,7 +598,7 @@ test("buildGuidedInspectionSummary keeps broader grounded context separate from 
       learnedCount: 0,
       libraryCount: 2,
     }),
-    "Grounding: Recent Chat • Saved for Later: nothing new yet • Library: 2 items",
+    "Recall: none • Grounding: Recent Chat • Saved for Later: nothing new yet • Library: 2 items",
   );
 });
 
@@ -606,7 +615,7 @@ test("buildGuidedInspectionSummary uses product-facing labels for prior whiteboa
       learnedCount: 0,
       libraryCount: 3,
     }),
-    "Grounding: Prior Whiteboard • Saved for Later: nothing new yet • Library: 3 items",
+    "Recall: none • Grounding: Prior Whiteboard • Saved for Later: nothing new yet • Library: 3 items",
   );
 });
 
@@ -635,7 +644,7 @@ test("buildGuidedInspectionSummary surfaces intuitive answer grounding explicitl
       learnedCount: 0,
       libraryCount: 2,
     }),
-    "Grounding: Intuitive Answer • Saved for Later: nothing new yet • Library: 2 items",
+    "Recall: none • Grounding: Intuitive Answer • Saved for Later: nothing new yet • Library: 2 items",
   );
 });
 
@@ -692,7 +701,7 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
       recallItems: [],
       expectedGrounding: "Whiteboard-Grounded",
       expectedWorkingMemory: "In scope for generation: Whiteboard-Grounded.",
-      expectedRecallText: "No recalled items entered Recall.",
+      expectedRecallText: "No Library or Memory Trace items entered Recall.",
       expectedRecallItemCount: 0,
     },
     {
@@ -709,7 +718,7 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
       recallItems: [],
       expectedGrounding: "Recent Chat",
       expectedWorkingMemory: "In scope for generation: Recent Chat.",
-      expectedRecallText: "No recalled items entered Recall.",
+      expectedRecallText: "No Library or Memory Trace items entered Recall.",
       expectedRecallItemCount: 0,
     },
     {
@@ -727,7 +736,7 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
       recallItems: [],
       expectedGrounding: "Whiteboard-Grounded",
       expectedWorkingMemory: "In scope for generation: Whiteboard-Grounded.",
-      expectedRecallText: "No recalled items entered Recall.",
+      expectedRecallText: "No Library or Memory Trace items entered Recall.",
       expectedRecallItemCount: 0,
     },
     {
@@ -761,7 +770,7 @@ test("buildReasoningPathInspection keeps the staged path aligned with the six gr
       recallItems: [],
       expectedGrounding: "Intuitive Answer",
       expectedWorkingMemory: "In scope for generation: current request only (Intuitive Answer).",
-      expectedRecallText: "No recalled items entered Recall.",
+      expectedRecallText: "No Library or Memory Trace items entered Recall.",
       expectedRecallItemCount: 0,
     },
   ];
@@ -936,7 +945,7 @@ test("buildReasoningPathInspection labels protocol-only turns as guidance instea
   });
 
   assert.equal(inspection.groundingLabel, "Protocol-Guided");
-  assert.equal(inspection.stages[3].text, "No recalled items entered Recall.");
+  assert.equal(inspection.stages[3].text, "No Library or Memory Trace items entered Recall.");
   assert.equal(inspection.stages[4].text, "In scope for generation: Protocol-Guided.");
   assert.ok(
     inspection.stages[4].detail.scopeRows.some((row) => row.label === "Protocol" && row.status === "Included"),

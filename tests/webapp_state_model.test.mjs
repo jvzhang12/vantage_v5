@@ -906,7 +906,7 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
       },
       learnedCount: 0,
       expected: {
-        metaText: "Grounding: Whiteboard-Grounded",
+        metaText: "Recall: none • Grounding: Whiteboard-Grounded",
         answerDockLabel: "Whiteboard-Grounded",
         turnIntentLabel: "Whiteboard-Grounded",
       },
@@ -922,7 +922,7 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
       },
       learnedCount: 0,
       expected: {
-        metaText: "Grounding: Recent Chat",
+        metaText: "Recall: none • Grounding: Recent Chat",
         answerDockLabel: "Recent Chat",
         turnIntentLabel: "Recent Chat",
       },
@@ -938,7 +938,7 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
       },
       learnedCount: 0,
       expected: {
-        metaText: "Grounding: Whiteboard-Grounded",
+        metaText: "Recall: none • Grounding: Whiteboard-Grounded",
         answerDockLabel: "Whiteboard-Grounded",
         turnIntentLabel: "Whiteboard-Grounded",
       },
@@ -971,7 +971,7 @@ test("turn panel grounding copy keeps the dock and meta labels aligned for the s
       },
       learnedCount: 0,
       expected: {
-        metaText: "Grounding: Intuitive Answer",
+        metaText: "Recall: none • Grounding: Intuitive Answer",
         answerDockLabel: "Intuitive Answer",
         turnIntentLabel: "Intuitive Answer",
       },

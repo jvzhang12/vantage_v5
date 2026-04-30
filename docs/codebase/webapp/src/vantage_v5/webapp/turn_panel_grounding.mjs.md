@@ -11,6 +11,7 @@ Tiny render-copy helper for the Vantage turn panel and answer dock.
 
 - `buildTurnPanelGroundingCopy()` preserves the current product wording for the six grounding cases plus the idle and learned-only fallback branches.
 - Recall-grounded turns show as `Recall` in the dock while broader grounded modes keep their own labels.
+- Zero-recall grounded turns explicitly include `Recall: none` before labels such as `Intuitive Answer`, `Whiteboard-Grounded`, or `Recent Chat`, so the absence of recalled Library / Memory Trace context stays visible without implying the answer failed.
 - `pending_whiteboard` is surfaced as `Prior Whiteboard`.
 - `mixed_context` keeps the combined source label, such as `Recall + Recent Chat`.
 - Learned counts use `What I learned` wording in the dock meta so the answer-dock summary matches the rest of the provenance surface.

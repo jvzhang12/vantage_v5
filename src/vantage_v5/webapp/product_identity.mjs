@@ -437,7 +437,7 @@ export function buildTurnAtAGlanceSummary({
         : "Scenario Lab ran for this turn.",
     );
   } else if (isBestGuess) {
-    parts.push("This was an intuitive answer from the current request.");
+    parts.push("No recalled Vantage context was used. This answer came from the current request and general intuition.");
   } else if (recallCount > 0) {
     parts.push(`This answer used ${recallCount} recalled ${pluralize("item", recallCount)}.`);
   } else if ((hasGroundedContext || hasBroaderGrounding) && normalizedGrounding) {
@@ -892,6 +892,7 @@ export function buildGuidedInspectionSummary({
       parts.push(`Grounding: ${responseModeLabel}`);
     }
   } else if (responseModeLabel) {
+    parts.push("Recall: none");
     parts.push(`Grounding: ${responseModeLabel}`);
   } else {
     parts.push("Recall: none surfaced yet");
@@ -1066,7 +1067,7 @@ function describeReasoningRecall(grounding, recallItems = []) {
       ? recallItems.length
       : 0;
   if (!recallCount) {
-    return "No recalled items entered Recall.";
+    return "No Library or Memory Trace items entered Recall.";
   }
   return `${recallCount} recalled item${recallCount === 1 ? "" : "s"} entered Recall.`;
 }
@@ -1231,7 +1232,7 @@ export function buildReasoningPathInspection({
     detail: {
       summary: grounding.recallCount
         ? "These recalled items made it through vetting and entered Recall for this answer."
-        : "No recalled items entered Recall.",
+        : "No Library or Memory Trace items entered Recall.",
       groups: [
         {
           label: "Used for recall",
@@ -1485,7 +1486,7 @@ function buildWorkingMemoryScopeSummary({
   if (recallCount > 0) {
     parts.push(`Recall contributed ${recallCount} item${recallCount === 1 ? "" : "s"}.`);
   } else {
-    parts.push("No recalled items were surfaced for this turn.");
+    parts.push("No recalled Library or Memory Trace items were surfaced for this turn.");
   }
   if (additionalContextLabels.length) {
     parts.push(`Additional context in scope: ${additionalContextLabels.join(", ")}.`);

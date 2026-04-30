@@ -20,6 +20,7 @@ export function buildTurnPanelGroundingCopy({
       metaParts.push(`Grounding: ${groundingLabel}`);
     }
   } else if (hasGroundedContext || isBestGuess) {
+    metaParts.push("Recall: none");
     metaParts.push(`Grounding: ${groundingLabel}`);
   } else {
     metaParts.push("No grounded context surfaced yet");

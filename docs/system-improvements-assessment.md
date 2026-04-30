@@ -84,7 +84,7 @@ This should live in `Vantage` / Inspect, not as a heavy default chat panel.
 
 Status: a read-only review slice is implemented.
 
-The API field remains `learned`; the UI may call the same turn-created/saved items `Saved for Later`. That label is product copy, not a payload rename.
+The API field remains `learned`; the UI may call the same turn-created/saved items `Saved for Later`. That label is product copy, not a payload rename. It means a turn-created/saved item exists in `learned`; it does not mean the item is verified, correct, fresh, or high confidence.
 
 The right next step is still not approval before every write. That would make chat feel heavy.
 
@@ -187,6 +187,8 @@ Guardrails:
 
 Freshness and confidence are useful, but easy to overstate.
 
+Current implementation decision: freshness/confidence labels remain deferred until correction semantics exist. This pass adds only a narrow noisy-write guard for obvious test/probe/freshness-marker prompts so they do not become durable concepts. It is not a freshness model, confidence model, source-verification system, or correction workflow.
+
 Separate these concepts:
 
 - retrieval match strength
@@ -230,7 +232,7 @@ Recommended emphasis:
 6. Complete: add Context Budget inside Inspect.
 7. Complete: build a more visible Protocols guidance subview inside Inspect.
 8. Complete docs-only decision: accept concept key/value only as an advanced design metaphor, preserving `card`, `body`, and `links` / `links_to` as canonical terms.
-9. Add freshness/confidence labels once correction paths and semantics are clear.
+9. Deferred: add freshness/confidence labels once correction paths and semantics are clear.
 
 ## Concrete Checklist Additions
 
@@ -248,6 +250,8 @@ Recommended emphasis:
 - [x] Add Context Budget to Inspect.
 - [x] Draft and implement a small Protocols guidance UX inside Inspect.
 - [x] Record concept key/value as an advanced design metaphor only, not UI/API/schema vocabulary.
+- [x] Add a narrow guard for obvious test/probe/freshness-marker prompts so they do not become durable concepts.
+- [ ] Define correction semantics before adding Saved for Later freshness/confidence labels.
 
 ## Bottom Line
 

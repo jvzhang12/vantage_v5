@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from vantage_v5.config import AppConfig
+from vantage_v5.services.executor import GraphActionExecutor
 from vantage_v5.services.meta import MetaDecision
 from vantage_v5.services.meta import MetaService
 from vantage_v5.services.navigator import NavigationDecision
@@ -28,7 +29,10 @@ from vantage_v5.server import create_app
 from vantage_v5.storage.artifacts import ArtifactStore
 from vantage_v5.storage.concepts import ConceptStore
 from vantage_v5.storage.memory_trace import MemoryTraceStore
+from vantage_v5.storage.memories import MemoryStore
+from vantage_v5.storage.state import ActiveWorkspaceStateStore
 from vantage_v5.storage.workspaces import WorkspaceDocument
+from vantage_v5.storage.workspaces import WorkspaceStore
 
 
 def _repo_root() -> Path:
@@ -2693,6 +2697,116 @@ def test_fallback_turn_can_create_concept_without_openai_key(tmp_path: Path, mon
     assert concept_path.exists()
 
 
+def test_fallback_turn_skips_freshness_marker_qa_without_openai_key(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path)
+    before_concepts = {path.name for path in (repo_root / "concepts").glob("*.md")}
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": (
+                "What are the rules of reverse brainstorming? Include a freshness marker "
+                "so I can tell this response is fresh."
+            ),
+            "history": [],
+            "workspace_id": "v5-milestone-1",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["meta_action"]["rationale"] == (
+        "This looked like a test/probe marker rather than reusable concept knowledge, "
+        "so Vantage skipped automatic concept creation."
+    )
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["learned"] == []
+    assert {path.name for path in (repo_root / "concepts").glob("*.md")} == before_concepts
+
+
+def test_explicit_save_as_concept_with_freshness_marker_still_creates_concept(tmp_path: Path) -> None:
+    repo_root = _test_repo(tmp_path)
+    workspace_store = WorkspaceStore(repo_root / "workspaces")
+    workspace = workspace_store.load("v5-milestone-1")
+    concept_store = ConceptStore(repo_root / "concepts")
+    executor = GraphActionExecutor(
+        concept_store=concept_store,
+        memory_store=MemoryStore(repo_root / "memories"),
+        artifact_store=ArtifactStore(repo_root / "artifacts"),
+        workspace_store=workspace_store,
+        state_store=ActiveWorkspaceStateStore(repo_root / "state" / "active_workspace.json"),
+    )
+    service = MetaService(model="gpt-4.1", openai_api_key=None)
+
+    decision = service.decide(
+        user_message=(
+            "Save as concept: A deployment canary marker is a temporary proof that a response "
+            "is fresh, not cached."
+        ),
+        assistant_message="A deployment canary marker is only useful as a transient verification cue.",
+        workspace=workspace,
+        vetted_items=[],
+        history=[],
+        memory_mode="auto",
+    )
+    executed = executor.execute(decision, workspace=workspace)
+
+    assert decision.action == "create_concept"
+    assert executed is not None
+    assert executed.action == "create_concept"
+    assert executed.source == "concept"
+    assert executed.record_id is not None
+    assert (repo_root / "concepts" / f"{executed.record_id}.md").exists()
+
+
+def test_include_word_without_freshness_marker_still_creates_concept(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path)
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "What are the rules of reverse brainstorming? Include the word persimmon.",
+            "history": [],
+            "workspace_id": "v5-milestone-1",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta_action"]["action"] == "create_concept"
+    assert payload["graph_action"]["type"] == "create_concept"
+    assert payload["created_record"]["source"] == "concept"
+    assert (repo_root / "concepts" / f"{payload['created_record']['id']}.md").exists()
+
+
+def test_smoke_test_topic_without_response_marker_still_creates_concept(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path)
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "What is a smoke test?",
+            "history": [],
+            "workspace_id": "v5-milestone-1",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta_action"]["action"] == "create_concept"
+    assert payload["graph_action"]["type"] == "create_concept"
+    assert payload["created_record"]["source"] == "concept"
+    assert (repo_root / "concepts" / f"{payload['created_record']['id']}.md").exists()
+
+
 def test_chat_turn_writes_memory_trace_and_can_recall_it_without_promoting_it(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path)
     monkeypatch.setattr(MetaService, "decide", lambda self, **kwargs: MetaDecision(action="no_op", rationale="No durable write."))
@@ -3025,6 +3139,59 @@ def test_meta_openai_prompt_biases_toward_create_concept_and_links_related_conce
     assert "Choose no_op only when the turn is clearly transient" in instructions
     assert decision.action == "create_concept"
     assert decision.links_to == ["hangman-word-game"]
+
+
+def test_meta_decide_skips_freshness_marker_before_openai_create_concept(tmp_path: Path) -> None:
+    workspace = WorkspaceDocument(
+        workspace_id="v5-milestone-1",
+        title="Shared Workspace",
+        content="",
+        path=tmp_path / "workspaces" / "v5-milestone-1.md",
+    )
+    service = MetaService(model="gpt-4.1", openai_api_key="test-key")
+    calls: list[dict[str, object]] = []
+
+    class _FakeResponses:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return type(
+                "FakeResponse",
+                (),
+                {
+                    "output_text": json.dumps(
+                        {
+                            "action": "create_concept",
+                            "rationale": "The fake model would have created a concept.",
+                            "title": "Rules Of Reverse Brainstorming",
+                            "card": "The basic rules of reverse brainstorming.",
+                            "body": "A durable concept about reverse brainstorming rules.",
+                            "target_concept_id": None,
+                            "links_to": [],
+                        }
+                    )
+                },
+            )()
+
+    service.client = type("FakeClient", (), {"responses": _FakeResponses()})()
+
+    decision = service.decide(
+        user_message=(
+            "What are the rules of reverse brainstorming? Include a freshness marker "
+            "so I can tell this response is fresh."
+        ),
+        assistant_message="Here are the basic rules of reverse brainstorming.",
+        workspace=workspace,
+        vetted_items=[],
+        history=[],
+        memory_mode="auto",
+    )
+
+    assert calls == []
+    assert decision.action == "no_op"
+    assert decision.rationale == (
+        "This looked like a test/probe marker rather than reusable concept knowledge, "
+        "so Vantage skipped automatic concept creation."
+    )
 
 
 def test_meta_openai_decide_supports_constrained_create_revision(tmp_path: Path) -> None:

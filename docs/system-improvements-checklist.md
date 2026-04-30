@@ -37,6 +37,8 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Clarify when information becomes a concept versus a memory versus an artifact.
 - [x] Decide that `Concept Card` remains canonical terminology; document key/value only as an advanced metaphor while preserving `card`, `body`, and `links` / `links_to`.
 - [ ] Avoid noisy automatic durable writes.
+  - [x] Add a narrow guard for obvious test/probe/freshness-marker prompts so they do not become durable concepts.
+  - [ ] Define correction semantics before adding saved-item freshness/confidence labels.
 - [x] Add answer-basis payload and badge language for intuitive, memory-backed, protocol-guided, whiteboard-grounded, and mixed-context turns.
 - [x] Keep protocol guidance separate from factual grounding in answer-basis payloads and UI.
 - [x] Add a Context Budget receipt in Inspect for included / excluded turn context.
@@ -90,7 +92,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Keep architecture docs current when module responsibilities change.
 - [ ] Keep implementation plans separate from canonical product semantics.
 - [ ] Link detailed child plans from this checklist as they emerge.
-- [ ] Keep `learned` documented as the API field while allowing `Saved for Later` as UI copy.
+- [ ] Keep `learned` documented as the API field while allowing `Saved for Later` as UI copy for turn-created/saved items, not verification, freshness, or confidence.
 
 ## Open Backlog Items
 

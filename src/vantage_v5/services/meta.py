@@ -12,6 +12,12 @@ from vantage_v5.storage.markdown_store import slugify
 from vantage_v5.storage.workspaces import WorkspaceDocument
 
 
+_TRANSIENT_MARKER_RATIONALE = (
+    "This looked like a test/probe marker rather than reusable concept knowledge, "
+    "so Vantage skipped automatic concept creation."
+)
+
+
 @dataclass(slots=True)
 class MetaDecision:
     action: str
@@ -63,6 +69,15 @@ class MetaService:
             return MetaDecision(
                 action="no_op",
                 rationale="User explicitly disabled memory writes for this turn.",
+            )
+        if (
+            memory_mode == "auto"
+            and _looks_like_transient_marker_turn(user_message)
+            and not _is_explicit_durable_request(user_message)
+        ):
+            return MetaDecision(
+                action="no_op",
+                rationale=_TRANSIENT_MARKER_RATIONALE,
             )
         if self.client:
             try:
@@ -393,6 +408,64 @@ def _is_pending_whiteboard_update(workspace_update: dict[str, Any] | None) -> bo
     if workspace_update is None:
         return False
     return workspace_update.get("type") in {"offer_whiteboard", "draft_whiteboard"}
+
+
+def _looks_like_transient_marker_turn(message: str) -> bool:
+    lowered = " ".join(message.lower().split())
+    if _contains_any(
+        lowered,
+        (
+            "so i can tell this response is fresh",
+            "so i can tell the response is fresh",
+            "freshness marker",
+            "freshness-marker",
+            "freshness test",
+            "freshness probe",
+            "test marker",
+            "probe marker",
+        ),
+    ):
+        return True
+    response_probe_terms = (
+        "response",
+        "reply",
+        "answer",
+        "output",
+        "marker",
+        "probe",
+        "can tell",
+        "make sure",
+        "verify",
+    )
+    transient_terms = (
+        "smoke test",
+        "deployment test",
+        "cache test",
+        "not cached",
+        "not stale",
+        "canary",
+    )
+    return _contains_any(lowered, transient_terms) and _contains_any(
+        lowered,
+        response_probe_terms,
+    )
+
+
+def _is_explicit_durable_request(message: str) -> bool:
+    lowered = message.lower()
+    return _contains_any(
+        lowered,
+        (
+            "save as concept",
+            "make this a concept",
+            "turn this into a concept",
+            "remember this",
+            "save this",
+            "save this as memory",
+            "save as artifact",
+            "promote workspace",
+        ),
+    ) or _is_explicit_revision_request(message)
 
 
 def _sentence_card_from_text(text: str, *, fallback: str) -> str:

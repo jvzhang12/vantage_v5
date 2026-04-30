@@ -9,6 +9,7 @@ from typing import Any
 from openai import OpenAI
 
 from vantage_v5.services.search import CandidateMemory
+from vantage_v5.storage.overlay import get_overlay_record
 from vantage_v5.storage.workspaces import WorkspaceDocument
 
 LOW_CONTEXT_TURN_RE = re.compile(r"[a-zA-Z0-9]+")
@@ -304,12 +305,9 @@ def resolve_selected_record_candidate(
 
     record = _find_record(
         record_id,
-        concept_store,
-        reference_concept_store,
-        memory_store,
-        reference_memory_store,
-        artifact_store,
-        reference_artifact_store,
+        (concept_store, reference_concept_store),
+        (memory_store, reference_memory_store),
+        (artifact_store, reference_artifact_store),
     )
     if record is not None:
         return CandidateMemory(
@@ -400,12 +398,10 @@ def _selected_memory_label(candidate: CandidateMemory) -> str:
     return "saved note"
 
 
-def _find_record(record_id: str, *stores: Any) -> Any | None:
-    for store in stores:
-        if store is None:
-            continue
+def _find_record(record_id: str, *store_groups: tuple[Any, ...]) -> Any | None:
+    for stores in store_groups:
         try:
-            return store.get(record_id)
+            return get_overlay_record(record_id, *stores)
         except FileNotFoundError:
             continue
     return None

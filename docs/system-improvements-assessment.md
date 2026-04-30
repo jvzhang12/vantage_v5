@@ -82,7 +82,7 @@ This should live in `Vantage` / Inspect, not as a heavy default chat panel.
 
 ### 3. Memory Write Review
 
-Status: a read-only review slice is implemented.
+Status: a read-only review slice is implemented, and the backend saved-item correction route now supports narrow negative correction.
 
 The API field remains `learned`; the UI may call the same turn-created/saved items `Saved for Later`. That label is product copy, not a payload rename. It means a turn-created/saved item exists in `learned`; it does not mean the item is verified, correct, fresh, or high confidence.
 
@@ -97,11 +97,21 @@ Implemented first pass:
 
 This keeps learning inspectable without interrupting normal chat.
 
+Correction semantics decision:
+
+- `POST /api/records/{source}/{record_id}/corrections` is the backend correction seam.
+- Supported actions are `mark_incorrect` and `forget`.
+- Both actions are hide/suppress semantics: they remove the saved item from Library lists, recall, and saved-item search through a hidden/suppressed writable record or status update.
+- These actions are not hard deletes; the underlying saved file or lower-priority record remains on disk.
+- Correction responses should expose a `correction` object with the corrected `source`, `record_id`, `action`, requested/effective scope, hidden-record scope, correction status, reason when supplied, and whether the correction suppresses canonical material.
+- Correction payloads should not add freshness or confidence fields.
+- Direct correction UI controls remain deferred until the product flow is explicit; the current visible review loop still favors whiteboard revision and pinning.
+
 Deferred:
 
-- direct mutation actions such as `mark wrong`, `forget`, or `make temporary`
-- durable edit / delete / scope mutation
-- backend storage, search, and privacy semantics for those mutation paths
+- direct content edit, durable hard delete, and scope mutation such as `make_temporary`
+- freshness/confidence labels or scoring
+- broader privacy/retention behavior beyond hide/suppress suppression semantics
 
 ### 4. Context Budget View
 
@@ -187,7 +197,7 @@ Guardrails:
 
 Freshness and confidence are useful, but easy to overstate.
 
-Current implementation decision: freshness/confidence labels remain deferred until correction semantics exist. This pass adds only a narrow noisy-write guard for obvious test/probe/freshness-marker prompts so they do not become durable concepts. It is not a freshness model, confidence model, source-verification system, or correction workflow.
+Current implementation decision: freshness/confidence labels remain deferred until the correction UI flow and semantics are product-tested. The current freshness-related pass adds only a narrow noisy-write guard for obvious test/probe/freshness-marker prompts so they do not become durable concepts. It is not a freshness model, confidence model, source-verification system, or correction workflow.
 
 Separate these concepts:
 
@@ -228,11 +238,11 @@ Recommended emphasis:
 2. Complete: update frontend badge copy to use the answer-basis mapping without adding a new top-level surface.
 3. Complete: separate protocol guidance from factual grounding in payload and UI.
 4. Complete first pass: improve `Saved for Later` / `Learned` into a read-only memory write review surface.
-5. Deferred: add direct correction actions for saved items and bad recall once backend storage, search, and privacy semantics are explicit.
+5. Backend route implemented: `mark_incorrect` and `forget` are saved-item hide/suppress corrections; direct edit, hard delete, make-temporary, freshness, confidence, and direct UI controls stay deferred.
 6. Complete: add Context Budget inside Inspect.
 7. Complete: build a more visible Protocols guidance subview inside Inspect.
 8. Complete docs-only decision: accept concept key/value only as an advanced design metaphor, preserving `card`, `body`, and `links` / `links_to` as canonical terms.
-9. Deferred: add freshness/confidence labels once correction paths and semantics are clear.
+9. Deferred: add freshness/confidence labels once the correction UI flow and semantics are product-tested.
 
 ## Concrete Checklist Additions
 
@@ -246,12 +256,13 @@ Recommended emphasis:
 - [x] Add tests for answer-basis mapping.
 - [x] Add frontend tests for badge rendering.
 - [x] Improve Saved for Later with read-only review affordances.
-- [ ] Add direct Saved for Later mutation actions once backend storage/search/privacy semantics are explicit.
+- [x] Implement backend saved-item correction semantics for `mark_incorrect` and `forget` as hide/suppress actions, not hard deletes.
+- [ ] Add broader Saved for Later mutation actions such as direct edit, hard delete, or make temporary.
 - [x] Add Context Budget to Inspect.
 - [x] Draft and implement a small Protocols guidance UX inside Inspect.
 - [x] Record concept key/value as an advanced design metaphor only, not UI/API/schema vocabulary.
 - [x] Add a narrow guard for obvious test/probe/freshness-marker prompts so they do not become durable concepts.
-- [ ] Define correction semantics before adding Saved for Later freshness/confidence labels.
+- [ ] Add Saved for Later freshness/confidence labels only after the correction UI flow and semantics are product-tested.
 
 ## Bottom Line
 

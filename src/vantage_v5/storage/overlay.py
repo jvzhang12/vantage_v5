@@ -22,6 +22,16 @@ def overlay_records(*record_lists: list[Any]) -> list[Any]:
     return list(merged.values())
 
 
+def get_overlay_record(record_id: str, *stores: Any) -> Any:
+    """Return the first visible record for an id across ordered stores."""
+
+    return _get_first_available(record_id, tuple(store for store in stores if store is not None))
+
+
+def is_suppression_record(record: Any) -> bool:
+    return _is_suppression_record(record)
+
+
 class ConceptOverlayStore:
     def __init__(self, *stores: Any) -> None:
         self.stores = tuple(store for store in stores if store is not None)

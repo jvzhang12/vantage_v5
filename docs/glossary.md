@@ -128,6 +128,20 @@ In durable mode, that usually means a durable concept, memory, artifact, or refe
 
 In Experiment Mode, a `learned` / `Saved for Later` item can be a temporary saved outcome from the turn. It does not imply a durable Library change unless it is promoted or otherwise marked durable.
 
+### Saved-Item Correction
+
+A `Saved-Item Correction` is a backend correction request for an existing concept, memory, or artifact.
+
+The correction seam is:
+
+`POST /api/records/{source}/{record_id}/corrections`
+
+Supported actions are `mark_incorrect` and `forget`.
+
+Both actions mean hide/suppress the saved item from Library listing, recall, and saved-item search. They are not hard deletes, not direct body edits, and not scope changes.
+
+Unsupported correction meanings include `make_temporary`, direct edit, freshness labels, and confidence labels.
+
 ### Pinned Context
 
 `Pinned Context` is context the user explicitly wants carried into future Working Memory until it is cleared.
@@ -282,7 +296,7 @@ In Experiment Mode, created notes remain temporary unless the user explicitly pr
 
 `Learned` / `Saved for Later` in Experiment Mode means the turn produced a saved temporary outcome, not necessarily a durable change.
 
-Direct actions such as marking a saved item wrong, forgetting it, or making it temporary are deferred until backend storage, search, and privacy semantics are explicit.
+Saved-item corrections still preserve the experiment boundary: an experiment correction writes to the experiment scope, while a durable correction writes to the durable scope. `mark_incorrect` and `forget` hide/suppress records; `make_temporary`, direct edit, and hard delete remain unsupported correction actions.
 
 ## Canonical Distinctions
 
@@ -299,6 +313,7 @@ These distinctions should not drift:
 - `Learned` is the canonical API field for saved outcomes from the turn; `Saved for Later` can be the UI label.
 - `Learned` is about saved outcomes from this turn, not everything the system considered.
 - In Experiment Mode, `Learned` / `Saved for Later` can mean a temporary saved outcome rather than a durable Library change.
+- `Mark incorrect` and `forget` are saved-item hide/suppress corrections, not hard deletes, freshness labels, confidence labels, direct edits, or make-temporary actions.
 - `Workspace` is a compatibility term; `Whiteboard` is the intended product term.
 - `Pinned Context` is the canonical continuity noun for the public/client seam; selected-record naming is now a compatibility alias.
 - `Protocol` is task guidance, not a factual source claim.

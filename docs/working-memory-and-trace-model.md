@@ -94,6 +94,10 @@ It includes:
 
 The Library is not the same thing as Memory Trace.
 
+Saved-item corrections can hide or suppress Library records from recall without erasing the underlying history.
+
+`mark_incorrect` and `forget` correction actions should remove the target item from Library listing, recall, and saved-item search through hidden/suppressed correction semantics. They should not become hard deletes, freshness labels, confidence labels, direct edits, or make-temporary actions.
+
 ### Recall
 
 `Recall` should be treated primarily as a process or sub-step rather than the main top-level product noun.
@@ -199,6 +203,8 @@ The system searches:
 
 The system then vets that candidate pool and chooses what actually enters Working Memory.
 
+Hidden or suppressed saved records should be filtered before they can enter Recall or Working Memory.
+
 The whiteboard contributes to generation only when it is intentionally in scope; it is not currently a separate search bucket in the retrieval pipeline.
 
 This preserves the product rule:
@@ -256,3 +262,4 @@ The narrower retrieved subset remains exposed as `recall`, with `working_memory`
 5. Keep `Working Memory` as the top-level explanation of what the model saw for the turn.
 6. Keep the Library separate from recent trace so the system does not collapse curated memory and automatic continuity into one bucket.
 7. Keep protocols available as explicit task guidance for recurring work types and reasoning modes, while labeling them separately from factual sources.
+8. Keep saved-item corrections as hide/suppress semantics for `mark_incorrect` and `forget`, with freshness/confidence and scope/edit mutations deferred.

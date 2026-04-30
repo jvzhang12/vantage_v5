@@ -34,6 +34,8 @@ from vantage_v5.storage.concepts import ConceptStore
 from vantage_v5.storage.markdown_store import slugify
 from vantage_v5.storage.memory_trace import MemoryTraceStore
 from vantage_v5.storage.memories import MemoryStore
+from vantage_v5.storage.overlay import get_overlay_record
+from vantage_v5.storage.overlay import overlay_records
 from vantage_v5.storage.vault import VaultNoteStore
 from vantage_v5.storage.workspaces import inject_scenario_metadata
 from vantage_v5.storage.workspaces import WorkspaceDocument
@@ -729,14 +731,10 @@ class ScenarioLabService:
         else:
             return None
 
-        for store in stores:
-            if store is None:
-                continue
-            try:
-                return store.get(selected_record.id)
-            except FileNotFoundError:
-                continue
-        return None
+        try:
+            return get_overlay_record(selected_record.id, *stores)
+        except FileNotFoundError:
+            return None
 
     def _unique_workspace_id(self, base_workspace_id: str) -> str:
         workspace_id = base_workspace_id
@@ -1120,11 +1118,7 @@ def _comparison_branch_index(branches: list[dict[str, Any]]) -> list[dict[str, A
 
 
 def _merge_records(*record_lists: list[Any]) -> list[Any]:
-    merged: dict[tuple[str, str], Any] = {}
-    for records in record_lists:
-        for record in records:
-            merged.setdefault((record.source, record.id), record)
-    return list(merged.values())
+    return overlay_records(*record_lists)
 
 
 def _summarize_text(text: str, *, fallback: str) -> str:

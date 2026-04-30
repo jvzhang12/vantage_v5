@@ -184,7 +184,8 @@ Implementation checklist:
 - transient interpretation or retrieval reasoning does not belong in `Learned`
 - do not overstate durability when the system only saved a temporary experiment outcome
 - do not overstate learning when the system only considered something without saving it
-- keep direct mutation actions such as mark wrong, forget, or make temporary deferred until backend storage, search, and privacy semantics are explicit
+- keep `mark_incorrect` and `forget` on the saved-item correction route as hide/suppress actions, not hard deletes or content edits
+- keep make-temporary, direct edit, freshness, and confidence actions out of this correction contract
 
 ## Rule 11: Grounding Disclosures Must Stay Truthful
 
@@ -221,7 +222,28 @@ Implementation checklist:
 - do not treat every saved whiteboard as a concept
 - do not treat every durable write as equivalent for UI labeling
 
-## Rule 13: Scenario Lab Is A Distinct Reasoning Mode
+## Rule 13: Saved-Item Corrections Are Suppression Semantics
+
+Saved-item corrections should reduce future reuse of a saved item without pretending the system rewrote history.
+
+The backend correction seam is `POST /api/records/{source}/{record_id}/corrections`.
+
+Supported actions:
+
+- `mark_incorrect`
+- `forget`
+
+Both actions should hide or suppress the target record from Library listing, recall, and saved-item search.
+
+Implementation checklist:
+
+- write the correction into the active writable scope
+- preserve the underlying saved file or lower-priority record on disk
+- expose a `correction` object with source, record id, action, requested/effective scope, hidden-record scope, correction status, reason when supplied, and canonical-suppression status
+- do not add freshness or confidence fields to this payload
+- reject make-temporary, direct edit, hard delete, freshness, and confidence actions
+
+## Rule 14: Scenario Lab Is A Distinct Reasoning Mode
 
 Scenario Lab should remain separate from ordinary chat and from ordinary whiteboard drafting.
 
@@ -231,7 +253,7 @@ Implementation checklist:
 - Scenario Lab outputs should behave like durable branch outputs plus a comparison artifact
 - follow-up questions on a comparison artifact should prefer continuity over rerunning the whole flow
 
-## Rule 14: Experiment Mode Must Preserve Temporary Boundaries
+## Rule 15: Experiment Mode Must Preserve Temporary Boundaries
 
 Experiment mode is a sandbox.
 
@@ -242,7 +264,7 @@ Implementation checklist:
 - `Learned` / `Saved for Later` should mean saved outcome from the turn, not only durable change
 - UI copy should stay clear about what is temporary and what is durable
 
-## Rule 15: Protocols Are Guidance, Not Evidence
+## Rule 16: Protocols Are Guidance, Not Evidence
 
 Protocols describe how Vantage should perform a recurring class of work.
 
@@ -255,7 +277,7 @@ Implementation checklist:
 - keep protocol activation LLM-directed through the protocol interpreter or Navigator control panel
 - let deterministic code validate supported protocol kinds and merge candidates safely
 
-## Rule 16: The Control Panel Is The Intent Seam
+## Rule 17: The Control Panel Is The Intent Seam
 
 The target architecture is LLM-directed interpretation followed by deterministic execution.
 
@@ -280,5 +302,6 @@ Before shipping a behavior change, check:
 - Does this break experiment isolation?
 - Does this add raw-text intent sorting where a Navigator control-panel action should exist?
 - Does this treat protocol guidance as factual evidence?
+- Does this turn saved-item correction into a hard delete, direct edit, make-temporary action, freshness label, or confidence label?
 
 If the answer to any of these is yes, the change likely needs another pass.

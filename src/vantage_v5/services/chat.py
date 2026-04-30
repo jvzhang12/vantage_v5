@@ -39,6 +39,7 @@ from vantage_v5.storage.concepts import ConceptStore
 from vantage_v5.storage.memory_trace import parse_memory_trace_metadata
 from vantage_v5.storage.memory_trace import MemoryTraceStore
 from vantage_v5.storage.memories import MemoryStore
+from vantage_v5.storage.overlay import overlay_records
 from vantage_v5.storage.vault import VaultNoteStore
 from vantage_v5.storage.workspaces import WorkspaceDocument
 from vantage_v5.storage.workspaces import WorkspaceStore
@@ -1500,11 +1501,7 @@ def _auto_graph_action_payload(executed_action: ExecutedAction | None) -> dict[s
 
 
 def _merge_records(*record_lists: list[Any]) -> list[Any]:
-    merged: dict[tuple[str, str], Any] = {}
-    for records in record_lists:
-        for record in records:
-            merged.setdefault((record.source, record.id), record)
-    return list(merged.values())
+    return overlay_records(*record_lists)
 
 
 def _merge_saved_records(*record_lists: list[Any]) -> list[Any]:

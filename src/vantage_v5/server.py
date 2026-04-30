@@ -26,6 +26,8 @@ from vantage_v5.services.context_engine import ContextEngine
 from vantage_v5.services.context_engine import ContextEngineHooks
 from vantage_v5.services.context_sources import ContextSourceResolver
 from vantage_v5.services.context_support import ContextSupport
+from vantage_v5.services.corrections import CorrectionRejected
+from vantage_v5.services.corrections import SavedItemCorrectionService
 from vantage_v5.services.draft_artifact_lifecycle import DraftArtifactLifecycle
 from vantage_v5.services.draft_artifact_lifecycle import DraftArtifactRuntime
 from vantage_v5.services.executor import GraphActionExecutor
@@ -55,6 +57,7 @@ from vantage_v5.storage.memories import MemoryStore
 from vantage_v5.storage.overlay import ArtifactOverlayStore
 from vantage_v5.storage.overlay import ConceptOverlayStore
 from vantage_v5.storage.overlay import MemoryOverlayStore
+from vantage_v5.storage.overlay import get_overlay_record
 from vantage_v5.storage.overlay import overlay_records
 from vantage_v5.storage.state import ActiveWorkspaceStateStore
 from vantage_v5.storage.vault import VaultNoteStore
@@ -124,6 +127,12 @@ class ProtocolUpdateRequest(BaseModel):
     applies_to: list[str] | None = None
 
 
+class RecordCorrectionRequest(BaseModel):
+    action: str = Field(min_length=1)
+    reason: str | None = None
+    scope: str = "current"
+
+
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1)
     password: str = Field(min_length=1)
@@ -188,6 +197,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     )
     search_service = ConceptSearchService()
     draft_artifact_lifecycle = DraftArtifactLifecycle()
+    correction_service = SavedItemCorrectionService()
     local_semantic_actions = LocalSemanticActionEngine(
         draft_artifact_lifecycle=draft_artifact_lifecycle,
     )
@@ -946,25 +956,45 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "vault_notes": reference_notes,
         }
 
+    @app.post("/api/records/{source}/{record_id}/corrections")
+    def correct_record(
+        source: str,
+        record_id: str,
+        request: RecordCorrectionRequest,
+        http_request: Request,
+    ) -> dict[str, Any]:
+        durable_scope = _durable_scope(http_request)
+        session = durable_scope["experiment_manager"].get_active_session()
+        runtime = _runtime(durable_scope, session)
+        try:
+            correction = correction_service.apply(
+                source=source,
+                record_id=record_id,
+                action=request.action,
+                reason=request.reason,
+                scope=request.scope,
+                durable_scope=durable_scope,
+                runtime=runtime,
+                has_active_experiment=session is not None,
+            )
+        except CorrectionRejected as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"correction": correction.to_dict()}
+
     @app.get("/api/memory/{memory_id}")
     def get_memory_item(memory_id: str, request: Request) -> dict[str, Any]:
         durable_scope = _durable_scope(request)
         session = durable_scope["experiment_manager"].get_active_session()
         runtime = _runtime(durable_scope, session)
-        canonical_scope = durable_scope["canonical_scope"]
-        for store, scope in [
-            (runtime["memory_store"], runtime["scope"]),
-            (runtime["artifact_store"], runtime["scope"]),
-            (durable_scope["memory_store"] if session is not None else None, "durable"),
-            (durable_scope["artifact_store"] if session is not None else None, "durable"),
-            (canonical_scope["memory_store"], "canonical"),
-            (canonical_scope["artifact_store"], "canonical"),
+        for stores in [
+            (runtime["memory_store"], runtime.get("reference_memory_store")),
+            (runtime["artifact_store"], runtime.get("reference_artifact_store")),
         ]:
-            if store is None:
-                continue
             try:
-                note = store.get(memory_id)
-                item = _serialize_saved_note_card(note, scope=scope)
+                note = get_overlay_record(memory_id, *stores)
+                item = _serialize_saved_note_card(note, scope=_record_scope(note, session))
                 item["kind"] = "saved_note"
                 return {"item": item, "kind": "saved_note"}
             except FileNotFoundError:
@@ -982,20 +1012,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         durable_scope = _durable_scope(request)
         session = durable_scope["experiment_manager"].get_active_session()
         runtime = _runtime(durable_scope, session)
-        canonical_scope = durable_scope["canonical_scope"]
-        for store, scope in [
-            (runtime["concept_store"], runtime["scope"]),
-            (durable_scope["concept_store"] if session is not None else None, "durable"),
-            (canonical_scope["concept_store"], "canonical"),
-        ]:
-            if store is None:
-                continue
-            try:
-                concept = store.get(concept_id)
-                return _serialize_concept_card(concept, scope=scope)
-            except FileNotFoundError:
-                continue
-        raise HTTPException(status_code=404, detail=f"Concept '{concept_id}' was not found.")
+        try:
+            concept = get_overlay_record(
+                concept_id,
+                runtime["concept_store"],
+                runtime.get("reference_concept_store"),
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return _serialize_concept_card(concept, scope=_record_scope(concept, session))
 
     @app.get("/api/vault-notes/{note_id}")
     def get_vault_note(note_id: str) -> dict[str, Any]:

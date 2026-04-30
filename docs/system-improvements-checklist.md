@@ -38,7 +38,8 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [x] Decide that `Concept Card` remains canonical terminology; document key/value only as an advanced metaphor while preserving `card`, `body`, and `links` / `links_to`.
 - [ ] Avoid noisy automatic durable writes.
   - [x] Add a narrow guard for obvious test/probe/freshness-marker prompts so they do not become durable concepts.
-  - [ ] Define correction semantics before adding saved-item freshness/confidence labels.
+  - [x] Implement backend saved-item correction semantics for `mark_incorrect` and `forget` as hide/suppress actions.
+  - [ ] Add saved-item freshness/confidence labels only after the correction UI flow and semantics are product-tested.
 - [x] Add answer-basis payload and badge language for intuitive, memory-backed, protocol-guided, whiteboard-grounded, and mixed-context turns.
 - [x] Keep protocol guidance separate from factual grounding in answer-basis payloads and UI.
 - [x] Add a Context Budget receipt in Inspect for included / excluded turn context.
@@ -103,6 +104,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Decide how aggressively Vantage should invite the Whiteboard for work products.
 - [x] Decide the current label set for answer-basis badges.
 - [ ] Revisit the answer-basis label set after more product use.
-- [ ] Define backend semantics before adding direct saved-item actions such as mark wrong, forget, or make temporary.
+- [x] Implement backend semantics for saved-item `mark_incorrect` and `forget` as hide/suppress corrections.
+- [ ] Keep `make_temporary`, direct saved-item edit, hard delete, freshness, and confidence actions out of the correction route until separately specified.
 - [ ] Decide whether conversation resume should use Memory Trace reconstruction or a first-class thread snapshot.
 - [ ] Decide which internal details belong in Vantage versus developer/debug surfaces.

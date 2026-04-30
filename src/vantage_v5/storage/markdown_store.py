@@ -83,6 +83,76 @@ class MarkdownRecordStore:
     def list_cards(self) -> list[dict[str, Any]]:
         return [self._record_card(record) for record in self.list_records()]
 
+    def suppress_record(
+        self,
+        record_id: str,
+        *,
+        correction_action: str,
+        reason: str | None = None,
+        corrected_at: str | None = None,
+        suppresses_canonical: bool = False,
+    ) -> MarkdownRecord:
+        path = self.records_dir / f"{record_id}.md"
+        if not path.exists():
+            raise FileNotFoundError(f"{self.source.title()} '{record_id}' was not found.")
+        text = path.read_text(encoding="utf-8")
+        frontmatter, body = self._split_frontmatter(text)
+        record = self._load_record(path)
+        frontmatter.setdefault("id", record.id)
+        frontmatter.setdefault("title", record.title)
+        frontmatter.setdefault("type", record.type)
+        frontmatter.setdefault("card", record.card)
+        frontmatter.setdefault("links_to", record.links_to)
+        frontmatter.setdefault("comes_from", record.comes_from)
+        frontmatter["status"] = "suppressed"
+        frontmatter["updated_at"] = datetime.now(tz=UTC).date().isoformat()
+        for key, value in _correction_metadata(
+            correction_action=correction_action,
+            reason=reason,
+            corrected_at=corrected_at,
+            suppresses_canonical=suppresses_canonical,
+        ).items():
+            frontmatter[key] = value
+        self._write_markdown_document(path, frontmatter, body)
+        return self._load_record(path)
+
+    def write_suppression_record(
+        self,
+        *,
+        record_id: str,
+        title: str,
+        card: str,
+        body: str = "",
+        type: str | None = None,
+        links_to: list[str] | None = None,
+        comes_from: list[str] | None = None,
+        correction_action: str,
+        reason: str | None = None,
+        corrected_at: str | None = None,
+        suppresses_canonical: bool = False,
+        metadata: dict[str, Any] | None = None,
+    ) -> MarkdownRecord:
+        tombstone_metadata = dict(metadata or {})
+        tombstone_metadata.update(
+            _correction_metadata(
+                correction_action=correction_action,
+                reason=reason,
+                corrected_at=corrected_at,
+                suppresses_canonical=suppresses_canonical,
+            )
+        )
+        return self._write_record(
+            record_id=record_id,
+            title=title.strip() or record_id.replace("-", " ").title(),
+            card=card.strip(),
+            body=body.strip(),
+            type=type or self.default_type,
+            links_to=links_to or [],
+            comes_from=comes_from or [],
+            status="suppressed",
+            metadata=tombstone_metadata,
+        )
+
     def create_record(
         self,
         *,
@@ -182,14 +252,8 @@ class MarkdownRecordStore:
             for key, value in metadata.items():
                 if value is not None and key not in frontmatter:
                     frontmatter[key] = value
-        frontmatter_text = yaml.safe_dump(
-            frontmatter,
-            sort_keys=False,
-            allow_unicode=False,
-        ).strip()
-        text = f"---\n{frontmatter_text}\n---\n\n{body.strip()}\n"
         path = self.records_dir / f"{record_id}.md"
-        path.write_text(text, encoding="utf-8")
+        self._write_markdown_document(path, frontmatter, body)
         return self._load_record(path)
 
     def _unique_id(self, base_id: str) -> str:
@@ -243,6 +307,16 @@ class MarkdownRecordStore:
             return {}, body
         return metadata, body
 
+    @staticmethod
+    def _write_markdown_document(path: Path, frontmatter: dict[str, Any], body: str) -> None:
+        frontmatter_text = yaml.safe_dump(
+            frontmatter,
+            sort_keys=False,
+            allow_unicode=False,
+        ).strip()
+        text = f"---\n{frontmatter_text}\n---\n\n{body.strip()}\n"
+        path.write_text(text, encoding="utf-8")
+
 
 def slugify(value: str) -> str:
     normalized = SLUG_RE.sub("-", value.lower()).strip("-")
@@ -293,3 +367,23 @@ def _custom_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         for key, value in metadata.items()
         if key not in reserved_keys
     }
+
+
+def _correction_metadata(
+    *,
+    correction_action: str,
+    reason: str | None,
+    corrected_at: str | None,
+    suppresses_canonical: bool,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "correction_action": correction_action,
+        "corrected_at": corrected_at or datetime.now(tz=UTC).isoformat(),
+    }
+    cleaned_reason = " ".join(str(reason or "").strip().split())
+    if cleaned_reason:
+        metadata["correction_reason"] = cleaned_reason
+        metadata["reason"] = cleaned_reason
+    if suppresses_canonical:
+        metadata["suppresses_canonical"] = True
+    return metadata

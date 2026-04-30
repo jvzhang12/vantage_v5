@@ -325,6 +325,18 @@ def _outcome_biased_launch_plan() -> ScenarioPlan:
     return plan
 
 
+def _saved_note_ids(payload: dict[str, Any]) -> set[str]:
+    return {str(item.get("id") or "") for item in payload.get("saved_notes", [])}
+
+
+def _payload_has_key(value: Any, forbidden_key: str) -> bool:
+    if isinstance(value, dict):
+        return forbidden_key in value or any(_payload_has_key(item, forbidden_key) for item in value.values())
+    if isinstance(value, list):
+        return any(_payload_has_key(item, forbidden_key) for item in value)
+    return False
+
+
 def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     client, _ = _client(tmp_path)
 
@@ -4396,6 +4408,224 @@ def test_open_missing_saved_item_returns_404(tmp_path: Path) -> None:
 
     assert opened.status_code == 404
     assert "was not found" in opened.json()["detail"]
+
+
+@pytest.mark.parametrize("action", ["mark_incorrect", "forget"])
+def test_record_corrections_hide_saved_items_without_hard_delete(
+    tmp_path: Path,
+    monkeypatch,
+    action: str,
+) -> None:
+    client, repo_root = _client(tmp_path)
+    record_id = "user-prefers-chat-first-ux"
+    record_path = repo_root / "memories" / f"{record_id}.md"
+    assert record_path.exists()
+    assert record_id in _saved_note_ids(client.get("/api/memory").json())
+
+    corrected = client.post(
+        f"/api/records/memory/{record_id}/corrections",
+        json={"action": action, "reason": "The saved preference is no longer correct."},
+    )
+
+    assert corrected.status_code == 200
+    payload = corrected.json()["correction"]
+    assert payload["source"] == "memory"
+    assert payload["record_id"] == record_id
+    assert payload["action"] == action
+    assert payload["effect"] == "suppressed"
+    assert payload["visibility"] == "hidden"
+    assert payload["hard_deleted"] is False
+    assert payload["scope"] == "durable"
+    assert payload["hidden_record_scope"] == "durable"
+    assert payload["status"] in {"hidden", "suppressed"}
+    assert payload["correction_record"] == {
+        "id": record_id,
+        "source": "memory",
+        "status": payload["status"],
+        "correction_action": action,
+        "scope": "durable",
+        "suppresses_canonical": False,
+    }
+    assert not _payload_has_key(payload, "freshness")
+    assert not _payload_has_key(payload, "confidence")
+    assert record_path.exists()
+    record_text = record_path.read_text(encoding="utf-8")
+    assert "status: suppressed" in record_text
+    assert f"correction_action: {action}" in record_text
+    assert "correction_reason: The saved preference is no longer correct." in record_text
+
+    memory = client.get("/api/memory")
+    assert memory.status_code == 200
+    assert record_id not in _saved_note_ids(memory.json())
+
+    search = client.get("/api/memory/search", params={"query": "chat-first ux"})
+    assert search.status_code == 200
+    assert all(item.get("id") != record_id for item in search.json()["results"])
+
+    fetched = client.get(f"/api/memory/{record_id}")
+    assert fetched.status_code == 404
+
+    opened = client.post("/api/concepts/open", json={"record_id": record_id})
+    assert opened.status_code == 404
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="No durable write for correction regression."),
+    )
+    chat = client.post(
+        "/api/chat",
+        json={
+            "message": "What do I prefer about chat-first UX?",
+            "history": [],
+            "selected_record_id": record_id,
+            "memory_intent": "dont_save",
+        },
+    )
+    assert chat.status_code == 200
+    chat_payload = chat.json()
+    assert chat_payload["pinned_context"] is None
+    assert chat_payload["selected_record"] is None
+    assert all(item.get("id") != record_id for item in chat_payload["candidate_memory_results"])
+    assert all(item.get("id") != record_id for item in chat_payload["working_memory"])
+
+
+def test_record_corrections_suppress_durable_records_from_experiment_scope(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path)
+    record_id = "user-prefers-chat-first-ux"
+    durable_record_path = repo_root / "memories" / f"{record_id}.md"
+    assert durable_record_path.exists()
+
+    started = client.post("/api/experiment/start", json={"seed_from_workspace": False})
+    assert started.status_code == 200
+    session_id = started.json()["experiment"]["session_id"]
+    experiment_suppression_path = repo_root / "state" / "experiments" / session_id / "memories" / f"{record_id}.md"
+    assert not experiment_suppression_path.exists()
+
+    corrected = client.post(
+        f"/api/records/memory/{record_id}/corrections",
+        json={"action": "mark_incorrect", "reason": "Do not use this durable memory in the experiment."},
+    )
+
+    assert corrected.status_code == 200
+    payload = corrected.json()["correction"]
+    assert payload["source"] == "memory"
+    assert payload["record_id"] == record_id
+    assert payload["action"] == "mark_incorrect"
+    assert payload["scope"] == "experiment"
+    assert payload["hidden_record_scope"] == "durable"
+    assert payload["status"] in {"hidden", "suppressed"}
+    assert payload["suppresses_canonical"] is False
+    assert durable_record_path.exists()
+    assert experiment_suppression_path.exists()
+
+    memory = client.get("/api/memory")
+    assert memory.status_code == 200
+    assert record_id not in _saved_note_ids(memory.json())
+
+    ended = client.post("/api/experiment/end")
+    assert ended.status_code == 200
+    assert ended.json()["ended"] is True
+
+    memory_after = client.get("/api/memory")
+    assert memory_after.status_code == 200
+    assert record_id in _saved_note_ids(memory_after.json())
+
+
+def test_record_corrections_suppress_canonical_memory_per_user_without_mutating_canonical(tmp_path: Path) -> None:
+    client, repo_root = _client(
+        tmp_path,
+        auth_users={
+            "eden": "eden-password",
+            "jordan": "jordan-password",
+        },
+    )
+    record_id = "canonical-launch-memory"
+    canonical_memories = repo_root / "canonical" / "memories"
+    canonical_memories.mkdir(parents=True, exist_ok=True)
+    canonical_path = canonical_memories / f"{record_id}.md"
+    canonical_text = (
+        "---\n"
+        f"id: {record_id}\n"
+        "title: Canonical Launch Memory\n"
+        "type: memory\n"
+        "card: Canonical launch memory available to every user.\n"
+        "created_at: 2026-04-29\n"
+        "updated_at: 2026-04-29\n"
+        "links_to: []\n"
+        "comes_from: []\n"
+        "status: active\n"
+        "---\n\n"
+        "Canonical launch memory body.\n"
+    )
+    canonical_path.write_text(canonical_text, encoding="utf-8")
+    eden_headers = _basic_auth_header("eden", "eden-password")
+    jordan_headers = _basic_auth_header("jordan", "jordan-password")
+
+    assert record_id in _saved_note_ids(client.get("/api/memory", headers=eden_headers).json())
+    assert record_id in _saved_note_ids(client.get("/api/memory", headers=jordan_headers).json())
+
+    corrected = client.post(
+        f"/api/records/memory/{record_id}/corrections",
+        json={"action": "mark_incorrect", "reason": "Eden should not use this default."},
+        headers=eden_headers,
+    )
+
+    assert corrected.status_code == 200
+    payload = corrected.json()["correction"]
+    assert payload["source"] == "memory"
+    assert payload["record_id"] == record_id
+    assert payload["scope"] == "durable"
+    assert payload["hidden_record_scope"] == "canonical"
+    assert payload["suppresses_canonical"] is True
+    assert payload["hard_deleted"] is False
+    assert payload["correction_record"]["suppresses_canonical"] is True
+    assert canonical_path.read_text(encoding="utf-8") == canonical_text
+
+    eden_tombstone = repo_root / "users" / "eden" / "memories" / f"{record_id}.md"
+    jordan_tombstone = repo_root / "users" / "jordan" / "memories" / f"{record_id}.md"
+    assert eden_tombstone.exists()
+    assert "status: suppressed" in eden_tombstone.read_text(encoding="utf-8")
+    assert "suppresses_canonical: true" in eden_tombstone.read_text(encoding="utf-8")
+    assert not jordan_tombstone.exists()
+
+    assert record_id not in _saved_note_ids(client.get("/api/memory", headers=eden_headers).json())
+    assert client.get(f"/api/memory/{record_id}", headers=eden_headers).status_code == 404
+    eden_search = client.get("/api/memory/search", params={"query": "canonical launch"}, headers=eden_headers)
+    assert eden_search.status_code == 200
+    assert all(item.get("id") != record_id for item in eden_search.json()["results"])
+
+    jordan_memory = client.get("/api/memory", headers=jordan_headers)
+    assert jordan_memory.status_code == 200
+    assert record_id in _saved_note_ids(jordan_memory.json())
+    jordan_fetch = client.get(f"/api/memory/{record_id}", headers=jordan_headers)
+    assert jordan_fetch.status_code == 200
+    assert jordan_fetch.json()["item"]["scope"] == "canonical"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"action": "make_temporary"},
+        {"action": "direct_edit", "body": "Replace the saved item body."},
+        {"action": "set_freshness", "freshness": "stale"},
+        {"action": "set_confidence", "confidence": 0.2},
+    ],
+)
+def test_record_corrections_reject_unsupported_mutation_semantics(
+    tmp_path: Path,
+    payload: dict[str, Any],
+) -> None:
+    client, repo_root = _client(tmp_path)
+    record_id = "user-prefers-chat-first-ux"
+
+    corrected = client.post(f"/api/records/memory/{record_id}/corrections", json=payload)
+
+    assert corrected.status_code in {400, 422}
+    assert (repo_root / "memories" / f"{record_id}.md").exists()
+    memory = client.get("/api/memory")
+    assert memory.status_code == 200
+    assert record_id in _saved_note_ids(memory.json())
 
 
 def test_draft_request_does_not_auto_write_memory(tmp_path: Path) -> None:

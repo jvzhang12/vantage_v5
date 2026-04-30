@@ -10,6 +10,7 @@ from vantage_v5.services.record_cards import saved_record_scenario_metadata
 from vantage_v5.services.record_cards import scenario_payload
 from vantage_v5.storage.experiments import ExperimentSession
 from vantage_v5.storage.memory_trace import parse_memory_trace_metadata
+from vantage_v5.storage.overlay import get_overlay_record
 from vantage_v5.storage.vault import VaultNoteStore
 from vantage_v5.storage.workspaces import WorkspaceDocument
 
@@ -29,19 +30,14 @@ class ContextSourceResolver:
     ) -> dict[str, Any] | None:
         if not record_id:
             return None
-        stores = [
-            (runtime["concept_store"], runtime["scope"]),
-            (runtime["memory_store"], runtime["scope"]),
-            (runtime["artifact_store"], runtime["scope"]),
-            (runtime.get("reference_concept_store"), "reference"),
-            (runtime.get("reference_memory_store"), "reference"),
-            (runtime.get("reference_artifact_store"), "reference"),
+        store_groups = [
+            ((runtime["concept_store"], runtime.get("reference_concept_store")), runtime["scope"]),
+            ((runtime["memory_store"], runtime.get("reference_memory_store")), runtime["scope"]),
+            ((runtime["artifact_store"], runtime.get("reference_artifact_store")), runtime["scope"]),
         ]
-        for store, scope in stores:
-            if store is None:
-                continue
+        for stores, scope in store_groups:
             try:
-                record = store.get(record_id)
+                record = get_overlay_record(record_id, *stores)
             except FileNotFoundError:
                 continue
             return self._saved_record_summary(record, scope=_record_scope(record, fallback=scope))

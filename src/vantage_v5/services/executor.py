@@ -7,6 +7,7 @@ from vantage_v5.services.meta import MetaDecision
 from vantage_v5.storage.artifacts import ArtifactStore
 from vantage_v5.storage.concepts import ConceptStore
 from vantage_v5.storage.memories import MemoryStore
+from vantage_v5.storage.overlay import get_overlay_record
 from vantage_v5.storage.state import ActiveWorkspaceStateStore
 from vantage_v5.storage.workspaces import WorkspaceDocument
 from vantage_v5.storage.workspaces import WorkspaceStore
@@ -243,19 +244,14 @@ class GraphActionExecutor:
         return self.open_saved_item_into_workspace(concept_id)
 
     def _get_record(self, record_id: str):
-        stores = [
-            self.concept_store,
-            self.memory_store,
-            self.artifact_store,
-            self.reference_concept_store,
-            self.reference_memory_store,
-            self.reference_artifact_store,
+        store_groups = [
+            (self.concept_store, self.reference_concept_store),
+            (self.memory_store, self.reference_memory_store),
+            (self.artifact_store, self.reference_artifact_store),
         ]
-        for store in stores:
-            if store is None:
-                continue
+        for stores in store_groups:
             try:
-                return store.get(record_id)
+                return get_overlay_record(record_id, *stores)
             except FileNotFoundError:
                 continue
         raise FileNotFoundError(f"Saved item '{record_id}' was not found.")

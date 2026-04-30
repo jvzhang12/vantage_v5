@@ -11,7 +11,9 @@ Read-through overlay helpers for combining higher-priority user/session records 
 
 ## Key Objects
 
-- `overlay_records()`: first-wins merge over record lists keyed by `(source, id)`, skipping suppression records.
+- `overlay_records()`: first-wins merge over record lists keyed by `(source, id)`, skipping suppression records and blocking lower-priority records with the same key.
+- `get_overlay_record()`: direct id lookup across ordered stores that honors the same suppression rule used by merged lists.
+- `is_suppression_record()`: public predicate for hidden/suppressed records and canonical suppression tombstones.
 - `ConceptOverlayStore`: read-only facade exposing `list_concepts()` and `get()` across ordered concept stores.
 - `MemoryOverlayStore`: read-only facade exposing `list_memories()` and `get()` across ordered memory stores.
 - `ArtifactOverlayStore`: read-only facade exposing `list_artifacts()` and `get()` across ordered artifact stores.
@@ -19,3 +21,4 @@ Read-through overlay helpers for combining higher-priority user/session records 
 ## Notes
 
 - Overlay stores intentionally do not write. All user changes should go through the active writable store so canonical files remain immutable shipped defaults.
+- Saved-item corrections rely on this module so suppressed records stay out of Library lists, saved-item search, pinned/selected continuity, and reopen flows.

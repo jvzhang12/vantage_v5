@@ -22,6 +22,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - [src/vantage_v5/services/context_engine.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/context_engine.py.md)
 - [src/vantage_v5/services/context_sources.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/context_sources.py.md)
 - [src/vantage_v5/services/context_support.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/context_support.py.md)
+- [src/vantage_v5/services/corrections.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/corrections.py.md)
 - [src/vantage_v5/services/draft_artifact_lifecycle.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/draft_artifact_lifecycle.py.md)
 - [src/vantage_v5/services/executor.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/executor.py.md)
 - [src/vantage_v5/services/local_semantic_actions.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/local_semantic_actions.py.md)
@@ -56,6 +57,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - `context_engine.py` prepares a single `PreparedTurnContext`: runtime/session, whiteboard scope, redacted or overlaid whiteboard document, pinned context, pending whiteboard carry state, entry mode, and Navigator continuity.
 - `context_sources.py` resolves pinned-context summaries, whiteboard source summaries, and Navigator continuity frames from active/durable stores, vault notes, Memory Trace, and recent whiteboards.
 - `context_support.py` owns pure workspace-scope, live-buffer, redaction, pending-whiteboard, and whiteboard-entry helper behavior for context preparation.
+- `corrections.py` owns the backend saved-item negative correction route semantics: `mark_incorrect` and `forget` suppress concept, memory, or artifact records from list/search/recall/open without hard deleting files or adding freshness/confidence claims.
 - `whiteboard_routing.py` owns the narrow explicit-whiteboard, current-draft edit, and pending-whiteboard carry rules shared by context preparation and orchestration.
 - `turn_orchestrator.py` coordinates one `/api/chat` turn across prepared context, Navigator, semantic policy, local actions, normal chat, Scenario Lab, and fallback.
 - `local_semantic_actions.py` owns deterministic local save/publish/clarification/experiment action execution once semantic policy has selected that path.
@@ -83,7 +85,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - `memory_trace.py` now implements the first markdown-backed recent-history store that sits alongside the existing JSON debug traces under `traces/`.
 - Recent trace items can feed Recall as `memory_trace` candidates without being folded into the durable Library endpoints.
 - Memory Trace records now carry structured frontmatter metadata such as turn mode, workspace scope, recalled ids, learned ids, and preserved-context ids so retrieval can rank on continuity signals instead of relying only on the transcript body.
-- `overlay.py` provides the read-through canonical/default layer used to merge shipped Vantage defaults underneath user and experiment records without copying those defaults into each profile.
+- `overlay.py` provides the read-through canonical/default layer used to merge shipped Vantage defaults underneath user and experiment records without copying those defaults into each profile. Hidden/suppressed records and canonical tombstones are also filtered here so corrected items do not re-enter list, search, recall, or reopen flows.
 
 ## Tests
 

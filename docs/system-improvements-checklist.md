@@ -11,7 +11,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Keep normal chat fast, natural, and low-friction.
 - [ ] Make the difference between Chat, Whiteboard, Vantage, and Library obvious.
 - [ ] Clarify lifecycle language for transient drafts, saved whiteboards, promoted artifacts, memories, and concepts.
-- [ ] Evaluate attention-inspired concept terminology: `concept key` for routing identity and `concept value` for stored content.
+- [x] Evaluate attention-inspired concept terminology: accept `concept key/value` only as an advanced design metaphor.
 - [ ] Keep user-facing language consistent with the current product vocabulary.
 
 ## Navigator And Control Panel
@@ -35,7 +35,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Keep Working Memory bounded and truthful.
 - [ ] Improve Recall quality across Memory Trace, concepts, memories, artifacts, and reference notes.
 - [ ] Clarify when information becomes a concept versus a memory versus an artifact.
-- [ ] Decide whether `concept card` should become `concept key` in user-facing docs and UI while preserving internal compatibility.
+- [x] Decide that `Concept Card` remains canonical terminology; document key/value only as an advanced metaphor while preserving `card`, `body`, and `links` / `links_to`.
 - [ ] Avoid noisy automatic durable writes.
 - [x] Add answer-basis payload and badge language for intuitive, memory-backed, protocol-guided, whiteboard-grounded, and mixed-context turns.
 - [x] Keep protocol guidance separate from factual grounding in answer-basis payloads and UI.
@@ -97,7 +97,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Decide whether whiteboard auto-save should produce artifact snapshots, recoverable drafts, or both in every case.
 - [ ] Decide how visible draft history should be in the UI.
 - [ ] Decide whether retained transient drafts should participate in Recall.
-- [ ] Decide whether concept records should be explained as query/key/value objects, and where that language should appear.
+- [x] Decide that query/key/value language belongs only in advanced design explanation, not ordinary UI, API, or schema vocabulary.
 - [ ] Decide how aggressively Vantage should invite the Whiteboard for work products.
 - [x] Decide the current label set for answer-basis badges.
 - [ ] Revisit the answer-basis label set after more product use.

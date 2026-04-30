@@ -157,26 +157,30 @@ The meaning should remain precise:
 
 ### Concept Key / Value Terminology
 
-The attention-inspired model is useful as an internal design metaphor:
+Decision: `concept key/value` is accepted only as an advanced design metaphor, not as product UI, API, or schema vocabulary.
+
+The metaphor can be useful in design discussion:
 
 - current user turn / retrieval intent = query
-- concept key = compact routing representation
-- concept value = full stored content brought into context
+- concept title, card, metadata, and links = routing signals
+- concept body / full saved content = content that may enter Working Memory
 
-But the repo already uses:
+The canonical repo vocabulary remains:
 
 - `title`
 - `card`
 - `body`
 - `links`
+- `links_to`
 
 and the code/tests rely heavily on `card`.
 
-Recommendation:
+Guardrails:
 
-- keep `card` internally for now
-- use `concept key/value` experimentally in design docs or advanced Inspect copy
-- avoid a repo-wide rename until the language has proven itself
+- preserve `card`, `body`, and `links` / `links_to` as schema and internal terms
+- do not introduce `concept key/value` in product UI, API, or schema fields
+- do not imply literal transformer attention
+- do not start a repo-wide rename from this metaphor
 - preserve compatibility if aliases are later introduced
 
 ### Memory Confidence / Freshness
@@ -225,7 +229,7 @@ Recommended emphasis:
 5. Deferred: add direct correction actions for saved items and bad recall once backend storage, search, and privacy semantics are explicit.
 6. Complete: add Context Budget inside Inspect.
 7. Complete: build a more visible Protocols guidance subview inside Inspect.
-8. Experiment with concept key/value terminology in docs or advanced metadata only.
+8. Complete docs-only decision: accept concept key/value only as an advanced design metaphor, preserving `card`, `body`, and `links` / `links_to` as canonical terms.
 9. Add freshness/confidence labels once correction paths and semantics are clear.
 
 ## Concrete Checklist Additions
@@ -243,7 +247,7 @@ Recommended emphasis:
 - [ ] Add direct Saved for Later mutation actions once backend storage/search/privacy semantics are explicit.
 - [x] Add Context Budget to Inspect.
 - [x] Draft and implement a small Protocols guidance UX inside Inspect.
-- [ ] Keep concept key/value terminology exploratory until validated.
+- [x] Record concept key/value as an advanced design metaphor only, not UI/API/schema vocabulary.
 
 ## Bottom Line
 

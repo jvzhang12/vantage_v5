@@ -165,6 +165,8 @@ Each concept therefore has at least:
 - `links`
 - metadata
 
+Advanced design note: `concept key/value` is an accepted metaphor only, not product UI, API, or schema vocabulary. A user turn or retrieval intent can be thought of as a query; a concept's title, card, metadata, and links are routing signals; and the body or full saved content is what may enter Working Memory. The canonical schema and internal terms remain `card`, `body`, and `links` / `links_to`; this does not imply literal transformer attention or a code rename.
+
 ### Example Concept Shape
 
 ```md

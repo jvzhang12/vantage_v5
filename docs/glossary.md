@@ -208,6 +208,8 @@ Recommended default ingredients are:
 
 They are the highest-trust durable substrate for reusable understanding.
 
+Canonical boundary: concept records use `title`, `card`, `body`, metadata, and `links` / `links_to`. `Concept key/value` is allowed only as an advanced design metaphor: the current user turn or retrieval intent can be thought of as a query; the concept title, card, metadata, and links are routing signals; and the body or full saved content is what may enter Working Memory. Do not use `concept key/value` as product UI, API, or schema vocabulary, and do not treat the metaphor as literal transformer attention or as a rename from `card`, `body`, and `links`.
+
 ### Memories
 
 `Memories` are retained facts about the user, project, or ongoing continuity.

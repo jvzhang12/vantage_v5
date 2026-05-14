@@ -1,5 +1,7 @@
 # Vantage Visual Redesign Master Plan
 
+> Status: retired as an active implementation plan. Use [frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md) for current frontend execution tracking. This file remains historical context.
+
 This document turns the current UI research into an implementation-ready redesign plan for the existing Vantage architecture.
 
 It sits one layer above the earlier direction notes and one layer below code changes.

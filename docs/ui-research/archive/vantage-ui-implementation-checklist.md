@@ -1,5 +1,7 @@
 # Vantage UI Implementation Checklist
 
+> Status: retired as an active implementation plan. Use [../frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md) for current frontend execution tracking. This file remains historical context.
+
 This document turns the UI research bundle into an implementation-facing checklist tied to the current repository.
 
 It is not a redesign brief.

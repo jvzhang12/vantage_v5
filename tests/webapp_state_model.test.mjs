@@ -7,10 +7,12 @@ import {
   shouldHandleAuthChallenge,
 } from "../src/vantage_v5/webapp/auth_state.mjs";
 import {
+  buildVisibleArtifactsPayload,
   buildWorkspaceContextPayload,
   deriveChatWhiteboardMode,
   deriveWorkspaceContextScope,
   isDeicticWhiteboardReopenRequest,
+  isExplicitChatOnlyRequest,
   isExplicitWhiteboardRequest,
   resolveWhiteboardReopenTarget,
   shouldCarryPendingWorkspaceUpdate,
@@ -90,6 +92,112 @@ test("surface state preserves whiteboard return flow through Vantage", () => {
   assert.deepEqual(revealWhiteboardSurface(fromWhiteboard), { current: "whiteboard", returnSurface: "chat" });
   assert.deepEqual(hideWhiteboardSurface({ current: "whiteboard", returnSurface: "chat" }), { current: "chat", returnSurface: "chat" });
   assert.deepEqual(hideWhiteboardSurface(fromWhiteboard), { current: "chat", returnSurface: "chat" });
+});
+
+test("turn payload normalizes operational surface invocation and payloads", () => {
+  const normalized = normalizeTurnPayload({
+    assistant_message: "Here is your day.",
+    surface_invocation: {
+      intent: "schedule_lookup",
+      primary_surface: "calendar_day",
+      supporting_surfaces: ["task_focus"],
+      write_behavior: "read_only",
+      reason: "Calendar requested.",
+      confidence: 0.88,
+    },
+    surface_payloads: [
+      {
+        id: "today-2026-05-13",
+        kind: "today_briefing",
+        title: "Today",
+        summary: "1 scheduled event.",
+        source_refs: [{ kind: "calendar_day", label: "Local calendar", count: 1 }],
+        data: { date: "2026-05-13" },
+      },
+    ],
+    active_surface_id: "today-2026-05-13",
+  });
+
+  assert.equal(normalized.surfaceInvocation.intent, "schedule_lookup");
+  assert.equal(normalized.surfaceInvocation.primarySurface, "calendar_day");
+  assert.deepEqual(normalized.surfaceInvocation.supportingSurfaces, ["task_focus"]);
+  assert.equal(normalized.surfacePayloads[0].kind, "today_briefing");
+  assert.equal(normalized.surfacePayloads[0].sourceRefs[0].label, "Local calendar");
+  assert.equal(normalized.activeSurfaceId, "today-2026-05-13");
+});
+
+test("chat requests include the active visible calendar week as artifact context", () => {
+  const currentWeek = {
+    id: "calendar-week-2026-05-11",
+    kind: "calendar_week",
+    title: "Week",
+    summary: "1 scheduled event this week.",
+    sourceRefs: [{ kind: "calendar_week", label: "Local calendar", count: 1 }],
+    data: {
+      calendar_week: {
+        start_date: "2026-05-11",
+        end_date: "2026-05-17",
+        summary: { event_count: 1, free_minutes: 1800 },
+        days: [
+          {
+            date: "2026-05-11",
+            events: [
+              {
+                id: "algorithms-lab",
+                title: "Algorithms lab",
+                start: "2026-05-11T10:00:00",
+                end: "2026-05-11T11:00:00",
+              },
+            ],
+            free_blocks: [],
+          },
+        ],
+      },
+    },
+  };
+  const nextWeek = {
+    ...currentWeek,
+    id: "calendar-week-2026-05-18",
+    summary: "1 scheduled event next week.",
+    data: {
+      calendar_week: {
+        start_date: "2026-05-18",
+        end_date: "2026-05-24",
+        summary: { event_count: 1, free_minutes: 2100 },
+        days: [
+          {
+            date: "2026-05-18",
+            events: [
+              {
+                id: "midterm",
+                title: "Midterm",
+                start: "2026-05-18T14:00:00",
+                end: "2026-05-18T15:30:00",
+              },
+            ],
+            free_blocks: [],
+          },
+        ],
+      },
+    },
+  };
+
+  const firstPayload = buildVisibleArtifactsPayload({
+    surface: { current: "chat" },
+    turn: { surfacePayloads: [currentWeek], activeSurfaceId: currentWeek.id },
+  });
+  const switchedPayload = buildVisibleArtifactsPayload({
+    surface: { current: "chat" },
+    turn: { surfacePayloads: [nextWeek], activeSurfaceId: nextWeek.id },
+  });
+
+  assert.equal(firstPayload[0].id, "calendar-week-2026-05-11");
+  assert.equal(firstPayload[0].kind, "calendar_week");
+  assert.match(firstPayload[0].content, /Algorithms lab/);
+  assert.doesNotMatch(firstPayload[0].content, /Midterm/);
+  assert.equal(switchedPayload[0].id, "calendar-week-2026-05-18");
+  assert.match(switchedPayload[0].content, /Midterm/);
+  assert.doesNotMatch(switchedPayload[0].content, /Algorithms lab/);
 });
 
 test("deictic whiteboard reopen requests can resolve a unique recalled durable item", () => {
@@ -688,6 +796,178 @@ test("workspace context payload only includes whiteboard content when it is inte
       workspace_scope: "requested",
       workspace_content: "# Draft\n\nPlan",
     },
+  );
+});
+
+test("hidden active whiteboard revision requests include draft context from chat", () => {
+  const workspace = {
+    workspaceId: "email-draft",
+    content: "Hi Maya,\n\nCan we move tomorrow's design review?\n\nJordan",
+    lifecycle: "transient_draft",
+  };
+  const message = "Make the email a little warmer and mention the 20-minute feedback window.";
+
+  assert.deepEqual(
+    buildWorkspaceContextPayload({
+      surface: { current: "chat", returnSurface: "chat" },
+      workspace,
+      message,
+      requestedWhiteboardMode: "auto",
+    }),
+    {
+      workspace_id: "email-draft",
+      workspace_scope: "requested",
+      workspace_content: "Hi Maya,\n\nCan we move tomorrow's design review?\n\nJordan",
+    },
+  );
+  assert.equal(
+    deriveChatWhiteboardMode({
+      requestedWhiteboardMode: "auto",
+      surface: { current: "chat", returnSurface: "chat" },
+      workspace,
+      message,
+    }),
+    "draft",
+  );
+});
+
+test("hidden active whiteboard context stays excluded for generic chat", () => {
+  const workspace = {
+    workspaceId: "email-draft",
+    content: "Hi Maya,\n\nCan we move tomorrow's design review?\n\nJordan",
+    lifecycle: "transient_draft",
+  };
+  const message = "What do you recommend?";
+
+  assert.deepEqual(
+    buildWorkspaceContextPayload({
+      surface: { current: "chat", returnSurface: "chat" },
+      workspace,
+      message,
+    }),
+    {
+      workspace_id: "email-draft",
+      workspace_scope: "excluded",
+    },
+  );
+  assert.equal(
+    deriveChatWhiteboardMode({
+      requestedWhiteboardMode: "auto",
+      surface: { current: "chat", returnSurface: "chat" },
+      workspace,
+      message,
+    }),
+    "auto",
+  );
+
+  for (const followUp of [
+    "Revise the pinned draft to be a little warmer.",
+    "Can you brainstorm subject line options for the email?",
+  ]) {
+    assert.deepEqual(
+      buildWorkspaceContextPayload({
+        surface: { current: "chat", returnSurface: "chat" },
+        workspace,
+        message: followUp,
+      }),
+      {
+        workspace_id: "email-draft",
+        workspace_scope: "excluded",
+      },
+    );
+    assert.equal(
+      deriveChatWhiteboardMode({
+        requestedWhiteboardMode: "auto",
+        surface: { current: "chat", returnSurface: "chat" },
+        workspace,
+        message: followUp,
+      }),
+      "auto",
+    );
+  }
+});
+
+test("fresh whiteboard draft requests do not reuse hidden active draft context", () => {
+  const workspace = {
+    workspaceId: "email-draft",
+    content: "Hi Maya,\n\nCan we move tomorrow's design review?\n\nJordan",
+    lifecycle: "transient_draft",
+  };
+  const message = "Open a fresh whiteboard and draft a short essay.";
+
+  assert.deepEqual(
+    buildWorkspaceContextPayload({
+      surface: { current: "chat", returnSurface: "chat" },
+      workspace,
+      message,
+    }),
+    {
+      workspace_id: "email-draft",
+      workspace_scope: "excluded",
+    },
+  );
+  assert.equal(
+    deriveChatWhiteboardMode({
+      requestedWhiteboardMode: "auto",
+      surface: { current: "chat", returnSurface: "chat" },
+      workspace,
+      message,
+    }),
+    "auto",
+  );
+});
+
+test("chat-only override keeps hidden active draft out of scope", () => {
+  const workspace = {
+    workspaceId: "email-draft",
+    content: "Hi Maya,\n\nCan we move tomorrow's design review?\n\nJordan",
+    lifecycle: "transient_draft",
+  };
+  const message = "Make the email warmer, but keep it in chat only.";
+
+  assert.equal(isExplicitChatOnlyRequest(message), true);
+  assert.deepEqual(
+    buildWorkspaceContextPayload({
+      surface: { current: "chat", returnSurface: "chat" },
+      workspace,
+      message,
+      requestedWhiteboardMode: "chat",
+    }),
+    {
+      workspace_id: "email-draft",
+      workspace_scope: "excluded",
+    },
+  );
+  assert.equal(
+    deriveChatWhiteboardMode({
+      requestedWhiteboardMode: "chat",
+      surface: { current: "chat", returnSurface: "chat" },
+      workspace,
+      message,
+    }),
+    "chat",
+  );
+
+  assert.deepEqual(
+    buildWorkspaceContextPayload({
+      surface: { current: "whiteboard", returnSurface: "chat" },
+      workspace,
+      message: "Make the email warmer.",
+      requestedWhiteboardMode: "chat",
+    }),
+    {
+      workspace_id: "email-draft",
+      workspace_scope: "excluded",
+    },
+  );
+  assert.equal(
+    deriveChatWhiteboardMode({
+      requestedWhiteboardMode: "chat",
+      surface: { current: "whiteboard", returnSurface: "chat" },
+      workspace,
+      message: "Make the email warmer.",
+    }),
+    "chat",
   );
 });
 
@@ -1365,6 +1645,9 @@ test("turn payload normalization now expects canonical backend DTOs", () => {
       turnStage: null,
       stageProgress: [],
       stageAudit: null,
+      surfaceInvocation: null,
+      surfacePayloads: [],
+      activeSurfaceId: null,
     },
   );
 

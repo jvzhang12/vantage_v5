@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Vantage">
+  <rect width="512" height="512" rx="112" fill="#080A0C"/>
+  <path d="M256 34 292 72 344 58 379 104 430 126 441 184 478 256 441 328 430 386 379 408 344 454 292 440 256 478 220 440 168 454 133 408 82 386 71 328 34 256 71 184 82 126 133 104 168 58 220 72Z" fill="#10171B" stroke="#7FE7F0" stroke-width="8"/>
+  <path d="M139 148h58l60 191 59-191h57L286 372h-59L139 148Z" fill="#F3EFE6"/>
+  <path d="M211 148h47l32 106-31 85-48-191Z" fill="#7FE7F0" opacity="0.72"/>
+</svg>

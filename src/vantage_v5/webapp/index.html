@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vantage</title>
     <link rel="stylesheet" href="/static/vendor/highlight-github.min.css?v=20260421-math-render-code" />
-    <link rel="stylesheet" href="/static/styles.css?v=20260429-protocol-guidance" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260513-visible-artifacts" />
   </head>
   <body>
     <div class="notice-rail" id="noticeRail" aria-live="polite"></div>
@@ -49,12 +49,12 @@
     <div class="api-key-overlay" id="apiKeyOverlay" hidden>
       <section class="api-key-dialog" role="dialog" aria-modal="true" aria-labelledby="apiKeyTitle">
         <p class="eyebrow confirm-eyebrow">Provider</p>
-        <h2 id="apiKeyTitle">OpenAI API key</h2>
-        <p class="subtle api-key-status" id="apiKeyStatus">No key</p>
-        <p class="api-key-warning">Treat this like a password. Clear it from Vantage when you are done, and rotate or revoke it in OpenAI if this was a temporary key.</p>
+        <h2 id="apiKeyTitle">Model auth</h2>
+        <p class="subtle api-key-status" id="apiKeyStatus">No model auth</p>
+        <p class="api-key-warning">Vantage uses Codex OAuth when configured. A direct OpenAI API key can still be saved for sessions that explicitly use OpenAI API-key mode.</p>
         <form class="api-key-form" id="apiKeyForm">
           <label>
-            <span>API key</span>
+            <span>OpenAI API key</span>
             <input id="apiKeyInput" name="api_key" type="password" autocomplete="off" spellcheck="false" />
           </label>
           <p class="auth-error" id="apiKeyError" role="alert" hidden></p>
@@ -71,7 +71,7 @@
         <header class="panel-head chat-masthead">
           <div class="chat-masthead-copy">
             <div class="chat-masthead-utility">
-              <p class="eyebrow chat-brand-mark">Vantage</p>
+              <button type="button" class="eyebrow chat-brand-mark chat-brand-button" id="inspectBrandButton" aria-label="Open Inspect">Vantage</button>
               <span class="status-pill status-pill--soft chat-status-inline" id="statusPill" hidden>Loading</span>
             </div>
             <h1 id="chatSurfaceTitle" hidden></h1>
@@ -81,14 +81,20 @@
               <button type="button" class="button button--secondary chat-session-button" id="experimentToggleButton">Start experiment</button>
             </div>
           </div>
-          <div class="button-row chat-utility-actions">
-            <button type="button" class="button button--secondary" id="apiKeyButton">API key</button>
-            <button type="button" class="button button--secondary" id="logoutButton" hidden>Sign out</button>
-            <button type="button" class="button button--secondary" id="whiteboardToggleButton">Draft</button>
-            <button type="button" class="button button--secondary" id="vantageToggleButton">Inspect</button>
+          <div class="chat-toolbar" aria-label="App controls">
+            <div class="surface-switch" role="group" aria-label="Surface">
+              <button type="button" class="button button--secondary surface-switch__button" id="chatSurfaceButton" aria-label="Open Chat" title="Open Chat">Chat</button>
+              <button type="button" class="button button--secondary surface-switch__button" id="whiteboardToggleButton" aria-label="Open Draft" title="Open Draft">Draft</button>
+              <button type="button" class="button button--secondary surface-switch__button" id="vantageToggleButton" aria-label="Open Inspect" title="Open Inspect">Inspect</button>
+            </div>
+            <div class="button-row utility-actions" aria-label="Account and provider controls">
+              <button type="button" class="button button--secondary" id="apiKeyButton" aria-label="Open model auth settings" title="Open model auth settings">Model</button>
+              <button type="button" class="button button--secondary" id="logoutButton" aria-label="Sign out" title="Sign out" hidden>Sign out</button>
+            </div>
           </div>
         </header>
 
+        <section class="operational-surface-host" id="operationalSurfaceHost" hidden></section>
         <div class="transcript-shell">
           <div class="transcript" id="transcript"></div>
         </div>
@@ -130,6 +136,7 @@
               </div>
               <h2 id="workspaceTitle">Working Draft</h2>
               <div class="workspace-meta" id="workspaceMeta">Document surface ready.</div>
+              <div class="draft-operation-status" id="draftOperationStatus" role="status" aria-live="polite" aria-atomic="true"></div>
             </section>
             <section class="turn-workspace-update whiteboard-decision-panel" id="whiteboardDecisionPanel" hidden>
               <div class="section-label" id="whiteboardDecisionLabel">Draft Decision</div>
@@ -427,6 +434,6 @@
 
     <script src="/static/vendor/katex.min.js?v=20260421-math-render-code"></script>
     <script src="/static/vendor/highlight.min.js?v=20260421-math-render-code"></script>
-    <script type="module" src="/static/app.js?v=20260430-library-categories"></script>
+    <script type="module" src="/static/app.js?v=20260513-visible-artifacts"></script>
   </body>
 </html>

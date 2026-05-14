@@ -44,6 +44,7 @@ class MemoryTraceStore(MarkdownRecordStore):
         response_mode: dict[str, Any],
         scope: str,
         pending_workspace_update: dict[str, Any] | None = None,
+        visible_artifacts: list[dict[str, Any]] | None = None,
         turn_mode: str = "chat",
         preserved_context: dict[str, Any] | None = None,
         referenced_record: dict[str, Any] | None = None,
@@ -69,6 +70,7 @@ class MemoryTraceStore(MarkdownRecordStore):
             response_mode=response_mode,
             scope=scope,
             pending_workspace_update=pending_workspace_update,
+            visible_artifacts=visible_artifacts,
             preserved_context=preserved_context,
             referenced_record=referenced_record,
         )
@@ -82,6 +84,7 @@ class MemoryTraceStore(MarkdownRecordStore):
             working_memory=working_memory,
             learned=learned,
             pending_workspace_update=pending_workspace_update,
+            visible_artifacts=visible_artifacts,
             turn_mode=turn_mode,
             preserved_context=preserved_context,
             referenced_record=referenced_record,
@@ -136,6 +139,7 @@ def _render_turn_trace_body(
     response_mode: dict[str, Any],
     scope: str,
     pending_workspace_update: dict[str, Any] | None,
+    visible_artifacts: list[dict[str, Any]] | None = None,
     preserved_context: dict[str, Any] | None = None,
     referenced_record: dict[str, Any] | None = None,
 ) -> str:
@@ -236,6 +240,16 @@ def _render_turn_trace_body(
                 f"- Summary: {_single_line(str(pending_workspace_update.get('summary') or '')) or 'none'}",
             ]
     )
+    if visible_artifacts:
+        sections.extend(["", "## Visible Artifacts"])
+        for artifact in visible_artifacts[:4]:
+            if not isinstance(artifact, dict):
+                continue
+            title = str(artifact.get("title") or artifact.get("id") or "Untitled").strip()
+            kind = str(artifact.get("kind") or "artifact").strip()
+            summary = _single_line(str(artifact.get("summary") or ""))
+            content = _single_line(str(artifact.get("content") or ""))
+            sections.append(f"- [{kind}] {title}: {summary or content[:180] or 'visible'}")
     return "\n".join(sections).strip() + "\n"
 
 
@@ -250,6 +264,7 @@ def _turn_trace_frontmatter(
     working_memory: list[dict[str, Any]],
     learned: list[dict[str, Any]],
     pending_workspace_update: dict[str, Any] | None,
+    visible_artifacts: list[dict[str, Any]] | None,
     turn_mode: str,
     preserved_context: dict[str, Any] | None,
     referenced_record: dict[str, Any] | None,
@@ -290,7 +305,24 @@ def _turn_trace_frontmatter(
         "learned_count": len(learned),
         "learned_ids": learned_ids,
         "learned_sources": learned_sources,
+        "visible_artifact_count": len(visible_artifacts or []),
     }
+    visible_artifact_ids = [
+        str(item.get("id") or "").strip()
+        for item in visible_artifacts or []
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    ]
+    visible_artifact_kinds = sorted(
+        {
+            str(item.get("kind") or "").strip()
+            for item in visible_artifacts or []
+            if isinstance(item, dict) and str(item.get("kind") or "").strip()
+        }
+    )
+    if visible_artifact_ids:
+        frontmatter["visible_artifact_ids"] = visible_artifact_ids
+    if visible_artifact_kinds:
+        frontmatter["visible_artifact_kinds"] = visible_artifact_kinds
     if pending_workspace_update:
         frontmatter["pending_workspace_status"] = (
             pending_workspace_update.get("status") or pending_workspace_update.get("type") or "unknown"

@@ -1,5 +1,7 @@
 # External Feedback Implementation Slices
 
+> Status: retired as an active implementation plan. Use [frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md) for current frontend execution tracking. This file remains historical context.
+
 This document translates the external product feedback into a ranked implementation sequence tied to the current frontend architecture.
 
 It is intentionally narrower than the broader UI roadmap.

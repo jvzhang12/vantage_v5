@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from vantage_v5.services.search import CandidateMemory
 
 BEST_GUESS_PREFACE = "This is new to me, but my best guess is:"
+_BEST_GUESS_PREFACE_RE = re.compile(
+    r"^\s*this\s+is\s+new\s+to\s+me\s*[,.;:-]?\s*but\s*[,.]?\s*my\s+best\s+guess\s+is\s*:\s*",
+    re.IGNORECASE,
+)
 
 
 def build_answer_basis_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -141,16 +146,11 @@ def finalize_assistant_message(
     response_mode: dict[str, Any],
     suppress_best_guess_preface: bool = False,
 ) -> str:
-    text = assistant_message.strip()
-    if response_mode.get("kind") != "best_guess":
-        return text
-    if suppress_best_guess_preface:
-        return text
-    if not text:
-        return BEST_GUESS_PREFACE
-    if text.startswith(BEST_GUESS_PREFACE):
-        return text
-    return f"{BEST_GUESS_PREFACE}\n\n{text}"
+    return _strip_best_guess_preface(assistant_message.strip())
+
+
+def _strip_best_guess_preface(text: str) -> str:
+    return _BEST_GUESS_PREFACE_RE.sub("", text, count=1).strip()
 
 
 def _grounding_mode(

@@ -18,24 +18,19 @@ The goal is to understand the best interaction patterns for:
 3. [vantage-ui-audit.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-ui-audit.md)
 4. [vantage-ui-direction.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-ui-direction.md)
 5. [external-feedback-action-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/external-feedback-action-plan.md)
-6. [external-feedback-implementation-slices.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/external-feedback-implementation-slices.md)
-7. [external-feedback-follow-on-roadmap.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/external-feedback-follow-on-roadmap.md)
-8. [vantage-refinement-pass-01.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-refinement-pass-01.md)
-9. [vantage-stylistic-direction.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-stylistic-direction.md)
-10. [stylistic-inspiration-elements.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/stylistic-inspiration-elements.md)
-11. [vantage-visual-redesign-pass-02.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-visual-redesign-pass-02.md)
-12. [vantage-visual-redesign-checklist.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-visual-redesign-checklist.md)
-13. [vantage-visual-redesign-master-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-visual-redesign-master-plan.md)
+6. [frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md)
+7. [vantage-refinement-pass-01.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-refinement-pass-01.md)
+8. [vantage-stylistic-direction.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-stylistic-direction.md)
+9. [stylistic-inspiration-elements.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/stylistic-inspiration-elements.md)
+10. [vantage-visual-redesign-pass-02.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-visual-redesign-pass-02.md)
 
 ## Active Implementation Docs
 
 If you are deciding what to build next, start here:
 
-1. [vantage-visual-redesign-master-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-visual-redesign-master-plan.md)
-2. [external-feedback-implementation-slices.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/external-feedback-implementation-slices.md)
-3. [external-feedback-follow-on-roadmap.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/external-feedback-follow-on-roadmap.md)
+1. [frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md)
 
-Older implementation checklists have been moved into [archive/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/archive/README.md) so this folder stays easier to scan.
+Older implementation plans are retired as active trackers. Some remain in this folder for historical context, and the archived checklist is indexed in [archive/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/archive/README.md). When they conflict, the frontend guidance implementation plan wins.
 
 ## Core Thesis
 

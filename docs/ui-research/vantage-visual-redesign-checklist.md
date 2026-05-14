@@ -1,10 +1,12 @@
 # Vantage Visual Redesign Checklist
 
+> Status: retired as an active implementation plan. Use [frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md) for current frontend execution tracking. This file remains historical context.
+
 This checklist turns Pass 02 into implementation slices tied to the current repository.
 
 It is not the canonical semantics or execution contract by itself.
 
-Implementation subagents should treat [vantage-visual-redesign-master-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-visual-redesign-master-plan.md) as the primary build document and use this checklist as the shorter companion view.
+Historically, implementation subagents treated [vantage-visual-redesign-master-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-visual-redesign-master-plan.md) as the primary build document and used this checklist as the shorter companion view. For current work, use [frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md).
 
 It assumes:
 

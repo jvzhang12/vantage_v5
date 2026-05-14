@@ -19,5 +19,5 @@ Shared backend helper for building truthful `response_mode` payloads.
 - Uses `Best Guess` only when there is no grounded context at all.
 - Distinguishes recalled `Recall` context from whiteboard-only, recent-chat-only, prior-whiteboard, and mixed-context grounding.
 - Emits product-facing labels and notes such as `Recall`, `Prior Whiteboard`, `Recall + Recent Chat`, and `No grounded context supported this answer.` while preserving legacy grounding/source aliases for `working_memory`-shaped clients.
-- `finalize_assistant_message()` only adds the visible best-guess preface for ordinary ungrounded chat; whiteboard offer/draft replies suppress that preface so a deliberate collaboration flow does not read like a guess.
+- `finalize_assistant_message()` keeps answer text clean by stripping the legacy best-guess preface when it appears, while leaving best-guess/intuitive metadata available for badges and inspection.
 - Lets Scenario Lab reuse the same truthful response-mode semantics as normal chat instead of maintaining a second coarser contract.

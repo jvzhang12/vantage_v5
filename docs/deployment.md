@@ -40,6 +40,7 @@ VANTAGE_V5_ALLOWED_HOSTS=
 VANTAGE_V5_ALLOWED_ORIGINS=
 VANTAGE_V5_COOKIE_SECURE=false
 VANTAGE_V5_ALLOW_UNSAFE_PUBLIC_NO_AUTH=false
+VANTAGE_V5_ACCOUNT_CREATION_CODE=
 # Optional multi-user profile mode:
 # VANTAGE_V5_AUTH_USERS_JSON={"eden":"long-password-1","jordan":"long-password-2"}
 # VANTAGE_V5_AUTH_USERS_FILE=/data/users.json
@@ -51,6 +52,7 @@ Notes:
 - `VANTAGE_V5_PUBLISH_HOST` is used by `compose.yaml`, not by the Python app. Keep it as `127.0.0.1` when Caddy, Cloudflare Tunnel, or Tailscale Serve runs on the same machine. Set it to `0.0.0.0` only when another computer should connect directly to the port.
 - `VANTAGE_V5_AUTH_PASSWORD` enables the Vantage sign-in screen for the configured `VANTAGE_V5_AUTH_USERNAME`; API clients may still use HTTP Basic Auth with the same credentials.
 - `VANTAGE_V5_AUTH_USERS_JSON` or `VANTAGE_V5_AUTH_USERS_FILE` enables multi-user profile mode. Each username signs in to its own isolated Markdown store under `users/<username>/`.
+- `VANTAGE_V5_ACCOUNT_CREATION_CODE` requires a shared invite/access code before `/api/accounts` creates a new local profile. This is useful for a small Vantage-only hosted setup, but Cloudflare Access remains stronger for internet-facing identity and abuse protection.
 - Keep using long random passwords. The JSON values are plaintext deployment secrets and should be supplied through your host secret manager or an uncommitted file.
 - `VANTAGE_V5_ALLOWED_HOSTS` is optional but recommended behind a domain. Example: `vantage.example.com,localhost,127.0.0.1`.
 - `VANTAGE_V5_ALLOWED_ORIGINS` is optional and useful behind HTTPS. Example: `https://vantage.example.com`.
@@ -90,6 +92,7 @@ VANTAGE_V5_AUTH_PASSWORD=replace-with-a-long-random-password
 VANTAGE_V5_ALLOWED_HOSTS=vantage.example.com,localhost,127.0.0.1
 VANTAGE_V5_ALLOWED_ORIGINS=https://vantage.example.com
 VANTAGE_V5_COOKIE_SECURE=true
+VANTAGE_V5_ACCOUNT_CREATION_CODE=replace-with-a-long-random-invite-code
 ```
 
 A starter Caddy reverse-proxy file lives at `deploy/Caddyfile.example`.
@@ -105,6 +108,19 @@ Use this when you want a public URL without opening an inbound port on your rout
 4. Set `VANTAGE_V5_ALLOWED_ORIGINS` to the public `https://` origin.
 5. Set `VANTAGE_V5_COOKIE_SECURE=true`.
 6. If you want the URL private, enable Cloudflare Access in front of it as an additional identity layer.
+
+### iPhone Installable Website
+
+For a small trusted group, the strongest phone shape is Cloudflare Tunnel plus Cloudflare Access plus Vantage multi-user auth:
+
+1. Create a Cloudflare Access policy that only allows the trusted users' email addresses.
+2. Use `VANTAGE_V5_AUTH_USERS_FILE=/data/users.json` or `VANTAGE_V5_AUTH_USERS_JSON` so each user signs into an isolated Vantage profile.
+3. Keep `VANTAGE_V5_ALLOWED_HOSTS`, `VANTAGE_V5_ALLOWED_ORIGINS`, and `VANTAGE_V5_COOKIE_SECURE=true` aligned with the public HTTPS hostname.
+4. Have each iPhone user open the HTTPS URL in Safari, pass Cloudflare Access, sign into Vantage, then choose Share -> Add to Home Screen.
+
+The PWA service worker caches only public static frontend assets and icons. It does not cache `/api/*`, chat responses, auth responses, whiteboard content, memory, artifacts, or other private user data.
+
+For a simpler first-run hosted setup, you can skip Cloudflare Access and rely on Vantage auth plus `VANTAGE_V5_ACCOUNT_CREATION_CODE`. In that mode, keep the configured Vantage password and shared account-creation code long and random, and only share them with trusted users.
 
 ### Caddy Reverse Proxy
 

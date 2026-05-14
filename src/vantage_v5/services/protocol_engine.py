@@ -7,6 +7,7 @@ from typing import Any
 from vantage_v5.services.context_engine import ChatTurnRequestContext
 from vantage_v5.services.context_engine import PreparedTurnContext
 from vantage_v5.services.executor import ExecutedAction
+from vantage_v5.services.model_client import ModelClientConfig
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.protocols import BUILT_IN_PROTOCOLS
 from vantage_v5.services.protocols import ProtocolInterpreter
@@ -102,8 +103,18 @@ class ProtocolCatalog:
 
 
 class ProtocolEngine:
-    def __init__(self, *, model: str = "", openai_api_key: str | None = None) -> None:
-        self.protocol_interpreter = ProtocolInterpreter(model=model, openai_api_key=openai_api_key)
+    def __init__(
+        self,
+        *,
+        model: str = "",
+        openai_api_key: str | None = None,
+        model_client_config: ModelClientConfig | None = None,
+    ) -> None:
+        self.protocol_interpreter = ProtocolInterpreter(
+            model=model,
+            openai_api_key=openai_api_key,
+            model_client_config=model_client_config,
+        )
 
     def resolve_for_turn(
         self,
@@ -155,11 +166,13 @@ class ProtocolEngine:
         history: list[dict[str, str]],
         concept_records: list[MarkdownRecord],
         concept_store: ConceptStore,
+        visible_artifacts: list[dict[str, Any]] | None = None,
     ) -> ProtocolTurnResult:
         protocol_interpretation = self.protocol_interpreter.interpret(
             message=message,
             history=history,
             existing_protocols=concept_records,
+            visible_artifacts=visible_artifacts,
         )
         protocol_write = protocol_interpretation.protocol_write
         if protocol_write is not None and not _allows_protocol_write(message):

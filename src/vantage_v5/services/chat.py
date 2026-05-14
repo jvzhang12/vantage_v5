@@ -8,8 +8,6 @@ from pathlib import Path
 import re
 from typing import Any
 
-from openai import OpenAI
-
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_card_fields
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_kind
 from vantage_v5.services.executor import ExecutedAction
@@ -17,6 +15,8 @@ from vantage_v5.services.executor import GraphActionExecutor
 from vantage_v5.services.learned_review import build_write_review
 from vantage_v5.services.meta import MetaDecision
 from vantage_v5.services.meta import MetaService
+from vantage_v5.services.model_client import create_model_client
+from vantage_v5.services.model_client import ModelClientConfig
 from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.response_mode import build_response_mode_payload
 from vantage_v5.services.response_mode import finalize_assistant_message
@@ -34,6 +34,9 @@ from vantage_v5.services.vetting import build_continuity_hint
 from vantage_v5.services.vetting import resolve_selected_record_candidate
 from vantage_v5.services.vetting import should_preserve_selected_record
 from vantage_v5.services.vetting import ConceptVettingService
+from vantage_v5.services.visible_artifacts import normalize_visible_artifacts
+from vantage_v5.services.visible_artifacts import visible_artifacts_have_context
+from vantage_v5.services.visible_artifacts import visible_artifacts_prompt_payload
 from vantage_v5.storage.artifacts import ArtifactStore
 from vantage_v5.storage.concepts import ConceptStore
 from vantage_v5.storage.memory_trace import parse_memory_trace_metadata
@@ -98,6 +101,7 @@ class ChatTurn:
     mode: str
     workspace_content: str | None = None
     workspace_update: dict | None = None
+    visible_artifacts: list[dict] | None = None
     memory_trace_record: dict | None = None
     meta_action: dict | None = None
     graph_action: dict | None = None
@@ -114,6 +118,7 @@ class ChatTurn:
             workspace_title=self.workspace_title,
             workspace_content=self.workspace_content,
             workspace_update=self.workspace_update,
+            visible_artifacts=self.visible_artifacts or [],
             concept_cards=self.concept_cards,
             trace_notes=self.trace_notes,
             saved_notes=self.saved_notes,
@@ -148,6 +153,7 @@ class ChatService:
         *,
         model: str,
         openai_api_key: str | None,
+        model_client_config: ModelClientConfig | None = None,
         concept_store: ConceptStore,
         reference_concept_store: ConceptStore | None,
         memory_store: MemoryStore,
@@ -182,7 +188,9 @@ class ChatService:
         self.protocol_engine = protocol_engine
         self.executor = executor
         self.traces_dir = traces_dir
-        self.client = OpenAI(api_key=openai_api_key) if openai_api_key else None
+        self.client = create_model_client(
+            model_client_config or ModelClientConfig(openai_api_key=openai_api_key)
+        )
 
     def reply(
         self,
@@ -198,9 +206,11 @@ class ChatService:
         pending_workspace_update: dict[str, Any] | None = None,
         workspace_is_transient: bool = False,
         workspace_scope: str = "excluded",
+        visible_artifacts: list[dict[str, Any]] | None = None,
         applied_protocol_kinds: list[str] | None = None,
         turn_stage: TurnStage | None = None,
     ) -> ChatTurn:
+        visible_artifacts = normalize_visible_artifacts(visible_artifacts)
         memory_mode = _normalize_memory_mode(memory_intent)
         whiteboard_mode = _normalize_whiteboard_mode(whiteboard_mode)
         concepts = _merge_records(
@@ -212,6 +222,7 @@ class ChatService:
             history=history,
             concept_records=concepts,
             concept_store=self.concept_store,
+            visible_artifacts=visible_artifacts,
         )
         concepts = list(protocol_turn.concept_records)
         protocol_action = protocol_turn.protocol_action
@@ -292,6 +303,7 @@ class ChatService:
             message=message,
             candidates=candidate_memory,
             continuity_hint=continuity_hint.to_dict() if continuity_hint else None,
+            visible_artifacts=visible_artifacts,
         )
         if preserve_selected_memory and selected_memory is not None:
             vetted_memory, vetting = anchor_selected_record_candidate(
@@ -326,6 +338,7 @@ class ChatService:
                     selected_memory=selected_memory if preserve_selected_memory else None,
                     whiteboard_mode=whiteboard_mode,
                     pending_workspace_update=pending_workspace_update,
+                    visible_artifacts=visible_artifacts,
                     turn_stage=turn_stage,
                 )
                 stage_progress.extend(model_stage_progress)
@@ -397,7 +410,7 @@ class ChatService:
             mode = "fallback"
         response_mode = build_response_mode_payload(
             vetted_memory,
-            workspace_has_context=bool(workspace.content.strip()),
+            workspace_has_context=bool(workspace.content.strip()) or visible_artifacts_have_context(visible_artifacts),
             history_has_context=bool(history),
             pending_workspace_has_context=bool(pending_workspace_update),
         )
@@ -475,6 +488,7 @@ class ChatService:
                 history=history,
                 memory_mode=memory_mode,
                 workspace_update=workspace_update,
+                visible_artifacts=visible_artifacts,
             )
             executed_action = self.executor.execute(meta, workspace=workspace)
         created_record = self._created_record_payload(executed_action)
@@ -497,6 +511,7 @@ class ChatService:
             response_mode=response_mode,
             scope="experiment" if "experiments" in self.memory_trace_store.records_dir.parts else "durable",
             pending_workspace_update=pending_workspace_update,
+            visible_artifacts=visible_artifacts,
             turn_mode="chat",
             preserved_context=_trace_preserved_context_payload(selected_memory if preserve_selected_memory else None),
             referenced_record=_trace_referenced_record_payload(
@@ -512,6 +527,7 @@ class ChatService:
             workspace_title=workspace.title,
             workspace_content=workspace.content if workspace_is_transient else None,
             workspace_update=workspace_update,
+            visible_artifacts=visible_artifacts,
             concept_cards=[candidate.to_dict() for candidate in vetted_concepts],
             trace_notes=[candidate.to_dict() for candidate in vetted_trace_notes],
             saved_notes=[candidate.to_dict() for candidate in vetted_saved_notes],
@@ -549,6 +565,7 @@ class ChatService:
             pending_workspace_update=pending_workspace_update,
             workspace_is_transient=workspace_is_transient,
             workspace_scope=workspace_scope,
+            visible_artifacts=visible_artifacts,
         )
         return turn
 
@@ -562,6 +579,7 @@ class ChatService:
         selected_memory: CandidateMemory | None,
         whiteboard_mode: str,
         pending_workspace_update: dict[str, Any] | None,
+        visible_artifacts: list[dict[str, Any]] | None,
         turn_stage: TurnStage | None,
     ) -> tuple[str, WorkspaceDraft | None, WorkspaceOffer | None, list[dict[str, Any]], StageAuditResult]:
         max_attempts = turn_stage.max_attempts if turn_stage is not None else 1
@@ -579,6 +597,7 @@ class ChatService:
                     selected_memory=selected_memory,
                     whiteboard_mode=whiteboard_mode,
                     pending_workspace_update=pending_workspace_update,
+                    visible_artifacts=visible_artifacts,
                     turn_stage=turn_stage,
                     stage_retry_instruction=retry_instruction or None,
                 )
@@ -660,6 +679,7 @@ class ChatService:
         selected_memory: CandidateMemory | None,
         whiteboard_mode: str,
         pending_workspace_update: dict[str, Any] | None,
+        visible_artifacts: list[dict[str, Any]] | None,
         turn_stage: TurnStage | None = None,
         stage_retry_instruction: str | None = None,
     ) -> str:
@@ -682,6 +702,7 @@ class ChatService:
             "relevant_memory": [item.to_dict() for item in vetted_memory],
             "selected_memory": selected_memory_payload,
             "pending_workspace_update": pending_workspace_update,
+            "visible_artifacts": visible_artifacts_prompt_payload(visible_artifacts),
             "user_message": message,
             "whiteboard_mode": whiteboard_mode,
             "turn_stage": turn_stage.to_dict() if turn_stage is not None else None,
@@ -698,17 +719,18 @@ class ChatService:
             "when relevant_memory includes an item with type protocol, follow its variables and procedure unless the current user message overrides it. "
             "Treat saved memories and artifacts as continuity and work-history context. "
             "Treat Nexus vault notes as read-only reference material rather than guaranteed truth. "
+            "The payload may include visible_artifacts, which are the artifacts or operational surfaces currently visible to the user. "
+            "Treat visible_artifacts as current-view ground truth for the turn. If the user refers to this view, the current calendar, the current plan, or what they are looking at, answer from visible_artifacts before older memory or assumptions. "
             "You may reference and improve the workspace, but do not claim to have saved memory or modified files unless explicitly told so by the system. "
             "The request payload includes whiteboard_mode, which can be auto, offer, draft, or chat. "
-            "If whiteboard_mode is chat, do not use any WHITEBOARD_* special format. "
+            "If whiteboard_mode is chat, answer normally in chat with the full requested response, including complete simple email, message, memo, letter, or subject-line drafts. Do not offer the whiteboard and do not use any WHITEBOARD_* special format. "
             "If whiteboard_mode is offer and the user is asking for a concrete work product, prefer the WHITEBOARD_OFFER format. "
             "If whiteboard_mode is draft and the user is asking for a concrete work product, prefer the WHITEBOARD_DRAFT format. "
             "The payload may include pending_workspace_update from the previous turn, including the origin request for a still-open whiteboard invitation or draft. "
             "When pending_workspace_update is present, treat it as live drafting context. "
             "If the current user message is a short acceptance, confirmation, preference-setting confirmation, refinement, or continuation of that pending whiteboard flow, use the original work-product request from pending_workspace_update to produce the actual draft now. "
             "Do not repeat the whiteboard invitation after the user has already accepted a pending offer. "
-            "When the user is asking for a concrete work product such as an email, plan, itinerary, list, essay, paper, code, outline, checklist, agenda, or other document, first invite whiteboard collaboration unless one of three things is already true: "
-            "the user explicitly asked to use the whiteboard, the user is clearly continuing an existing whiteboard draft, or the user explicitly asked for the full output directly in chat. "
+            "When whiteboard_mode is offer and the user is asking for a concrete work product such as a plan, itinerary, list, essay, paper, code, outline, checklist, agenda, multi-option document, or other substantial document, first invite whiteboard collaboration. "
             "For that invitation, respond exactly in this two-line format:\n"
             "CHAT_RESPONSE: <one or two sentences asking whether the user wants to pull up a whiteboard for this work product>\n"
             "WHITEBOARD_OFFER: <one sentence describing what could be drafted in the whiteboard>.\n"
@@ -1002,6 +1024,7 @@ class ChatService:
         pending_workspace_update: dict[str, Any] | None = None,
         workspace_is_transient: bool = False,
         workspace_scope: str = "excluded",
+        visible_artifacts: list[dict[str, Any]] | None = None,
     ) -> None:
         self.traces_dir.mkdir(parents=True, exist_ok=True)
         trace_path = self._next_trace_path()
@@ -1024,6 +1047,7 @@ class ChatService:
                     "selected_record_reason": selected_record_reason,
                     "pending_workspace_update": pending_workspace_update,
                     "workspace_scope": workspace_scope,
+                    "visible_artifacts": visible_artifacts or [],
                 },
                 indent=2,
             ),

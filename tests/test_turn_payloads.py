@@ -19,6 +19,7 @@ from vantage_v5.services.turn_payloads import ChatTurnBodyParts
 from vantage_v5.services.turn_payloads import finalize_turn_payload
 from vantage_v5.services.turn_payloads import LocalTurnBodyParts
 from vantage_v5.services.turn_payloads import LocalTurnContext
+from vantage_v5.services.turn_payloads import safe_activity_payload
 from vantage_v5.services.turn_payloads import ScenarioLabTurnBodyParts
 from vantage_v5.services.turn_payloads import ScenarioLabFallbackParts
 from vantage_v5.services.turn_payloads import ServiceTurnPayloadParts
@@ -111,6 +112,59 @@ def _assert_review_first_write_review(record: dict[str, Any]) -> None:
 def _budget_row(payload: dict[str, Any], key: str) -> dict[str, Any]:
     rows = payload["context_budget"]["rows"]
     return next(row for row in rows if row["key"] == key)
+
+
+def test_safe_activity_payload_does_not_expose_interpretation_reason() -> None:
+    activity = safe_activity_payload(
+        {
+            "mode": "chat",
+            "assistant_message": "Here is the concise answer.",
+            "turn_interpretation": {
+                "mode": "chat",
+                "reason": "The user explicitly asked for a direct answer.",
+            },
+            "response_mode": {"recall_count": 0},
+            "answer_basis": {"label": "Intuitive Answer", "counts": {}},
+            "working_memory": [],
+            "learned": [],
+        }
+    )
+
+    summaries = [activity["summary"], *(step["summary"] for step in activity["steps"])]
+    assert "The user explicitly asked for a direct answer." not in summaries
+    assert activity["steps"][0]["summary"] == "Request path selected."
+    assert activity["steps"][1]["summary"] == "Intuitive Answer basis prepared."
+
+
+def test_safe_activity_payload_filters_unsafe_chat_visible_summary_wording() -> None:
+    activity = safe_activity_payload(
+        {
+            "mode": "chat",
+            "assistant_message": "Provider debug JSON schema details.",
+            "turn_interpretation": {
+                "mode": "chat",
+                "reason": "Use Memory Trace details from the provider response.",
+            },
+            "graph_action": {
+                "type": "create_memory",
+                "summary": "Memory Trace provider debug JSON schema says to save it.",
+            },
+            "response_mode": {"recall_count": 0},
+            "answer_basis": {"label": "Memory Trace provider basis", "counts": {}},
+            "working_memory": [],
+            "learned": [{"id": "memory-1"}],
+        }
+    )
+
+    summaries = [activity["summary"], *(step["summary"] for step in activity["steps"])]
+    assert activity["summary"] == "Response ready."
+    assert activity["steps"][1]["summary"] == "Context prepared."
+    for summary in summaries:
+        lowered = summary.lower()
+        assert "memory trace" not in lowered
+        assert "provider" not in lowered
+        assert "json schema" not in lowered
+        assert "debug" not in lowered
 
 
 def test_answer_basis_maps_intuitive_without_context() -> None:
@@ -606,10 +660,23 @@ def test_assemble_service_turn_payload_preserves_successful_turn_contract(tmp_pa
             workspace_scope="visible",
             transient_workspace=True,
             experiment={"active": False, "session_id": None},
+            surface_invocation={
+                "intent": "durable_artifact",
+                "primary_surface": "whiteboard",
+                "supporting_surfaces": [],
+                "write_behavior": "draft_only",
+                "reason": "The user is asking for a durable work product.",
+                "confidence": 0.86,
+                "whiteboard_mode": "draft",
+                "resolved_whiteboard_mode": "draft",
+            },
         )
     )
 
     assert payload["turn_interpretation"]["reason"] == "Draft requested."
+    assert payload["surface_invocation"]["primary_surface"] == "whiteboard"
+    assert payload["system_state"]["surface_invocation"]["intent"] == "durable_artifact"
+    assert any(step["id"] == "surface_invocation" for step in payload["activity"]["steps"])
     assert payload["semantic_frame"]["task_type"] == "draft"
     assert payload["semantic_policy"]["action_type"] == "none"
     assert payload["graph_action"]["record_id"] == "artifact-1"

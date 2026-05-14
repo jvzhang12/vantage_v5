@@ -1,12 +1,12 @@
 # `src/vantage_v5/server.py`
 
-FastAPI application entrypoint for Vantage V5. It wires together configuration, storage backends, search/vetting/chat services, a navigator service, a Scenario Lab service, and the HTML/static web app, then exposes the HTTP API used by the UI and experiment workflow. The current code still uses some compatibility aliases, but the product canon should be read as whiteboard / memory trace / working memory / recall with pinned-context continuity as the public/client seam.
+FastAPI application entrypoint for Vantage V5. It wires together configuration, model-provider auth, storage backends, search/vetting/chat services, a navigator service, a Scenario Lab service, and the HTML/static web app, then exposes the HTTP API used by the UI and experiment workflow. The current code still uses some compatibility aliases, but the product canon should be read as whiteboard / memory trace / working memory / recall with pinned-context continuity as the public/client seam.
 
 ## Purpose
 
-- Build the app from `AppConfig` and mount the frontend assets under `/static`.
+- Build the app from `AppConfig` and mount the frontend assets under `/static`; `/` serves the generated React index when `src/vantage_v5/webapp/generated/index.html` exists, otherwise it falls back to the legacy vanilla index. Root PWA assets such as `/manifest.webmanifest`, `/sw.js`, and `/icons/...` are served from the generated React build or the React public directory.
 - Serve durable whiteboard state by default, switch to an active experiment session when one exists, and isolate durable/experiment state per authenticated user when multi-user profile mode is enabled.
-- Provide API endpoints for health, account creation, login/logout, per-user OpenAI key status/save/clear, whiteboard/workspace CRUD, concepts, protocols, memory, vault notes, search, promotion/opening actions, experiments, and chat.
+- Provide API endpoints for health, account creation, login/logout, model auth/OpenAI key status/save/clear, read-only calendar day and task focus views, whiteboard/workspace CRUD, concepts, protocols, memory, vault notes, search, promotion/opening actions, experiments, and chat.
 - Delegate `/api/chat` context preparation to `ContextEngine` plus `ContextSupport`, source/continuity lookup to `ContextSourceResolver`, protocol action and API catalog/update semantics to `ProtocolEngine`, local semantic actions to `LocalSemanticActionEngine`, turn execution to `TurnOrchestrator`, whiteboard phrase routing to `WhiteboardRoutingEngine`, draft/artifact lifecycle work to `DraftArtifactLifecycle`, record-card presentation to `record_cards.py`, and turn payload construction/final compatibility shaping to `turn_payloads.py`.
 - Enforce deployment safety checks before exposing the app on non-local hosts, including required auth by default, optional trusted-host enforcement, same-origin protection for mutating browser requests, and secure cookie support for HTTPS reverse proxies.
 
@@ -21,7 +21,7 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - `ExperimentStartRequest`: request body for `/api/experiment/start`.
 - `ProtocolUpdateRequest`: request body for `PUT /api/protocols/{protocol_kind}`, allowing protocol title, summary card, procedure body, variables, and applies-to phrases to be updated through the Inspect protocol editor.
 - `LoginRequest`: request body for cookie-backed username/password login.
-- `CreateAccountRequest`: request body for local account creation. Usernames are restricted to path-safe account names, passwords are written only as salted PBKDF2-SHA256 hashes under `state/accounts.json`, and successful creation signs the account into the same cookie-backed session path.
+- `CreateAccountRequest`: request body for local account creation, including an optional `access_code` when the deployment requires one. Usernames are restricted to path-safe account names, passwords are written only as salted PBKDF2-SHA256 hashes under `state/accounts.json`, and successful creation signs the account into the same cookie-backed session path.
 - `OpenAIKeyRequest`: request body for saving a user-entered OpenAI API key. The server trims and stores the key only in memory for the current profile scope, and status responses expose only masked key metadata.
 
 ## Key Functions
@@ -29,10 +29,13 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - `create_app(config: AppConfig | None = None) -> FastAPI`: constructs the app, dependencies, and all routes.
 - `main() -> None`: loads config and runs `uvicorn` on the configured `VANTAGE_V5_HOST:{port}`.
 - `_chat_turn_response()`: thin compatibility wrapper that builds `ChatTurnRequestContext` and calls `TurnOrchestrator.run()`.
+- `_model_client_config()`: builds the provider/auth config used by all model-backed services for the active durable scope.
+- `_model_auth_status()`: produces the secret-safe provider status used by health and model-auth UI responses.
 - Helper payload builders:
 - `_workspace_payload`
 - `_session_info`
 - `_runtime`
+- `_resolve_repo_path`
 - `_durable_scope`
 - `_requires_public_auth`
 - `_request_origin_allowed`
@@ -43,6 +46,8 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - `POST /api/accounts`
 - `POST /api/login`
 - `POST /api/logout`
+- `GET /api/calendar/day`
+- `GET /api/tasks/focus`
 - `GET /api/openai-key`
 - `PUT /api/openai-key`
 - `DELETE /api/openai-key`
@@ -67,6 +72,9 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - `POST /api/concepts/open`
 - `POST /api/chat`
 - `POST /api/chat/whiteboard/accept`
+- `GET /manifest.webmanifest`
+- `GET /sw.js`
+- `GET /icons/{filename}`
 - `GET /`
 
 ## Major Dependencies
@@ -77,6 +85,7 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - `Request` / `Response` for opt-in HTTP Basic Auth middleware
 - `vantage_v5.config.AppConfig`
 - Services: `ChatService`, `ContextEngine`, `ContextSourceResolver`, `ContextSupport`, `DraftArtifactLifecycle`, `GraphActionExecutor`, `LocalSemanticActionEngine`, `MetaService`, `NavigatorService`, `ProtocolEngine`, `ScenarioLabService`, `ConceptSearchService`, `ConceptVettingService`, `TurnOrchestrator`, `WhiteboardRoutingEngine`, record-card presentation helpers, and backend turn-payload assembly helpers.
+- Calendar/tasks: `LocalCalendarProvider`, `LocalTaskProvider`, `SurfacePayloadBuilder`, and `resolve_calendar_date` for the first read-only operational artifact backend.
 - Storage: `ArtifactStore`, `ConceptStore`, `ExperimentSessionManager`, `MemoryStore`, `MemoryTraceStore`, `ActiveWorkspaceStateStore`, `VaultNoteStore`, `WorkspaceStore`
 
 ## Notable Behavior
@@ -84,21 +93,25 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - Preserves the original single-user storage layout when no multi-user credential map is configured.
 - When `auth_users` is configured, Basic Auth usernames are normalized into safe storage ids and each user gets isolated Markdown-backed `concepts/`, `memories/`, `artifacts/`, `workspaces/`, `memory_trace/`, `state/`, and `traces/` directories under `users/<username>/`.
 - Adds a read-through canonical default layer under `canonical/`: profile and experiment stores stay private/writable, while canonical concepts, protocols, memories, and artifacts are visible as lower-priority reference context without being copied into each user folder.
-- Refuses non-local bind hosts such as `0.0.0.0` unless auth is enabled, unless `VANTAGE_V5_ALLOW_UNSAFE_PUBLIC_NO_AUTH=true` is explicitly set.
+- Refuses non-local bind hosts such as `0.0.0.0` unless auth is enabled through a configured password, configured user map, local account store, or account-creation access code, unless `VANTAGE_V5_ALLOW_UNSAFE_PUBLIC_NO_AUTH=true` is explicitly set.
 - Supports optional `TrustedHostMiddleware` through `VANTAGE_V5_ALLOWED_HOSTS`.
 - Blocks mutating cross-origin requests when an `Origin` or `Referer` does not match the request host or configured `VANTAGE_V5_ALLOWED_ORIGINS`.
 - Sets login cookies with `Secure` when `VANTAGE_V5_COOKIE_SECURE=true`, which is the expected setting behind an HTTPS proxy or tunnel.
-- `/api/health` remains unauthenticated for uptime checks, but includes the current user only when a valid Basic Auth header or login cookie is supplied. It also reports masked OpenAI key status, using the environment key for unauthenticated checks and the current user's in-memory override after login.
-- `/api/accounts` creates local username/password accounts when auth/profile mode is enabled. It rejects usernames that collide with configured auth users or existing local accounts, hashes passwords before writing `state/accounts.json`, seeds the new user's private storage root, and returns a login cookie so the user lands in their own durable session immediately. Canonical defaults remain read-through references rather than copied account files.
+- `/api/health` remains unauthenticated for uptime checks, but includes the current user only when a valid Basic Auth header or login cookie is supplied. It also reports model/provider status, including Codex OAuth availability and masked OpenAI key status without returning credentials.
+- `/api/accounts` creates local username/password accounts when auth/profile mode is enabled. If `VANTAGE_V5_ACCOUNT_CREATION_CODE` is configured, the submitted `access_code` must match before username validation or account creation proceeds. The route rejects usernames that collide with configured auth users or existing local accounts, hashes passwords before writing `state/accounts.json`, seeds the new user's private storage root, and returns a login cookie so the user lands in their own durable session immediately. Canonical defaults remain read-through references rather than copied account files.
 - `/api/openai-key` lets an authenticated profile inspect masked key status, save a session-local user key, or clear that key back to the environment/fallback setting. Full key material is never returned in API responses and is not written to the Markdown-backed user store.
-- Chat, Scenario Lab, Navigator, vetting, meta, and protocol interpreter services are now constructed from the effective key for the current durable scope, so a saved user key affects the model-backed request path without requiring a server restart.
+- `/api/calendar/day` returns a read-only day payload for `today`, `tomorrow`, `yesterday`, or an ISO date. It uses the configured local JSON event file when one is supplied, otherwise profile-auth mode resolves events from `users/<profile>/state/calendar/events.json`; the payload includes sorted events, source status, free blocks, and a summary that calendar artifact surfaces can render.
+- `/api/tasks/focus` returns a read-only focus payload for `today`, `tomorrow`, `yesterday`, or an ISO date. It uses the configured local JSON task file when one is supplied, otherwise profile-auth mode resolves tasks from `users/<profile>/state/tasks/tasks.json`; the payload includes grouped tasks, source status, and summary counts for Today surfaces.
+- Chat, Scenario Lab, Navigator, vetting, meta, and protocol interpreter services are constructed from the active `ModelClientConfig`, so Codex OAuth can be the configured backbone while direct OpenAI API-key mode remains available when selected.
 
 - Resolves a “runtime” object per request, choosing durable stores or experiment-session stores depending on whether an experiment is active, then layering canonical stores underneath as reference stores.
 - When auth is configured, keeps the browser shell, login/account APIs, static assets, and `/api/health` reachable so the in-app login screen can render, while protected API routes return a JSON 401 until the request includes either a login cookie or valid Basic Auth credentials. The 401 response intentionally omits a `WWW-Authenticate` challenge so browsers do not replace Vantage's login screen with a native password modal.
+- Root PWA shell files remain public in auth mode so phones can load install metadata before login. They expose only static app metadata/icons/service-worker code; all `/api/*` routes stay protected and the service worker explicitly avoids caching API responses.
 - Combines experiment, durable, and canonical content in several read paths, especially memory/concept lookup, protocol catalogs, and search. Higher-priority user/session records override canonical records with the same id.
 - Uses `HTTPException` to convert missing files into 404s and unexpected chat errors into 500s.
 - `/api/chat` now treats `workspace_content` as transient turn context rather than silently persisting it before the reply, and it honors `workspace_scope` so hidden whiteboards do not silently ground ordinary chat. When the whiteboard is in scope, `ContextEngine` overlays the live buffer onto the loaded workspace document; when it is out of scope, `ContextSupport` blanks the workspace content before routing while keeping the active whiteboard id stable. The route delegates this lifecycle through `TurnOrchestrator`, which consumes a single `PreparedTurnContext`.
 - `/api/chat` now delegates final turn-payload shaping to `turn_payloads.py`: `learned` stays canonical, `created_record` is backfilled as a thin compatibility alias, `graph_action.record_id` / `concept_id` stay mirrored, pending whiteboard `status` / `type` aliases are normalized both ways, and the pinned-context continuity surface is exposed explicitly as top-level `pinned_context` plus `pinned_context_id`, with `selected_record` / `selected_record_id` retained only as compatibility aliases. The same assembler-owned payload now also surfaces `turn_interpretation.whiteboard_entry_mode` so the UI can distinguish a fresh whiteboard start from continuing the current draft or reopening prior material.
+- `/api/chat` attaches operational `surface_payloads` and `active_surface_id` after orchestration when `surface_invocation` selects calendar or task surfaces. These payloads power the summoned Today surface without changing the whiteboard/runtime storage model.
 - Local semantic-action and clarification helpers now live in `LocalSemanticActionEngine`, which creates `LocalTurnBodyParts` and returns `TurnResultParts` envelopes instead of final response dictionaries; `TurnOrchestrator` sends those parts through `assemble_local_turn_payload()` in `turn_payloads.py`, leaving `server.py` out of local action execution details.
 - Saved concept, memory, artifact, and pinned-context payloads now add a thin lineage view-model on top of raw `comes_from`: `derived_from_id`, `revision_parent_id`, and `lineage_kind`. The server still stores lineage canonically in `comes_from`; these fields only help the UI tell generic provenance from concept-revision ancestry, and `record_cards.py` now prefers explicit `revision_of` metadata when it exists before falling back to legacy revision filename heuristics.
 - Protocol concept payloads now expose a `kind="protocol"` view plus `protocol.protocol_kind`, `variables`, `applies_to`, `modifiable`, built-in, canonical, built-in-override, and canonical-override metadata. `ProtocolEngine` owns catalog listing, id/kind lookup, persisted override precedence, and API update write construction; `server.py` serializes those facts for `/api/protocols?include_builtins=true`, `GET /api/protocols/{protocol_kind_or_id}`, and `PUT /api/protocols/{protocol_kind}`.
@@ -128,7 +141,7 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - `/api/chat` serves the normal retrieval-vetting-response-meta pipeline when the navigator does not send the turn to Scenario Lab, and normal chat can now return non-destructive `workspace_update` metadata either to offer whiteboard collaboration for a work product or to propose a pending draft without mutating the workspace file. Pending draft proposals now use the canonical status `draft_ready`, which lets the frontend drop an older `pending -> draft_ready` translation layer.
 - If Scenario Lab routing is chosen but the Scenario Lab service throws, `/api/chat` still recovers into normal chat, but the payload now includes an explicit `scenario_lab` failure object plus `scenario_lab_error` so the user-facing UI can explain that Scenario Lab failed after routing.
 - `/api/chat` returns the service payload plus whiteboard scope and experiment metadata, now including `workspace.context_scope` so the client can inspect whether the whiteboard actually grounded the turn, and it backfills `workspace.content` when a transient in-scope whiteboard buffer was used even if the turn itself did not generate a new whiteboard proposal. Scenario Lab turns still carry the same truthful `response_mode` structure as normal chat, so the UI can tell when a comparison was grounded by whiteboard, recent-chat, or pending-whiteboard context instead of assuming every Scenario Lab turn is a best guess.
-- `ChatService.reply()` now reports a more truthful grounding label for the answer surface: recall-grounded turns stay distinct from whiteboard-only, recent-chat-only, or pending-whiteboard turns, and the visible `This is new to me, but my best guess is:` preface is reserved for truly ungrounded replies.
+- `ChatService.reply()` now reports a more truthful grounding label for the answer surface: recall-grounded turns stay distinct from whiteboard-only, recent-chat-only, or pending-whiteboard turns, and ungrounded replies keep their best-guess/intuitive metadata without adding a repeated text preface.
 - `POST /api/workspace` now honors an explicit `workspace_id` and makes that workspace active after saving, which lets accepted drafts become new first-class whiteboards instead of implicitly rewriting the previous active workspace; when that save targets an existing Scenario Lab branch and the edited content omitted the metadata block, the existing branch metadata is preserved so the branch identity survives the save. The route also auto-saves an artifact snapshot for that whiteboard iteration and returns both the workspace payload and the saved artifact metadata, including `artifact_origin="whiteboard"` and `artifact_lifecycle="whiteboard_snapshot"`.
 - `/api/workspace/open` reopens an existing workspace branch by loading it from the active runtime store, switching the active workspace id to that branch, and returning the parsed stable scenario metadata from the workspace store; missing workspace ids now return a 404 instead of bubbling up as a generic server error.
 - `/api/concepts/promote` can promote either a saved workspace or an unsaved whiteboard draft buffer into an artifact. When `workspace_id` does not exist on disk yet but `content` is provided, the route now builds a transient `WorkspaceDocument` from that buffer instead of failing or implicitly saving a new workspace file first; when a saved workspace exists, it overlays the submitted content in memory before promotion rather than persisting the workspace as a side effect. Promoted payloads now carry `artifact_origin="whiteboard"` and `artifact_lifecycle="promoted_artifact"` so the UI can describe them truthfully without inferring promotion from the route alone.

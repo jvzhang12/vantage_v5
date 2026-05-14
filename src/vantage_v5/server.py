@@ -20,6 +20,14 @@ from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from vantage_v5.config import AppConfig
+from vantage_v5.services.artifact_actions import action_graph_payload
+from vantage_v5.services.artifact_actions import action_surface_context
+from vantage_v5.services.artifact_actions import ArtifactActionPlanner
+from vantage_v5.services.artifact_actions import ArtifactActionStore
+from vantage_v5.services.artifact_actions import execute_artifact_action
+from vantage_v5.services.artifact_actions import reject_artifact_action
+from vantage_v5.services.calendar import LocalCalendarProvider
+from vantage_v5.services.calendar import resolve_calendar_date
 from vantage_v5.services.chat import ChatService
 from vantage_v5.services.context_engine import ChatTurnRequestContext
 from vantage_v5.services.context_engine import ContextEngine
@@ -33,6 +41,11 @@ from vantage_v5.services.draft_artifact_lifecycle import DraftArtifactRuntime
 from vantage_v5.services.executor import GraphActionExecutor
 from vantage_v5.services.local_semantic_actions import LocalSemanticActionEngine
 from vantage_v5.services.meta import MetaService
+from vantage_v5.services.model_client import codex_oauth_status
+from vantage_v5.services.model_client import MODEL_PROVIDER_CODEX_OAUTH
+from vantage_v5.services.model_client import MODEL_PROVIDER_OPENAI
+from vantage_v5.services.model_client import ModelClientConfig
+from vantage_v5.services.model_client import normalize_model_provider
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.navigator import NavigatorService
 from vantage_v5.services.record_cards import memory_payload as _memory_payload
@@ -44,6 +57,9 @@ from vantage_v5.services.record_cards import serialize_vault_note_card as _seria
 from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.scenario_lab import ScenarioLabService
 from vantage_v5.services.search import ConceptSearchService
+from vantage_v5.services.surface_payloads import SurfacePayloadBuilder
+from vantage_v5.services.surface_payloads import surface_assistant_message
+from vantage_v5.services.tasks import LocalTaskProvider
 from vantage_v5.services.turn_orchestrator import TurnOrchestrator
 from vantage_v5.services.turn_orchestrator import TurnOrchestratorHooks
 from vantage_v5.services.vetting import ConceptVettingService
@@ -68,6 +84,14 @@ logger = logging.getLogger(__name__)
 SCENARIO_LAB_MIN_CONFIDENCE = 0.68
 ACCOUNT_PASSWORD_ITERATIONS = 310_000
 CONTENT_UNSET = object()
+PWA_ICON_FILES = frozenset(
+    {
+        "apple-touch-icon.png",
+        "vantage-icon-192.png",
+        "vantage-icon-512.png",
+        "vantage-icon.svg",
+    }
+)
 
 
 class ChatRequest(BaseModel):
@@ -81,6 +105,7 @@ class ChatRequest(BaseModel):
     selected_record_id: str | None = None
     memory_intent: str = "auto"
     pending_workspace_update: dict[str, Any] | None = None
+    visible_artifacts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class WhiteboardAcceptRequest(BaseModel):
@@ -141,6 +166,7 @@ class LoginRequest(BaseModel):
 class CreateAccountRequest(BaseModel):
     username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=8, max_length=4096)
+    access_code: str | None = Field(default=None, max_length=4096)
 
 
 class OpenAIKeyRequest(BaseModel):
@@ -175,14 +201,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     cfg = config or AppConfig.from_env()
     repo_root = cfg.repo_root
     account_store_path = repo_root / "state" / "accounts.json"
-    auth_enabled = bool(cfg.auth_password or cfg.auth_users or account_store_path.exists())
+    auth_enabled = bool(cfg.auth_password or cfg.auth_users or cfg.account_creation_code or account_store_path.exists())
     if _requires_public_auth(cfg.host) and not auth_enabled and not cfg.allow_unsafe_public_no_auth:
         raise RuntimeError(
             "Vantage is configured to listen on a non-local host without authentication. "
-            "Set VANTAGE_V5_AUTH_PASSWORD or VANTAGE_V5_AUTH_USERS_JSON before exposing it, "
+            "Set VANTAGE_V5_AUTH_PASSWORD, VANTAGE_V5_AUTH_USERS_JSON, or VANTAGE_V5_ACCOUNT_CREATION_CODE before exposing it, "
             "or set VANTAGE_V5_ALLOW_UNSAFE_PUBLIC_NO_AUTH=true only for a trusted private network."
         )
     account_creation_enabled = auth_enabled
+    account_creation_code_required = bool(cfg.account_creation_code)
     user_scoped_storage = auth_enabled
     multi_user_enabled = bool(cfg.auth_users)
     session_cookie_name = "vantage_session"
@@ -206,11 +233,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         whiteboard_routing=whiteboard_routing,
     )
     context_sources = ContextSourceResolver(vault_store=vault_store)
+    configured_calendar_events_path = _resolve_repo_path(
+        repo_root,
+        cfg.calendar_events_path,
+        default_relative="state/calendar/events.json",
+    )
+    configured_tasks_path = _resolve_repo_path(
+        repo_root,
+        cfg.tasks_path,
+        default_relative="state/tasks/tasks.json",
+    )
 
     app = FastAPI(title="Vantage V5", version="0.1.0")
     if cfg.allowed_hosts:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=cfg.allowed_hosts)
-    web_dir = Path(__file__).resolve().parent / "webapp"
+    package_dir = Path(__file__).resolve().parent
+    web_dir = package_dir / "webapp"
+    pwa_public_dir = package_dir / "webapp_react" / "public"
     app.mount("/static", StaticFiles(directory=web_dir), name="static")
 
     @app.middleware("http")
@@ -230,6 +269,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             or request.url.path == "/api/login"
             or request.url.path == "/api/accounts"
             or request.url.path == "/api/logout"
+            or request.url.path == "/manifest.webmanifest"
+            or request.url.path == "/sw.js"
+            or request.url.path.startswith("/icons/")
             or request.url.path.startswith("/static/")
         )
         if authorized_user:
@@ -285,6 +327,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "auth_required": True,
                 "multi_user": multi_user_enabled,
                 "account_creation_enabled": account_creation_enabled,
+                "account_creation_code_required": account_creation_code_required,
                 "created": created,
                 "user": {"id": user_id},
             },
@@ -328,7 +371,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return repo_root / "users" / scope_key
 
     def _ensure_storage_root(root: Path) -> None:
-        for folder in ["concepts", "memories", "memory_trace", "artifacts", "workspaces", "state", "traces"]:
+        for folder in [
+            "concepts",
+            "memories",
+            "memory_trace",
+            "artifacts",
+            "workspaces",
+            "state",
+            "state/artifact_actions",
+            "state/calendar",
+            "state/tasks",
+            "traces",
+        ]:
             (root / folder).mkdir(parents=True, exist_ok=True)
         workspace_path = root / "workspaces" / f"{cfg.active_workspace}.md"
         if not workspace_path.exists():
@@ -378,11 +432,45 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "artifact_store": ArtifactStore(root / "artifacts"),
             "workspace_store": WorkspaceStore(root / "workspaces"),
             "state_store": ActiveWorkspaceStateStore(root / "state" / "active_workspace.json"),
+            "artifact_action_store": ArtifactActionStore(root / "state" / "artifact_actions"),
             "experiment_manager": ExperimentSessionManager(root / "state"),
             "traces_dir": root / "traces",
         }
         durable_scope_cache[scope_key] = scope
         return scope
+
+    def _calendar_provider_for_scope(durable_scope: dict[str, Any]) -> LocalCalendarProvider:
+        if cfg.calendar_events_path:
+            events_path = configured_calendar_events_path
+        else:
+            events_path = Path(durable_scope["root"]) / "state" / "calendar" / "events.json"
+        writable = bool(durable_scope.get("user_id")) and not cfg.calendar_events_path
+        return LocalCalendarProvider(events_path=events_path, writable=writable)
+
+    def _task_provider_for_scope(durable_scope: dict[str, Any]) -> LocalTaskProvider:
+        if cfg.tasks_path:
+            tasks_path = configured_tasks_path
+        else:
+            tasks_path = Path(durable_scope["root"]) / "state" / "tasks" / "tasks.json"
+        return LocalTaskProvider(tasks_path=tasks_path)
+
+    def _surface_payload_builder_for_scope(durable_scope: dict[str, Any]) -> SurfacePayloadBuilder:
+        return SurfacePayloadBuilder(
+            calendar_provider=_calendar_provider_for_scope(durable_scope),
+            task_provider=_task_provider_for_scope(durable_scope),
+        )
+
+    def _artifact_action_store_for_scope(durable_scope: dict[str, Any]) -> ArtifactActionStore:
+        store = durable_scope.get("artifact_action_store")
+        if isinstance(store, ArtifactActionStore):
+            return store
+        return ArtifactActionStore(Path(durable_scope["root"]) / "state" / "artifact_actions")
+
+    def _artifact_action_planner_for_scope(durable_scope: dict[str, Any]) -> ArtifactActionPlanner:
+        return ArtifactActionPlanner(
+            calendar_provider=_calendar_provider_for_scope(durable_scope),
+            action_store=_artifact_action_store_for_scope(durable_scope),
+        )
 
     def _session_info(session: ExperimentSession | None) -> dict[str, Any]:
         if session is None:
@@ -402,6 +490,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def _effective_openai_api_key(durable_scope: dict[str, Any]) -> str | None:
         scope_key = _scope_key_from_durable_scope(durable_scope)
         return user_openai_api_keys.get(scope_key) or cfg.openai_api_key
+
+    def _model_client_config(durable_scope: dict[str, Any]) -> ModelClientConfig:
+        return ModelClientConfig(
+            provider=cfg.model_provider,
+            openai_api_key=_effective_openai_api_key(durable_scope),
+            codex_auth_path=cfg.codex_auth_path,
+            codex_base_url=cfg.codex_base_url,
+        )
 
     def _openai_key_status(scope_key: str | None) -> dict[str, Any]:
         user_key = user_openai_api_keys.get(scope_key or "") if scope_key else None
@@ -432,10 +528,43 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return _openai_key_status(None)
         return _openai_key_status(_scope_key_for_request(request))
 
+    def _model_auth_status(scope_key: str | None) -> dict[str, Any]:
+        provider = normalize_model_provider(cfg.model_provider)
+        if provider == MODEL_PROVIDER_CODEX_OAUTH:
+            codex_status = codex_oauth_status(cfg.codex_auth_path)
+            configured = bool(codex_status["configured"])
+            return {
+                "configured": configured,
+                "provider": MODEL_PROVIDER_CODEX_OAUTH,
+                "mode": MODEL_PROVIDER_CODEX_OAUTH if configured else "fallback",
+                "label": "Codex OAuth",
+                "detail": codex_status["detail"],
+                "codex_oauth": codex_status,
+                "openai_key": _openai_key_status(scope_key),
+            }
+        openai_status = _openai_key_status(scope_key)
+        configured = bool(openai_status["configured"])
+        return {
+            "configured": configured,
+            "provider": MODEL_PROVIDER_OPENAI,
+            "mode": "openai" if configured else "fallback",
+            "label": "OpenAI API key",
+            "detail": _model_auth_openai_detail(openai_status),
+            "codex_oauth": codex_oauth_status(cfg.codex_auth_path),
+            "openai_key": openai_status,
+        }
+
+    def _model_auth_status_for_request(request: Request) -> dict[str, Any]:
+        user_id = str(getattr(request.state, "user_id", "") or "")
+        if user_scoped_storage and not user_id:
+            return _model_auth_status(None)
+        return _model_auth_status(_scope_key_for_request(request))
+
     def _protocol_engine_for_scope(durable_scope: dict[str, Any]) -> ProtocolEngine:
         return ProtocolEngine(
             model=cfg.model,
             openai_api_key=_effective_openai_api_key(durable_scope),
+            model_client_config=_model_client_config(durable_scope),
         )
 
     def _runtime(durable_scope: dict[str, Any], session: ExperimentSession | None) -> dict[str, Any]:
@@ -476,17 +605,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             traces_dir = session.traces_dir
             scope = "experiment"
         openai_api_key = _effective_openai_api_key(durable_scope)
+        model_client_config = _model_client_config(durable_scope)
         vetting_service = ConceptVettingService(
             model=cfg.model,
             openai_api_key=openai_api_key,
+            model_client_config=model_client_config,
         )
         meta_service = MetaService(
             model=cfg.model,
             openai_api_key=openai_api_key,
+            model_client_config=model_client_config,
         )
         protocol_engine = ProtocolEngine(
             model=cfg.model,
             openai_api_key=openai_api_key,
+            model_client_config=model_client_config,
         )
         executor = GraphActionExecutor(
             concept_store=concept_store,
@@ -501,6 +634,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         chat_service = ChatService(
             model=cfg.model,
             openai_api_key=openai_api_key,
+            model_client_config=model_client_config,
             concept_store=concept_store,
             reference_concept_store=reference_concept_store,
             memory_store=memory_store,
@@ -521,6 +655,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         scenario_lab_service = ScenarioLabService(
             model=cfg.model,
             openai_api_key=openai_api_key,
+            model_client_config=model_client_config,
             concept_store=concept_store,
             reference_concept_store=reference_concept_store,
             memory_store=memory_store,
@@ -624,19 +759,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         pinned_context_id: str | None,
         memory_intent: str,
         pending_workspace_update: dict[str, Any] | None,
+        visible_artifacts: list[dict[str, Any]] | None = None,
         navigation: NavigationDecision | None = None,
         force_pending_workspace_update: bool = False,
     ) -> dict[str, Any]:
         openai_api_key = _effective_openai_api_key(durable_scope)
+        model_client_config = _model_client_config(durable_scope)
         turn_orchestrator = TurnOrchestrator(
             navigator_service=NavigatorService(
                 model=cfg.model,
                 openai_api_key=openai_api_key,
+                model_client_config=model_client_config,
             ),
             context_engine=context_engine,
             protocol_engine=ProtocolEngine(
                 model=cfg.model,
                 openai_api_key=openai_api_key,
+                model_client_config=model_client_config,
             ),
             local_semantic_actions=local_semantic_actions,
             whiteboard_routing=whiteboard_routing,
@@ -644,7 +783,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 should_enter_scenario_lab=_should_enter_scenario_lab,
             ),
         )
-        return turn_orchestrator.run(
+        payload = turn_orchestrator.run(
             ChatTurnRequestContext(
                 durable_scope=durable_scope,
                 message=message,
@@ -656,15 +795,100 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 pinned_context_id=pinned_context_id,
                 memory_intent=memory_intent,
                 pending_workspace_update=pending_workspace_update,
+                visible_artifacts=visible_artifacts,
                 navigation=navigation,
                 force_pending_workspace_update=force_pending_workspace_update,
             )
         )
+        surface_result = _surface_payload_builder_for_scope(durable_scope).build_for_turn(
+            message=message,
+            surface_invocation=payload.get("surface_invocation"),
+        )
+        payload.update(surface_result.to_dict())
+        surface_message = surface_assistant_message(surface_result.surface_payloads)
+        if surface_message and not isinstance(payload.get("workspace_update"), dict):
+            payload["assistant_message"] = surface_message
+        action_plan = _artifact_action_planner_for_scope(durable_scope).plan_for_turn(
+            message=message,
+            visible_artifacts=visible_artifacts,
+        )
+        payload["artifact_actions"] = action_plan.artifact_actions
+        if action_plan.assistant_message:
+            payload["assistant_message"] = action_plan.assistant_message
+        if action_plan.artifact_actions:
+            payload["surface_invocation"] = _artifact_action_surface_invocation_payload(
+                action_plan.artifact_actions[0],
+                existing=payload.get("surface_invocation"),
+            )
+        return payload
+
+    def _artifact_action_surface_invocation_payload(
+        action: dict[str, Any],
+        *,
+        existing: Any,
+    ) -> dict[str, Any]:
+        context = action_surface_context(action)
+        context_kind = str(context.get("kind") or "calendar_day")
+        primary_surface = "calendar_week" if context_kind == "calendar_week" else "calendar_day"
+        existing_payload = existing if isinstance(existing, dict) else {}
+        return {
+            **existing_payload,
+            "policy_version": "artifact-action-v1",
+            "intent": "calendar_mutation",
+            "primary_surface": primary_surface,
+            "supporting_surfaces": [],
+            "surfaces": [
+                {
+                    "kind": context_kind if context_kind in {"today_briefing", "calendar_week", "calendar_day"} else primary_surface,
+                    "role": "target",
+                    "reason": "The user asked to change a visible calendar artifact.",
+                    "status": "already_open" if context.get("id") else "selected",
+                }
+            ],
+            "write_behavior": "proposal_only",
+            "reason": "Calendar edits require confirmation before Vantage mutates the user-scoped local calendar.",
+            "confidence": 0.9,
+            "data_sources": ["visible_artifact", "calendar"],
+            "trigger": "artifact_action_policy",
+            "requires_confirmation": True,
+        }
+
+    def _pwa_asset_path(relative_path: str) -> Path:
+        generated_asset = web_dir / "generated" / relative_path
+        if generated_asset.exists():
+            return generated_asset
+        public_asset = pwa_public_dir / relative_path
+        if public_asset.exists():
+            return public_asset
+        raise HTTPException(status_code=404, detail=f"PWA asset '{relative_path}' was not found.")
+
+    def _surface_payloads_for_artifact_action(
+        *,
+        durable_scope: dict[str, Any],
+        action: dict[str, Any],
+    ) -> dict[str, Any]:
+        context = action_surface_context(action)
+        context_kind = str(context.get("kind") or "calendar_day")
+        date_value = str(context.get("date") or "").strip() or str(
+            (action.get("payload") if isinstance(action.get("payload"), dict) else {}).get("date") or "today"
+        )
+        primary_surface = "calendar_week" if context_kind == "calendar_week" else "calendar_day"
+        supporting_surfaces = ["task_focus"] if context_kind == "today_briefing" else []
+        surface_invocation = {
+            "intent": "schedule_lookup",
+            "primary_surface": primary_surface,
+            "supporting_surfaces": supporting_surfaces,
+        }
+        return _surface_payload_builder_for_scope(durable_scope).build_for_turn(
+            message=f"calendar {date_value}",
+            surface_invocation=surface_invocation,
+        ).to_dict()
 
     @app.get("/api/health")
     def health(request: Request) -> dict[str, Any]:
         user_id = str(getattr(request.state, "user_id", "") or "")
         openai_key_status = _openai_key_status_for_request(request)
+        model_auth_status = _model_auth_status_for_request(request)
         if user_scoped_storage:
             workspace_id = None
             experiment = {"active": False, "session_id": None, "saved_note_count": 0}
@@ -682,7 +906,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             experiment = _session_info(session)
         return {
             "status": "ok",
-            "mode": "openai" if openai_key_status["configured"] else "fallback",
+            "mode": model_auth_status["mode"],
+            "model": cfg.model,
+            "model_provider": model_auth_status["provider"],
+            "model_auth": model_auth_status,
             "openai_key": openai_key_status,
             "workspace_id": workspace_id,
             "nexus_enabled": vault_store.is_enabled(),
@@ -691,6 +918,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "auth_required": auth_enabled,
             "authenticated": bool(user_id) or not auth_enabled,
             "account_creation_enabled": account_creation_enabled,
+            "account_creation_code_required": account_creation_code_required,
             "user": {"id": user_id} if user_id else None,
         }
 
@@ -703,6 +931,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     "auth_required": False,
                     "multi_user": multi_user_enabled,
                     "account_creation_enabled": False,
+                    "account_creation_code_required": False,
                     "user": {"id": cfg.auth_username},
                 }
             )
@@ -715,6 +944,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def create_account(request: CreateAccountRequest) -> JSONResponse:
         if not account_creation_enabled:
             raise HTTPException(status_code=404, detail="Account creation is not enabled.")
+        if cfg.account_creation_code and not secrets.compare_digest(request.access_code or "", cfg.account_creation_code):
+            raise HTTPException(status_code=403, detail="Invalid account access code.")
         username = _normalize_account_username(request.username)
         account_key = _safe_user_storage_id(username)
         if _account_key_exists(account_key):
@@ -739,11 +970,90 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         response.delete_cookie(session_cookie_name, secure=cfg.cookie_secure, samesite="lax")
         return response
 
+    @app.get("/api/calendar/day")
+    def get_calendar_day(request: Request, date: str | None = None) -> dict[str, Any]:
+        try:
+            target_date = resolve_calendar_date(date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _calendar_provider_for_scope(_durable_scope(request)).day(target_date).to_dict()
+
+    @app.get("/api/calendar/week")
+    def get_calendar_week(request: Request, date: str | None = None) -> dict[str, Any]:
+        try:
+            target_date = resolve_calendar_date(date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _calendar_provider_for_scope(_durable_scope(request)).week(target_date).to_dict()
+
+    @app.get("/api/tasks/focus")
+    def get_task_focus(request: Request, date: str | None = None) -> dict[str, Any]:
+        try:
+            target_date = resolve_calendar_date(date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _task_provider_for_scope(_durable_scope(request)).focus(target_date).to_dict()
+
+    @app.post("/api/artifact-actions/{action_id}/accept")
+    def accept_artifact_action(action_id: str, request: Request) -> dict[str, Any]:
+        durable_scope = _durable_scope(request)
+        store = _artifact_action_store_for_scope(durable_scope)
+        try:
+            action = store.load(action_id)
+            accepted = execute_artifact_action(
+                action=action,
+                calendar_provider=_calendar_provider_for_scope(durable_scope),
+            )
+            store.update(accepted)
+            surface_payload = _surface_payloads_for_artifact_action(durable_scope=durable_scope, action=accepted)
+            return {
+                "artifact_action": accepted,
+                "artifact_actions": [accepted],
+                "assistant_message": f"Done. {accepted.get('summary') or 'Calendar updated.'}",
+                "graph_action": action_graph_payload(accepted),
+                "surface_invocation": _artifact_action_surface_invocation_payload(accepted, existing=None),
+                **surface_payload,
+            }
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PermissionError as exc:
+            try:
+                action = store.load(action_id)
+                failed = store.update({**action, "status": "failed", "warnings": [str(exc)]})
+                return {"artifact_action": failed, "artifact_actions": [failed], "assistant_message": str(exc)}
+            except Exception:
+                raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/artifact-actions/{action_id}/reject")
+    def reject_artifact_action_endpoint(action_id: str, request: Request) -> dict[str, Any]:
+        durable_scope = _durable_scope(request)
+        store = _artifact_action_store_for_scope(durable_scope)
+        try:
+            action = store.load(action_id)
+            rejected = reject_artifact_action(action)
+            store.update(rejected)
+            return {
+                "artifact_action": rejected,
+                "artifact_actions": [rejected],
+                "assistant_message": "Okay, I left the calendar unchanged.",
+                "surface_invocation": _artifact_action_surface_invocation_payload(rejected, existing=None),
+            }
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/openai-key")
     def get_openai_key_status(request: Request) -> dict[str, Any]:
-        status = _openai_key_status(_scope_key_for_request(request))
+        scope_key = _scope_key_for_request(request)
+        status = _openai_key_status(scope_key)
+        model_auth_status = _model_auth_status(scope_key)
         return {
-            "mode": "openai" if status["configured"] else "fallback",
+            "mode": model_auth_status["mode"],
+            "model_provider": model_auth_status["provider"],
+            "model_auth": model_auth_status,
             "openai_key": status,
         }
 
@@ -755,8 +1065,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         scope_key = _scope_key_for_request(http_request)
         user_openai_api_keys[scope_key] = api_key
         status = _openai_key_status(scope_key)
+        model_auth_status = _model_auth_status(scope_key)
         return {
-            "mode": "openai",
+            "mode": model_auth_status["mode"],
+            "model_provider": model_auth_status["provider"],
+            "model_auth": model_auth_status,
             "openai_key": status,
         }
 
@@ -765,8 +1078,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         scope_key = _scope_key_for_request(request)
         user_openai_api_keys.pop(scope_key, None)
         status = _openai_key_status(scope_key)
+        model_auth_status = _model_auth_status(scope_key)
         return {
-            "mode": "openai" if status["configured"] else "fallback",
+            "mode": model_auth_status["mode"],
+            "model_provider": model_auth_status["provider"],
+            "model_auth": model_auth_status,
             "openai_key": status,
         }
 
@@ -1085,6 +1401,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 ),
                 memory_intent=request.memory_intent,
                 pending_workspace_update=request.pending_workspace_update,
+                visible_artifacts=request.visible_artifacts,
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1132,8 +1449,41 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             logger.exception("Whiteboard acceptance request failed unexpectedly.")
             raise HTTPException(status_code=500, detail="Whiteboard acceptance request failed unexpectedly.") from exc
 
+    @app.get("/manifest.webmanifest")
+    def pwa_manifest() -> FileResponse:
+        return FileResponse(
+            _pwa_asset_path("manifest.webmanifest"),
+            media_type="application/manifest+json",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.get("/sw.js")
+    def pwa_service_worker() -> FileResponse:
+        return FileResponse(
+            _pwa_asset_path("sw.js"),
+            media_type="text/javascript",
+            headers={
+                "Cache-Control": "no-cache",
+                "Service-Worker-Allowed": "/",
+            },
+        )
+
+    @app.get("/icons/{filename}")
+    def pwa_icon(filename: str) -> FileResponse:
+        if filename not in PWA_ICON_FILES:
+            raise HTTPException(status_code=404, detail="PWA icon was not found.")
+        media_type = "image/svg+xml" if filename.endswith(".svg") else "image/png"
+        return FileResponse(
+            _pwa_asset_path(f"icons/{filename}"),
+            media_type=media_type,
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
     @app.get("/")
     def index() -> FileResponse:
+        react_index = web_dir / "generated" / "index.html"
+        if react_index.exists():
+            return FileResponse(react_index)
         return FileResponse(web_dir / "index.html")
 
     return app
@@ -1276,6 +1626,22 @@ def _verify_password_record(password: str, record: dict[str, Any]) -> bool:
         iterations,
     ).hex()
     return secrets.compare_digest(supplied_hash, expected_hash)
+
+
+def _model_auth_openai_detail(openai_status: dict[str, Any]) -> str:
+    source = str(openai_status.get("source") or "none")
+    if source == "user":
+        return "Using the OpenAI API key saved for this browser session."
+    if source == "environment":
+        return "Using the OpenAI API key from the Vantage environment."
+    return "No model credential is configured."
+
+
+def _resolve_repo_path(repo_root: Path, path: Path | None, *, default_relative: str) -> Path:
+    candidate = path or Path(default_relative)
+    if candidate.is_absolute():
+        return candidate
+    return repo_root / candidate
 
 
 def _mask_openai_api_key(api_key: str) -> str:

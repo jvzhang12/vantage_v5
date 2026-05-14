@@ -1,0 +1,342 @@
+[
+  {
+    "viewport": {
+      "name": "390x900",
+      "width": 390,
+      "height": 900
+    },
+    "state": "chat",
+    "metrics": {
+      "viewportWidth": 390,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 390,
+      "documentScrollWidth": 390,
+      "shellScrollWidth": 390,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "390x900",
+      "width": 390,
+      "height": 900
+    },
+    "state": "draft",
+    "metrics": {
+      "viewportWidth": 390,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 390,
+      "documentScrollWidth": 390,
+      "shellScrollWidth": 390,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "390x900",
+      "width": 390,
+      "height": 900
+    },
+    "state": "draft-long-labels",
+    "metrics": {
+      "viewportWidth": 390,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 390,
+      "documentScrollWidth": 390,
+      "shellScrollWidth": 390,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "390x900",
+      "width": 390,
+      "height": 900
+    },
+    "state": "inspect",
+    "metrics": {
+      "viewportWidth": 390,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 390,
+      "documentScrollWidth": 390,
+      "shellScrollWidth": 390,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "640x900",
+      "width": 640,
+      "height": 900
+    },
+    "state": "chat",
+    "metrics": {
+      "viewportWidth": 640,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 640,
+      "documentScrollWidth": 640,
+      "shellScrollWidth": 640,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "640x900",
+      "width": 640,
+      "height": 900
+    },
+    "state": "draft",
+    "metrics": {
+      "viewportWidth": 640,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 640,
+      "documentScrollWidth": 640,
+      "shellScrollWidth": 640,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "640x900",
+      "width": 640,
+      "height": 900
+    },
+    "state": "draft-long-labels",
+    "metrics": {
+      "viewportWidth": 640,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 640,
+      "documentScrollWidth": 640,
+      "shellScrollWidth": 640,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "640x900",
+      "width": 640,
+      "height": 900
+    },
+    "state": "inspect",
+    "metrics": {
+      "viewportWidth": 640,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 640,
+      "documentScrollWidth": 640,
+      "shellScrollWidth": 640,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "768x900",
+      "width": 768,
+      "height": 900
+    },
+    "state": "chat",
+    "metrics": {
+      "viewportWidth": 768,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 768,
+      "documentScrollWidth": 768,
+      "shellScrollWidth": 768,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "768x900",
+      "width": 768,
+      "height": 900
+    },
+    "state": "draft",
+    "metrics": {
+      "viewportWidth": 768,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 768,
+      "documentScrollWidth": 768,
+      "shellScrollWidth": 768,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "768x900",
+      "width": 768,
+      "height": 900
+    },
+    "state": "draft-long-labels",
+    "metrics": {
+      "viewportWidth": 768,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 768,
+      "documentScrollWidth": 768,
+      "shellScrollWidth": 768,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "768x900",
+      "width": 768,
+      "height": 900
+    },
+    "state": "inspect",
+    "metrics": {
+      "viewportWidth": 768,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 768,
+      "documentScrollWidth": 768,
+      "shellScrollWidth": 768,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "1024x900",
+      "width": 1024,
+      "height": 900
+    },
+    "state": "chat",
+    "metrics": {
+      "viewportWidth": 1024,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 1024,
+      "documentScrollWidth": 1024,
+      "shellScrollWidth": 1024,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "1024x900",
+      "width": 1024,
+      "height": 900
+    },
+    "state": "draft",
+    "metrics": {
+      "viewportWidth": 1024,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 1024,
+      "documentScrollWidth": 1024,
+      "shellScrollWidth": 1024,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "1024x900",
+      "width": 1024,
+      "height": 900
+    },
+    "state": "draft-long-labels",
+    "metrics": {
+      "viewportWidth": 1024,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 1024,
+      "documentScrollWidth": 1024,
+      "shellScrollWidth": 1024,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "1024x900",
+      "width": 1024,
+      "height": 900
+    },
+    "state": "inspect",
+    "metrics": {
+      "viewportWidth": 1024,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 1024,
+      "documentScrollWidth": 1024,
+      "shellScrollWidth": 1024,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "1440x1000",
+      "width": 1440,
+      "height": 1000
+    },
+    "state": "chat",
+    "metrics": {
+      "viewportWidth": 1440,
+      "viewportHeight": 1000,
+      "bodyScrollWidth": 1440,
+      "documentScrollWidth": 1440,
+      "shellScrollWidth": 1440,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "1440x1000",
+      "width": 1440,
+      "height": 1000
+    },
+    "state": "draft",
+    "metrics": {
+      "viewportWidth": 1440,
+      "viewportHeight": 1000,
+      "bodyScrollWidth": 1440,
+      "documentScrollWidth": 1440,
+      "shellScrollWidth": 1440,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "1440x1000",
+      "width": 1440,
+      "height": 1000
+    },
+    "state": "draft-long-labels",
+    "metrics": {
+      "viewportWidth": 1440,
+      "viewportHeight": 1000,
+      "bodyScrollWidth": 1440,
+      "documentScrollWidth": 1440,
+      "shellScrollWidth": 1440,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  },
+  {
+    "viewport": {
+      "name": "1440x1000",
+      "width": 1440,
+      "height": 1000
+    },
+    "state": "inspect",
+    "metrics": {
+      "viewportWidth": 1440,
+      "viewportHeight": 1000,
+      "bodyScrollWidth": 1440,
+      "documentScrollWidth": 1440,
+      "shellScrollWidth": 1440,
+      "horizontalOverflow": false,
+      "overflowingText": []
+    }
+  }
+]

@@ -29,13 +29,14 @@ import {
   deriveTurnGrounding,
   deriveUiItemCategory,
   deriveWhiteboardLifecycle,
-} from "./product_identity.mjs?v=20260430-library-categories";
+} from "./product_identity.mjs?v=20260501-safe-activity";
 import {
+  buildVisibleArtifactsPayload,
   buildWorkspaceContextPayload,
   deriveChatWhiteboardMode,
   resolveWhiteboardReopenTarget,
   shouldCarryPendingWorkspaceUpdate,
-} from "./chat_request.mjs?v=20260428-active-whiteboard-context";
+} from "./chat_request.mjs?v=20260513-visible-artifacts";
 import {
   buildScopedTurnSnapshotKey,
   buildTurnSnapshotKey,
@@ -69,6 +70,8 @@ import {
   normalizeSavedItemCorrection,
   normalizeScenarioLabPayload,
   normalizeSemanticFrame,
+  normalizeSurfaceInvocation,
+  normalizeSurfacePayloads,
   normalizeStageAudit,
   normalizeStageProgress,
   normalizeTurnPayload,
@@ -77,7 +80,7 @@ import {
   normalizeSemanticPolicy,
   normalizeWriteReview,
   normalizeWorkspaceUpdate,
-} from "./turn_payloads.mjs?v=20260429-protocol-guidance";
+} from "./turn_payloads.mjs?v=20260513-today-surface";
 import {
   deriveWhiteboardPreviewState,
   renderRichText,
@@ -104,6 +107,7 @@ const sendButtonEl = document.getElementById("sendButton");
 const seedPromptEl = document.getElementById("seedPrompt");
 const experimentToggleButtonEl = document.getElementById("experimentToggleButton");
 const experimentBadgeEl = document.getElementById("experimentBadge");
+const inspectBrandButtonEl = document.getElementById("inspectBrandButton");
 const apiKeyButtonEl = document.getElementById("apiKeyButton");
 const apiKeyOverlayEl = document.getElementById("apiKeyOverlay");
 const apiKeyFormEl = document.getElementById("apiKeyForm");
@@ -114,12 +118,14 @@ const apiKeyCancelButtonEl = document.getElementById("apiKeyCancelButton");
 const apiKeyClearButtonEl = document.getElementById("apiKeyClearButton");
 const apiKeySaveButtonEl = document.getElementById("apiKeySaveButton");
 const logoutButtonEl = document.getElementById("logoutButton");
+const chatSurfaceButtonEl = document.getElementById("chatSurfaceButton");
 const whiteboardToggleButtonEl = document.getElementById("whiteboardToggleButton");
 const vantageToggleButtonEl = document.getElementById("vantageToggleButton");
 const vantagePanelEl = document.getElementById("vantagePanel");
 const closeVantageButtonEl = document.getElementById("closeVantageButton");
 const vantageSummaryEl = document.getElementById("vantageSummary");
 const chatPanelEl = document.querySelector(".chat-panel");
+const operationalSurfaceHostEl = document.getElementById("operationalSurfaceHost");
 const workspaceDockEl = document.getElementById("workspaceDock");
 const answerDockEl = document.getElementById("answerDock");
 const scenarioDockEl = document.getElementById("scenarioDock");
@@ -132,6 +138,7 @@ const memoryDockLabelEl = document.getElementById("memoryDockLabel");
 const workspaceEditorEl = document.getElementById("workspaceEditor");
 const workspaceTitleEl = document.getElementById("workspaceTitle");
 const workspaceMetaEl = document.getElementById("workspaceMeta");
+const draftOperationStatusEl = document.getElementById("draftOperationStatus");
 const workspacePreviewSectionEl = document.getElementById("workspacePreviewSection");
 const workspacePreviewEl = document.getElementById("workspacePreview");
 const workspaceArtifactPanelEl = document.getElementById("workspaceArtifactPanel");
@@ -247,11 +254,27 @@ function createEmptyOpenAIKeyState() {
   };
 }
 
+function createEmptyModelAuthState() {
+  return {
+    configured: false,
+    provider: "openai",
+    mode: "fallback",
+    label: "Model auth",
+    detail: "No model credential is configured.",
+  };
+}
+
+function normalizeRuntimeMode(value) {
+  const mode = String(value || "").trim().toLowerCase();
+  return ["openai", "codex_oauth", "fallback", "offline"].includes(mode) ? mode : "fallback";
+}
+
 const state = {
   busy: false,
   mode: "fallback",
   nexusEnabled: false,
   openaiKey: createEmptyOpenAIKeyState(),
+  modelAuth: createEmptyModelAuthState(),
   auth: {
     required: false,
     authenticated: true,
@@ -356,6 +379,9 @@ const state = {
     turnStage: null,
     stageProgress: [],
     stageAudit: null,
+    surfaceInvocation: null,
+    surfacePayloads: [],
+    activeSurfaceId: null,
     interpretation: null,
   },
 };
@@ -390,6 +416,9 @@ function createIdleTurnState() {
     turnStage: null,
     stageProgress: [],
     stageAudit: null,
+    surfaceInvocation: null,
+    surfacePayloads: [],
+    activeSurfaceId: null,
     interpretation: null,
   };
 }
@@ -611,6 +640,9 @@ function restoreTurnSnapshot() {
       turnStage: normalizeTurnStage(snapshot.turn?.turnStage || snapshot.turn?.turn_stage || null),
       stageProgress: normalizeStageProgress(snapshot.turn?.stageProgress || snapshot.turn?.stage_progress || []),
       stageAudit: normalizeStageAudit(snapshot.turn?.stageAudit || snapshot.turn?.stage_audit || null),
+      surfaceInvocation: normalizeSurfaceInvocation(snapshot.turn?.surfaceInvocation || snapshot.turn?.surface_invocation || null),
+      surfacePayloads: normalizeSurfacePayloads(snapshot.turn?.surfacePayloads || snapshot.turn?.surface_payloads || []),
+      activeSurfaceId: snapshot.turn?.activeSurfaceId || snapshot.turn?.active_surface_id || null,
       scenarioBranchInspectionWorkspaceId: restoredFromScopeScopedKey
         ? ""
         : snapshot.turn?.scenarioBranchInspectionWorkspaceId || "",
@@ -693,6 +725,20 @@ logoutButtonEl?.addEventListener("click", async () => {
   await logout();
 });
 
+chatSurfaceButtonEl?.addEventListener("click", () => {
+  state.surface = {
+    current: "chat",
+    returnSurface: "chat",
+  };
+  persistTurnSnapshot();
+  renderViewState();
+  resetViewportForSurfaceChange();
+});
+
+inspectBrandButtonEl?.addEventListener("click", () => {
+  openVantage();
+});
+
 vantageToggleButtonEl.addEventListener("click", () => {
   if (normalizeSurfaceState(state.surface).current === "vantage") {
     closeVantage();
@@ -705,6 +751,7 @@ whiteboardToggleButtonEl.addEventListener("click", () => {
   state.surface = toggleWhiteboardSurface(state.surface);
   persistTurnSnapshot();
   renderViewState();
+  resetViewportForSurfaceChange();
 });
 
 closeVantageButtonEl.addEventListener("click", () => {
@@ -948,6 +995,7 @@ function resetAuthenticatedUiState() {
   transcriptEl.innerHTML = "";
   resetTransientExperimentUiState();
   state.openaiKey = createEmptyOpenAIKeyState();
+  state.modelAuth = createEmptyModelAuthState();
   state.surface = { current: "chat", returnSurface: "chat" };
   state.history = [];
   state.workspace.content = "";
@@ -1076,18 +1124,31 @@ function normalizeOpenAIKeyStatus(value) {
   };
 }
 
+function normalizeModelAuthStatus(value) {
+  const fallback = createEmptyModelAuthState();
+  const provider = String(value?.provider || fallback.provider).trim().toLowerCase();
+  return {
+    configured: value?.configured === true,
+    provider: provider || fallback.provider,
+    mode: normalizeRuntimeMode(value?.mode),
+    label: String(value?.label || fallback.label).trim() || fallback.label,
+    detail: String(value?.detail || fallback.detail).trim() || fallback.detail,
+  };
+}
+
 function applyOpenAIKeyPayload(payload) {
   state.openaiKey = normalizeOpenAIKeyStatus(payload?.openai_key || payload);
-  if (payload?.mode === "openai" || payload?.mode === "fallback") {
-    state.mode = payload.mode;
-  } else {
-    state.mode = state.openaiKey.configured ? "openai" : "fallback";
-  }
+  state.modelAuth = normalizeModelAuthStatus(payload?.model_auth);
+  state.mode = normalizeRuntimeMode(payload?.mode || state.modelAuth.mode);
   renderOpenAIKeyStatus();
   renderExperimentStatus({ nexusEnabled: state.nexusEnabled });
 }
 
 function openAIKeyStatusCopy() {
+  const modelAuth = state.modelAuth || createEmptyModelAuthState();
+  if (modelAuth.provider === "codex_oauth") {
+    return modelAuth.configured ? modelAuth.detail || "Using Codex OAuth" : "Codex OAuth not signed in";
+  }
   const status = state.openaiKey || createEmptyOpenAIKeyState();
   if (status.source === "user") {
     return status.maskedKey ? `Using your key (${status.maskedKey})` : "Using your key";
@@ -1100,9 +1161,16 @@ function openAIKeyStatusCopy() {
 
 function renderOpenAIKeyStatus() {
   const status = state.openaiKey || createEmptyOpenAIKeyState();
+  const modelAuth = state.modelAuth || createEmptyModelAuthState();
   if (apiKeyButtonEl) {
-    apiKeyButtonEl.textContent = status.source === "user" ? "API key set" : "API key";
-    apiKeyButtonEl.title = openAIKeyStatusCopy();
+    const label = modelAuth.provider === "codex_oauth"
+      ? "Codex OAuth"
+      : status.source === "user" ? "API key set" : "Model";
+    apiKeyButtonEl.textContent = label;
+    apiKeyButtonEl.title = `${openAIKeyStatusCopy()}. Open model auth settings.`;
+    apiKeyButtonEl.setAttribute("aria-label", status.source === "user"
+      ? "Open model auth settings. User key is set."
+      : "Open model auth settings");
   }
   if (apiKeyStatusEl) {
     apiKeyStatusEl.textContent = openAIKeyStatusCopy();
@@ -1150,8 +1218,8 @@ async function openOpenAIKeyDialog() {
     if (authGateIsActive()) {
       return;
     }
-    const message = error instanceof Error ? error.message : "Could not load API key status.";
-    pushNotice("API key unavailable", message, "warning");
+    const message = error instanceof Error ? error.message : "Could not load model auth status.";
+    pushNotice("Model auth unavailable", message, "warning");
   }
   if (apiKeyOverlayEl) {
     apiKeyOverlayEl.hidden = false;
@@ -1200,7 +1268,7 @@ async function saveOpenAIKey() {
       apiKeyErrorEl.textContent = "";
     }
     applyOpenAIKeyPayload(payload);
-    pushNotice("API key saved", "Vantage will use your key for model calls in this session.", "success");
+    pushNotice("API key saved", "Vantage saved this direct OpenAI credential for the current session.", "success");
   } catch (error) {
     if (authGateIsActive()) {
       return;
@@ -1228,7 +1296,7 @@ async function clearOpenAIKey() {
       apiKeyInputEl.value = "";
     }
     applyOpenAIKeyPayload(payload);
-    pushNotice("API key cleared", "Vantage returned to the configured fallback for model calls.", "info");
+    pushNotice("API key cleared", "Vantage returned to the configured model auth path.", "info");
   } catch (error) {
     if (authGateIsActive()) {
       return;
@@ -1266,8 +1334,9 @@ async function loadHealth() {
     const previousExperimentActive = state.experiment.active === true;
     const previousExperimentSessionId = state.experiment.sessionId || "";
     const { payload } = await fetchJson("/api/health");
-    state.mode = payload?.mode === "openai" ? "openai" : "fallback";
+    state.mode = normalizeRuntimeMode(payload?.mode);
     state.openaiKey = normalizeOpenAIKeyStatus(payload?.openai_key);
+    state.modelAuth = normalizeModelAuthStatus(payload?.model_auth);
     state.nexusEnabled = payload?.nexus_enabled === true;
     state.auth.required = payload?.auth_required === true;
     state.auth.authenticated = payload?.authenticated !== false;
@@ -1292,6 +1361,7 @@ async function loadHealth() {
     state.mode = "offline";
     state.nexusEnabled = false;
     state.openaiKey = createEmptyOpenAIKeyState();
+    state.modelAuth = createEmptyModelAuthState();
     state.auth.authenticated = false;
     state.auth.accountCreationEnabled = false;
     renderOpenAIKeyStatus();
@@ -1487,6 +1557,11 @@ function renderExperimentStatus({ nexusEnabled } = { nexusEnabled: false }) {
   experimentToggleButtonEl.textContent = state.experiment.active ? "End experiment" : "Start experiment";
 }
 
+function resetViewportForSurfaceChange() {
+  shellEl?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+}
+
 function openVantage({ focus = "turn" } = {}) {
   state.surface = openVantageSurface(state.surface);
   if (focus === "library") {
@@ -1501,45 +1576,74 @@ function openVantage({ focus = "turn" } = {}) {
   }
   persistTurnSnapshot();
   renderViewState();
+  resetViewportForSurfaceChange();
 }
 
 function closeVantage() {
   state.surface = closeVantageSurface(state.surface);
   persistTurnSnapshot();
   renderViewState();
+  resetViewportForSurfaceChange();
 }
 
 function revealWhiteboard() {
   state.surface = revealWhiteboardSurface(state.surface);
   persistTurnSnapshot();
   renderViewState();
+  resetViewportForSurfaceChange();
 }
 
 function hideWhiteboard() {
   state.surface = hideWhiteboardSurface(state.surface);
   persistTurnSnapshot();
   renderViewState();
+  resetViewportForSurfaceChange();
 }
 
 function renderViewState() {
   const surface = normalizeSurfaceState(state.surface);
+  const chatFocused = surface.current === "chat";
   const vantageOpen = surface.current === "vantage";
   const whiteboardFocused = isWhiteboardFocused(surface);
   const whiteboardActive = hasWhiteboardActiveContext(surface);
+  const whiteboardCurrent = surface.current === "whiteboard";
+  const operationalSurface = getActiveOperationalSurface();
+  const operationalOpen = chatFocused && Boolean(operationalSurface);
 
   shellEl.classList.toggle("shell--vantage", vantageOpen);
   shellEl.classList.toggle("shell--whiteboard", whiteboardFocused);
+  chatPanelEl?.classList.toggle("chat-panel--operational", operationalOpen);
   vantagePanelEl.hidden = !vantageOpen;
   workspaceDockEl.hidden = !whiteboardFocused;
+  if (operationalSurfaceHostEl) {
+    operationalSurfaceHostEl.hidden = !operationalOpen;
+  }
   chatPanelEl?.classList.toggle("chat-panel--sidebar", whiteboardFocused);
+
+  chatSurfaceButtonEl?.classList.toggle("is-active", chatFocused);
+  chatSurfaceButtonEl?.setAttribute("aria-pressed", chatFocused.toString());
+  chatSurfaceButtonEl?.setAttribute("aria-label", chatFocused ? "Chat is open" : "Open Chat");
+  if (chatSurfaceButtonEl) {
+    chatSurfaceButtonEl.title = chatFocused ? "Chat is open" : "Open Chat";
+    chatSurfaceButtonEl.disabled = state.busy;
+  }
 
   vantageToggleButtonEl.classList.toggle("is-active", vantageOpen);
   vantageToggleButtonEl.setAttribute("aria-pressed", vantageOpen.toString());
-  vantageToggleButtonEl.textContent = vantageButtonLabel(surface);
+  vantageToggleButtonEl.textContent = "Inspect";
+  vantageToggleButtonEl.setAttribute("aria-label", vantageOpen ? "Inspect is open" : "Open Inspect");
+  vantageToggleButtonEl.title = vantageOpen ? "Inspect is open" : "Open Inspect";
 
-  whiteboardToggleButtonEl.classList.toggle("is-active", whiteboardActive);
-  whiteboardToggleButtonEl.setAttribute("aria-pressed", whiteboardActive.toString());
-  whiteboardToggleButtonEl.textContent = whiteboardButtonLabel(surface);
+  whiteboardToggleButtonEl.classList.toggle("is-active", whiteboardCurrent);
+  whiteboardToggleButtonEl.classList.toggle("has-return-context", whiteboardActive && !whiteboardCurrent);
+  whiteboardToggleButtonEl.setAttribute("aria-pressed", whiteboardCurrent.toString());
+  whiteboardToggleButtonEl.textContent = "Draft";
+  whiteboardToggleButtonEl.setAttribute("aria-label", whiteboardCurrent ? "Draft is open" : "Open Draft");
+  whiteboardToggleButtonEl.title = whiteboardActive && !whiteboardCurrent
+    ? "Return to Draft"
+    : whiteboardCurrent
+      ? "Draft is open"
+      : "Open Draft";
 
   closeVantageButtonEl.textContent = surface.returnSurface === "whiteboard" ? "Back to draft" : "Back to chat";
   closeVantageButtonEl.disabled = state.busy;
@@ -1547,7 +1651,771 @@ function renderViewState() {
   hideWhiteboardButtonEl.disabled = state.busy;
 
   renderSurfaceStatus();
+  renderOperationalSurface(operationalSurface);
   renderWhiteboardDecisionPanel();
+}
+
+function getActiveOperationalSurface() {
+  const surfaces = Array.isArray(state.turn.surfacePayloads) ? state.turn.surfacePayloads : [];
+  if (!surfaces.length) {
+    return null;
+  }
+  const activeId = state.turn.activeSurfaceId || surfaces[0]?.id;
+  return surfaces.find((surface) => surface.id === activeId) || surfaces[0] || null;
+}
+
+function renderOperationalSurface(surface) {
+  if (!operationalSurfaceHostEl) {
+    return;
+  }
+  operationalSurfaceHostEl.innerHTML = "";
+  if (!surface) {
+    return;
+  }
+  if (surface.kind === "today_briefing") {
+    operationalSurfaceHostEl.append(createTodayBriefingSurface(surface));
+    return;
+  }
+  if (surface.kind === "calendar_day") {
+    operationalSurfaceHostEl.append(createCalendarOnlySurface(surface));
+    return;
+  }
+  if (surface.kind === "calendar_week") {
+    operationalSurfaceHostEl.append(createCalendarWeekSurface(surface));
+    return;
+  }
+  if (surface.kind === "task_focus") {
+    operationalSurfaceHostEl.append(createTaskOnlySurface(surface));
+  }
+}
+
+function createTodayBriefingSurface(surface) {
+  const data = surface.data || {};
+  const calendar = data.calendar || {};
+  const tasks = data.tasks || {};
+  const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+  const section = document.createElement("section");
+  section.className = "today-surface";
+  section.append(
+    createTodayLeftColumn({ surface, calendar, tasks }),
+    createTodayTimeline({ calendar, suggestions }),
+  );
+  return section;
+}
+
+function createCalendarOnlySurface(surface) {
+  const data = surface.data || {};
+  const section = document.createElement("section");
+  section.className = "today-surface today-surface--calendar-only";
+  section.append(createTodayTimeline({ calendar: data.calendar || {}, suggestions: [] }));
+  return section;
+}
+
+function createCalendarWeekSurface(surface) {
+  const data = surface.data || {};
+  const week = data.calendar_week || data.calendarWeek || {};
+  const section = document.createElement("section");
+  section.className = "calendar-week-surface";
+  section.append(createCalendarWeekHeader(surface, week), createCalendarWeekGrid(week));
+  return section;
+}
+
+function createCalendarWeekHeader(surface, week) {
+  const header = document.createElement("header");
+  header.className = "calendar-week-header";
+  const copy = document.createElement("div");
+  copy.className = "calendar-week-header__copy";
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "calendar-week-header__eyebrow";
+  eyebrow.textContent = "Calendar";
+  const title = document.createElement("h2");
+  title.textContent = surface.title || "Week";
+  const range = document.createElement("p");
+  range.className = "calendar-week-header__range";
+  range.textContent = formatWeekRange(week.start_date, week.end_date);
+  copy.append(eyebrow, title, range);
+
+  const facts = document.createElement("div");
+  facts.className = "calendar-week-header__facts";
+  facts.append(
+    createCalendarWeekFact(String(week?.summary?.event_count ?? 0), "Events"),
+    createCalendarWeekFact(formatOpenTime(week?.summary?.free_minutes), "Open"),
+    createCalendarWeekFact(week?.source?.configured ? "Local" : "No file", "Source"),
+  );
+  const actions = document.createElement("div");
+  actions.className = "calendar-week-header__actions";
+  actions.append(
+    createCalendarWeekNavButton("Previous", shiftIsoDate(week.start_date, -7)),
+    createCalendarWeekNavButton("This week", "today"),
+    createCalendarWeekNavButton("Next", shiftIsoDate(week.start_date, 7)),
+  );
+  const side = document.createElement("div");
+  side.className = "calendar-week-header__side";
+  side.append(facts, actions);
+  header.append(copy, side);
+  return header;
+}
+
+function createCalendarWeekNavButton(label, targetDate) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "calendar-week-header__button";
+  button.textContent = label;
+  button.disabled = !targetDate;
+  button.addEventListener("click", () => {
+    if (targetDate) {
+      void loadCalendarWeekSurface(targetDate);
+    }
+  });
+  return button;
+}
+
+async function loadCalendarWeekSurface(dateValue) {
+  setBusy(true);
+  try {
+    const { payload, response } = await fetchJson(`/api/calendar/week?date=${encodeURIComponent(dateValue)}`);
+    if (!response.ok) {
+      throw new Error(payload?.detail || `Calendar failed with status ${response.status}`);
+    }
+    replaceVisibleOperationalSurface(buildCalendarWeekSurfacePayload(payload || {}, dateValue));
+  } catch (error) {
+    pushNotice("Calendar unavailable", error instanceof Error ? error.message : String(error), "warning");
+  } finally {
+    setBusy(false);
+  }
+}
+
+function buildCalendarWeekSurfacePayload(week, requestedDate) {
+  const startDate = String(week?.start_date || requestedDate || "week").trim();
+  return {
+    id: `calendar-week-${startDate}`,
+    kind: "calendar_week",
+    title: "Week",
+    summary: summarizeCalendarWeek(week),
+    source_refs: [
+      {
+        kind: "calendar_week",
+        label: week?.source?.label || "Calendar",
+        configured: week?.source?.configured === true,
+        read_only: true,
+        count: Number(week?.summary?.event_count || 0),
+      },
+    ],
+    data: {
+      date: requestedDate === "today" ? new Date().toISOString().slice(0, 10) : requestedDate,
+      calendar_week: week,
+      suggestions: [],
+    },
+  };
+}
+
+function replaceVisibleOperationalSurface(surface) {
+  const surfaces = Array.isArray(state.turn.surfacePayloads) ? [...state.turn.surfacePayloads] : [];
+  const activeId = state.turn.activeSurfaceId || surfaces[0]?.id || surface.id;
+  const index = surfaces.findIndex((candidate) => candidate.id === activeId || candidate.kind === surface.kind);
+  if (index >= 0) {
+    surfaces[index] = surface;
+  } else {
+    surfaces.unshift(surface);
+  }
+  state.turn.surfacePayloads = surfaces;
+  state.turn.activeSurfaceId = surface.id;
+  renderViewState();
+  persistTurnSnapshot();
+}
+
+function summarizeCalendarWeek(week) {
+  const eventCount = Number(week?.summary?.event_count || 0);
+  const freeMinutes = Number(week?.summary?.free_minutes || 0);
+  return `${eventCount} scheduled event${eventCount === 1 ? "" : "s"} this week, ${formatOpenTime(freeMinutes)} open.`;
+}
+
+function createCalendarWeekFact(value, label) {
+  const fact = document.createElement("div");
+  fact.className = "calendar-week-fact";
+  const strong = document.createElement("strong");
+  strong.textContent = value || "0";
+  const span = document.createElement("span");
+  span.textContent = label;
+  fact.append(strong, span);
+  return fact;
+}
+
+function createCalendarWeekGrid(week) {
+  const card = document.createElement("section");
+  card.className = "today-card calendar-week-card";
+  const days = normalizeCalendarWeekDays(week);
+  if (!days.length) {
+    const empty = document.createElement("p");
+    empty.className = "today-empty";
+    empty.textContent = week?.source?.configured ? "No calendar days are available for this week." : "No local calendar file is configured yet.";
+    card.append(empty);
+    return card;
+  }
+
+  const bounds = calendarWeekHourBounds(week, days);
+  const hourCount = Math.max(1, bounds.endHour - bounds.startHour);
+  const header = document.createElement("div");
+  header.className = "calendar-week-grid__header";
+  header.style.setProperty("--week-day-count", String(days.length));
+  const spacer = document.createElement("div");
+  spacer.className = "calendar-week-grid__axis-spacer";
+  header.append(spacer);
+  for (const day of days) {
+    header.append(createCalendarWeekDayHeader(day));
+  }
+
+  const body = document.createElement("div");
+  body.className = "calendar-week-grid__body";
+  const axis = document.createElement("div");
+  axis.className = "calendar-week-axis";
+  for (let hour = bounds.startHour; hour <= bounds.endHour; hour += 1) {
+    const label = document.createElement("span");
+    label.textContent = formatCalendarHour(hour);
+    axis.append(label);
+  }
+
+  const lanes = document.createElement("div");
+  lanes.className = "calendar-week-lanes";
+  lanes.style.setProperty("--week-day-count", String(days.length));
+  lanes.style.setProperty("--week-hour-count", String(hourCount));
+  for (const day of days) {
+    lanes.append(createCalendarWeekDayLane(day, bounds));
+  }
+  body.append(axis, lanes);
+  card.append(header, body);
+  return card;
+}
+
+function normalizeCalendarWeekDays(week) {
+  const sourceDays = Array.isArray(week?.days) ? week.days : [];
+  return sourceDays
+    .filter((day) => day && typeof day === "object")
+    .map((day) => ({
+      ...day,
+      events: Array.isArray(day.events) ? day.events : [],
+      freeBlocks: Array.isArray(day.free_blocks) ? day.free_blocks : [],
+    }));
+}
+
+function createCalendarWeekDayHeader(day) {
+  const header = document.createElement("div");
+  header.className = "calendar-week-day-head";
+  if (isSameCalendarDate(day.date, new Date())) {
+    header.classList.add("is-today");
+  }
+  const weekday = document.createElement("span");
+  weekday.className = "calendar-week-day-head__weekday";
+  weekday.textContent = formatWeekdayShort(day.date);
+  const date = document.createElement("strong");
+  date.textContent = formatMonthDay(day.date);
+  header.append(weekday, date);
+  const allDayEvents = day.events.filter((event) => event?.all_day);
+  for (const event of allDayEvents.slice(0, 2)) {
+    const chip = document.createElement("span");
+    chip.className = "calendar-week-day-head__chip";
+    chip.textContent = event.title || "All day";
+    header.append(chip);
+  }
+  if (allDayEvents.length > 2) {
+    const more = document.createElement("span");
+    more.className = "calendar-week-day-head__chip";
+    more.textContent = `+${allDayEvents.length - 2} more`;
+    header.append(more);
+  }
+  return header;
+}
+
+function createCalendarWeekDayLane(day, bounds) {
+  const lane = document.createElement("div");
+  lane.className = "calendar-week-lane";
+  if (isSameCalendarDate(day.date, new Date())) {
+    lane.classList.add("is-today");
+    const now = currentTimePositionForDate(day.date, bounds);
+    if (now !== null) {
+      const nowLine = document.createElement("span");
+      nowLine.className = "calendar-week-now";
+      nowLine.style.setProperty("--now-top", `${now}%`);
+      lane.append(nowLine);
+    }
+  }
+  const timedEvents = day.events.filter((event) => !event?.all_day);
+  for (const event of timedEvents) {
+    lane.append(createCalendarWeekEvent(event, bounds));
+  }
+  if (!timedEvents.length) {
+    const empty = document.createElement("span");
+    empty.className = "calendar-week-lane__empty";
+    empty.textContent = "Open";
+    lane.append(empty);
+  }
+  return lane;
+}
+
+function createCalendarWeekEvent(event, bounds) {
+  const article = document.createElement("article");
+  article.className = "calendar-week-event";
+  const position = calendarEventPosition(event, bounds);
+  article.style.setProperty("--event-top", `${position.top}%`);
+  article.style.setProperty("--event-height", `${position.height}%`);
+  const time = document.createElement("span");
+  time.className = "calendar-week-event__time";
+  time.textContent = formatEventTimeLabel(event);
+  const title = document.createElement("strong");
+  title.textContent = event.title || "Calendar event";
+  const meta = document.createElement("span");
+  meta.className = "calendar-week-event__meta";
+  meta.textContent = [event.location, event.calendar_title || event.calendar_id].filter(Boolean).join(" • ");
+  article.append(time, title, meta);
+  return article;
+}
+
+function createTaskOnlySurface(surface) {
+  const data = surface.data || {};
+  const section = document.createElement("section");
+  section.className = "today-surface today-surface--tasks-only";
+  const column = document.createElement("div");
+  column.className = "today-surface__left";
+  column.append(createTodayHeader(surface, data.tasks || {}), createFocusStack(data.tasks || {}));
+  section.append(column);
+  return section;
+}
+
+function createTodayLeftColumn({ surface, calendar, tasks }) {
+  const column = document.createElement("div");
+  column.className = "today-surface__left";
+  column.append(
+    createTodayHeader(surface, tasks),
+    createFocusStack(tasks),
+    createVantageResponseCard(),
+  );
+  return column;
+}
+
+function createTodayHeader(surface, tasks) {
+  const header = document.createElement("header");
+  header.className = "today-surface__header";
+  const titleRow = document.createElement("div");
+  titleRow.className = "today-surface__title-row";
+  const title = document.createElement("h2");
+  title.textContent = surface.title || "Today";
+  const dateChip = document.createElement("span");
+  dateChip.className = "today-surface__date";
+  dateChip.textContent = formatSurfaceDate(surface.data?.date || tasks.date);
+  const shapeChip = document.createElement("span");
+  shapeChip.className = "today-surface__shape";
+  shapeChip.textContent = "Day shape";
+  titleRow.append(title, dateChip, shapeChip);
+  const summary = document.createElement("p");
+  summary.className = "today-surface__summary";
+  summary.textContent = surface.summary || "Your day context is ready.";
+  header.append(titleRow, summary);
+  return header;
+}
+
+function createFocusStack(taskFocus) {
+  const card = document.createElement("section");
+  card.className = "today-card focus-stack";
+  const top = document.createElement("div");
+  top.className = "today-card__top";
+  const title = document.createElement("h3");
+  title.textContent = "Focus Stack";
+  const source = document.createElement("span");
+  source.className = "today-card__meta";
+  source.textContent = taskFocus?.source?.configured ? "Tasks" : "No task file";
+  top.append(title, source);
+  card.append(top);
+
+  const groups = taskFocus?.groups && typeof taskFocus.groups === "object" ? taskFocus.groups : {};
+  const groupModels = [
+    ["must_do_today", "Must do today"],
+    ["good_next", "Good next"],
+    ["can_defer", "Can defer"],
+    ["unscheduled", "Unscheduled"],
+  ];
+  let rendered = 0;
+  for (const [key, label] of groupModels) {
+    const tasks = Array.isArray(groups[key]) ? groups[key] : [];
+    if (!tasks.length) {
+      continue;
+    }
+    rendered += tasks.length;
+    card.append(createFocusGroup(label, tasks));
+  }
+  if (!rendered) {
+    const empty = document.createElement("p");
+    empty.className = "today-empty";
+    empty.textContent = "No open tasks found for this day.";
+    card.append(empty);
+  }
+  return card;
+}
+
+function createFocusGroup(label, tasks) {
+  const group = document.createElement("section");
+  group.className = "focus-stack__group";
+  const heading = document.createElement("div");
+  heading.className = "focus-stack__group-head";
+  const title = document.createElement("span");
+  title.textContent = label;
+  const count = document.createElement("span");
+  count.className = "focus-stack__count";
+  count.textContent = String(tasks.length);
+  heading.append(title, count);
+  const list = document.createElement("div");
+  list.className = "focus-stack__list";
+  for (const task of tasks.slice(0, 5)) {
+    list.append(createFocusTaskRow(task));
+  }
+  group.append(heading, list);
+  return group;
+}
+
+function createFocusTaskRow(task) {
+  const row = document.createElement("article");
+  row.className = "focus-task";
+  const icon = document.createElement("span");
+  icon.className = `focus-task__icon focus-task__icon--${taskPriorityClass(task.priority)}`;
+  icon.textContent = taskPriorityGlyph(task.priority);
+  const title = document.createElement("span");
+  title.className = "focus-task__title";
+  title.textContent = task.title || "Untitled task";
+  const due = document.createElement("span");
+  due.className = "focus-task__due";
+  due.textContent = formatTaskDue(task.due_date);
+  row.append(icon, title, due);
+  return row;
+}
+
+function createVantageResponseCard() {
+  const card = document.createElement("section");
+  card.className = "today-card vantage-response-card";
+  const top = document.createElement("div");
+  top.className = "today-card__top";
+  const title = document.createElement("h3");
+  title.textContent = "Vantage response";
+  const time = document.createElement("span");
+  time.className = "today-card__meta";
+  time.textContent = formatClockTime(new Date());
+  top.append(title, time);
+  const body = document.createElement("div");
+  body.className = "vantage-response-card__body";
+  renderRichText(body, state.turn.assistantMessage || "I pulled in the relevant day context.");
+  card.append(top, body);
+  return card;
+}
+
+function createTodayTimeline({ calendar, suggestions }) {
+  const card = document.createElement("section");
+  card.className = "today-card today-timeline";
+  const top = document.createElement("div");
+  top.className = "today-timeline__top";
+  const title = document.createElement("h3");
+  title.textContent = "Timeline";
+  const controls = document.createElement("div");
+  controls.className = "today-timeline__controls";
+  controls.append(createTimelineControl("Today"), createTimelineControl("Calendar"), createTimelineControl("Open in Calendar"));
+  top.append(title, controls);
+  card.append(top);
+
+  const events = Array.isArray(calendar.events) ? calendar.events : [];
+  const freeBlocks = Array.isArray(calendar.free_blocks) ? calendar.free_blocks : [];
+  const items = buildTimelineItems({ events, freeBlocks, suggestions });
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "today-empty";
+    empty.textContent = calendar?.source?.configured
+      ? "No calendar events or open focus blocks found for this day."
+      : "No local calendar file is configured yet.";
+    card.append(empty);
+    return card;
+  }
+  const list = document.createElement("div");
+  list.className = "today-timeline__list";
+  for (const item of items) {
+    list.append(createTimelineItem(item));
+  }
+  card.append(list);
+  return card;
+}
+
+function createTimelineControl(label) {
+  const control = document.createElement("span");
+  control.className = "today-timeline__control";
+  control.textContent = label;
+  return control;
+}
+
+function buildTimelineItems({ events, freeBlocks, suggestions }) {
+  const suggestionByStart = new Map(
+    suggestions
+      .filter((suggestion) => suggestion?.start)
+      .map((suggestion) => [suggestion.start, suggestion]),
+  );
+  const eventItems = events.map((event) => ({
+    type: "event",
+    start: event.start,
+    end: event.end,
+    title: event.title || "Calendar event",
+    meta: [event.location, event.description].filter(Boolean).join(" • "),
+    accent: event.calendar_title || event.calendar_id || "Calendar",
+  }));
+  const openItems = freeBlocks.map((block) => {
+    const suggestion = suggestionByStart.get(block.start);
+    return {
+      type: "open",
+      start: block.start,
+      end: block.end,
+      title: suggestion?.task_title ? `Suggested: ${suggestion.task_title}` : "Open",
+      meta: suggestion?.duration_minutes ? `Deep work • ${suggestion.duration_minutes} min` : "Open focus window",
+      accent: suggestion?.reason || "Open block",
+      suggested: Boolean(suggestion),
+    };
+  });
+  return [...eventItems, ...openItems].sort((a, b) => new Date(a.start) - new Date(b.start));
+}
+
+function createTimelineItem(item) {
+  const article = document.createElement("article");
+  article.className = `timeline-item timeline-item--${item.type}${item.suggested ? " timeline-item--suggested" : ""}`;
+  const time = document.createElement("div");
+  time.className = "timeline-item__time";
+  time.textContent = `${formatTimeRange(item.start, item.end)}`;
+  const body = document.createElement("div");
+  body.className = "timeline-item__body";
+  const title = document.createElement("p");
+  title.className = "timeline-item__title";
+  title.textContent = item.title;
+  const meta = document.createElement("p");
+  meta.className = "timeline-item__meta";
+  meta.textContent = item.meta || item.accent || "";
+  body.append(title, meta);
+  const badge = document.createElement("span");
+  badge.className = "timeline-item__badge";
+  badge.textContent = item.type === "open" ? (item.suggested ? "Focus" : "Open") : item.accent;
+  article.append(time, body, badge);
+  return article;
+}
+
+function formatSurfaceDate(value) {
+  const date = parseDateLike(value);
+  if (!date) {
+    return "Today";
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function formatTaskDue(value) {
+  if (!value) {
+    return "No due date";
+  }
+  const date = parseDateLike(value);
+  if (!date) {
+    return "Due";
+  }
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) {
+    return "Due today";
+  }
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+}
+
+function formatTimeRange(start, end) {
+  return [formatClockTime(parseDateTimeLike(start)), formatClockTime(parseDateTimeLike(end))].filter(Boolean).join(" - ");
+}
+
+function formatWeekRange(start, end) {
+  const startDate = parseDateLike(start);
+  const endDate = parseDateLike(end);
+  if (!startDate || !endDate) {
+    return "This week";
+  }
+  const sameMonth = startDate.getMonth() === endDate.getMonth() && startDate.getFullYear() === endDate.getFullYear();
+  const monthFormatter = new Intl.DateTimeFormat(undefined, { month: "short" });
+  const dayFormatter = new Intl.DateTimeFormat(undefined, { day: "numeric" });
+  if (sameMonth) {
+    return `${monthFormatter.format(startDate)} ${dayFormatter.format(startDate)}-${dayFormatter.format(endDate)}`;
+  }
+  return `${monthFormatter.format(startDate)} ${dayFormatter.format(startDate)} - ${monthFormatter.format(endDate)} ${dayFormatter.format(endDate)}`;
+}
+
+function shiftIsoDate(value, dayOffset) {
+  const date = parseDateLike(value);
+  if (!date) {
+    return "";
+  }
+  date.setDate(date.getDate() + dayOffset);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatOpenTime(minutes) {
+  const value = Number(minutes);
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0h";
+  }
+  const hours = value / 60;
+  return value % 60 === 0 ? `${hours}h` : `${hours.toFixed(1)}h`;
+}
+
+function formatWeekdayShort(value) {
+  const date = parseDateLike(value);
+  return date
+    ? new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date)
+    : "Day";
+}
+
+function formatMonthDay(value) {
+  const date = parseDateLike(value);
+  return date
+    ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date)
+    : "";
+}
+
+function formatCalendarHour(hour) {
+  const date = new Date();
+  date.setHours(hour, 0, 0, 0);
+  return new Intl.DateTimeFormat(undefined, { hour: "numeric" }).format(date);
+}
+
+function calendarWeekHourBounds(week, days) {
+  const summary = week?.summary && typeof week.summary === "object" ? week.summary : {};
+  const workdayStart = parseHourMinute(summary.workday_start) ?? 8 * 60;
+  const workdayEnd = parseHourMinute(summary.workday_end) ?? 18 * 60;
+  let startMinute = Math.min(workdayStart, 8 * 60);
+  let endMinute = Math.max(workdayEnd, 20 * 60);
+  for (const day of days) {
+    for (const event of day.events || []) {
+      if (event?.all_day) {
+        continue;
+      }
+      const start = minutesForCalendarEventDate(event.start);
+      const end = minutesForCalendarEventDate(event.end);
+      if (start !== null) {
+        startMinute = Math.min(startMinute, start);
+      }
+      if (end !== null) {
+        endMinute = Math.max(endMinute, end);
+      }
+    }
+  }
+  return {
+    startHour: Math.max(0, Math.floor(startMinute / 60)),
+    endHour: Math.min(24, Math.max(Math.ceil(endMinute / 60), Math.floor(startMinute / 60) + 1)),
+  };
+}
+
+function calendarEventPosition(event, bounds) {
+  const dayStart = bounds.startHour * 60;
+  const dayEnd = bounds.endHour * 60;
+  const total = Math.max(60, dayEnd - dayStart);
+  const start = clamp(minutesForCalendarEventDate(event.start) ?? dayStart, dayStart, dayEnd);
+  const end = clamp(minutesForCalendarEventDate(event.end) ?? start + 30, dayStart, dayEnd);
+  return {
+    top: ((start - dayStart) / total) * 100,
+    height: Math.max(4, ((Math.max(end, start + 15) - start) / total) * 100),
+  };
+}
+
+function currentTimePositionForDate(value, bounds) {
+  const date = parseDateLike(value);
+  if (!date || !isSameCalendarDate(date, new Date())) {
+    return null;
+  }
+  const now = new Date();
+  const dayStart = bounds.startHour * 60;
+  const dayEnd = bounds.endHour * 60;
+  const total = Math.max(60, dayEnd - dayStart);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  if (nowMinutes < dayStart || nowMinutes > dayEnd) {
+    return null;
+  }
+  return ((nowMinutes - dayStart) / total) * 100;
+}
+
+function minutesForCalendarEventDate(value) {
+  const date = parseDateTimeLike(value);
+  if (!date) {
+    return null;
+  }
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function parseHourMinute(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return null;
+  }
+  return clamp(hour, 0, 23) * 60 + clamp(minute, 0, 59);
+}
+
+function formatEventTimeLabel(event) {
+  return formatTimeRange(event.start, event.end) || "All day";
+}
+
+function isSameCalendarDate(left, right) {
+  const leftDate = left instanceof Date ? left : parseDateLike(left);
+  const rightDate = right instanceof Date ? right : parseDateLike(right);
+  return Boolean(leftDate && rightDate && leftDate.toDateString() === rightDate.toDateString());
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatClockTime(value) {
+  const date = value instanceof Date ? value : parseDateTimeLike(value);
+  if (!date || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function parseDateLike(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return null;
+  }
+  const date = new Date(text.length === 10 ? `${text}T00:00:00` : text);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseDateTimeLike(value) {
+  const date = new Date(String(value || ""));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function taskPriorityClass(priority) {
+  const normalized = String(priority || "").toLowerCase();
+  if (["urgent", "high", "must", "must_do", "p1"].includes(normalized)) {
+    return "high";
+  }
+  if (["low", "defer", "later", "p3"].includes(normalized)) {
+    return "low";
+  }
+  return "normal";
+}
+
+function taskPriorityGlyph(priority) {
+  const normalized = taskPriorityClass(priority);
+  if (normalized === "high") {
+    return "!";
+  }
+  if (normalized === "low") {
+    return "·";
+  }
+  return "+";
 }
 
 function setComposerWhiteboardMode(mode) {
@@ -1635,38 +2503,9 @@ function renderChatSurfaceCopy() {
   }
   seedPromptEl.hidden = whiteboardFocused || hasRealUserMessage();
   experimentToggleButtonEl.hidden = true;
-  whiteboardToggleButtonEl.hidden = whiteboardFocused;
+  whiteboardToggleButtonEl.hidden = true;
   statusPillEl.hidden = false;
-  vantageToggleButtonEl.textContent = whiteboardFocused ? "Inspect" : vantageButtonLabel(surface);
-}
-
-function whiteboardButtonLabel(surface) {
-  const normalized = normalizeSurfaceState(surface);
-  if (normalized.current === "whiteboard") {
-    return "Close draft";
-  }
-  if (
-    normalized.current === "vantage"
-    && normalized.returnSurface === "whiteboard"
-  ) {
-    return "Back to draft";
-  }
-  const workspaceUpdate = state.turn.workspaceUpdate;
-  if (workspaceUpdate?.status === "draft_ready") {
-    return "Review draft";
-  }
-  if (workspaceUpdate?.status === "offered") {
-    return workspaceUpdateHasDraft(workspaceUpdate) ? "Review draft" : "Open draft";
-  }
-  return "Draft";
-}
-
-function vantageButtonLabel(surface) {
-  const normalized = normalizeSurfaceState(surface);
-  if (normalized.current !== "vantage") {
-    return "Inspect";
-  }
-  return normalized.returnSurface === "whiteboard" ? "Back to draft" : "Close Inspect";
+  vantageToggleButtonEl.textContent = "Inspect";
 }
 
 async function confirmExperimentTransition(actionLabel) {
@@ -1858,11 +2697,18 @@ async function sendMessage(message) {
       workspace: state.workspace,
       workspacePinned: state.workspace.pinnedToChat,
       message,
+      requestedWhiteboardMode: state.composer.whiteboardMode,
     });
     const whiteboardMode = deriveChatWhiteboardMode({
       requestedWhiteboardMode: state.composer.whiteboardMode,
       surface: state.surface,
+      workspace: state.workspace,
       message,
+    });
+    const visibleArtifacts = buildVisibleArtifactsPayload({
+      surface: state.surface,
+      workspace: state.workspace,
+      turn: state.turn,
     });
     const { payload, response } = await fetchJson("/api/chat", {
       method: "POST",
@@ -1874,6 +2720,7 @@ async function sendMessage(message) {
         whiteboard_mode: whiteboardMode,
         pinned_context_id: pinnedContextId,
         pending_workspace_update: pendingWorkspaceContext,
+        visible_artifacts: visibleArtifacts,
       }),
     });
     if (!response.ok) {
@@ -2179,9 +3026,18 @@ function applyChatPayload(payload) {
     turnStage: normalizedTurnPayload.turnStage,
     stageProgress: normalizedTurnPayload.stageProgress,
     stageAudit: normalizedTurnPayload.stageAudit,
+    surfaceInvocation: normalizedTurnPayload.surfaceInvocation,
+    surfacePayloads: normalizedTurnPayload.surfacePayloads,
+    activeSurfaceId: normalizedTurnPayload.activeSurfaceId,
     scenarioBranchInspectionWorkspaceId: "",
     interpretation: normalizeTurnInterpretation(payload.turn_interpretation),
   };
+  if (state.turn.surfacePayloads.length && !isWhiteboardFocused(state.surface)) {
+    state.surface = {
+      current: "chat",
+      returnSurface: "chat",
+    };
+  }
   state.turnReasoningPathStageKey = "";
   state.turnReasoningPathExpanded = false;
   state.candidateConcepts = candidateConceptItems.regularItems;
@@ -2250,6 +3106,9 @@ function applyChatPayload(payload) {
     if (workspaceUpdate?.status === "updated" || autoAppliedWorkspaceDraft) {
       state.workspace.lifecycle = "transient_draft";
       revealWhiteboard();
+      if (autoAppliedWorkspaceDraft) {
+        setDraftOperationStatus("Draft ready", "The draft is ready for editing.");
+      }
     }
     if (hasPendingWorkspaceDecision(workspaceUpdate) && !autoAppliedWorkspaceDraft) {
       answerDockEl.open = true;
@@ -2340,7 +3199,7 @@ async function saveWorkspace() {
     workspaceTitleEl.textContent = state.workspace.title;
     persistTurnSnapshot();
     renderWorkspaceMeta();
-    pushNotice("Draft saved", `${state.workspace.title} was written to disk.`, "success");
+    setDraftOperationStatus("Draft saved", `${state.workspace.title} was written to disk.`);
     if (payload?.artifact_snapshot) {
       const snapshot = state.workspace.latestArtifact;
       if (snapshot.id) {
@@ -2542,9 +3401,9 @@ async function performOpenConceptIntoWorkspace(conceptId) {
         markDirty: false,
       });
       persistTurnSnapshot();
-      pushNotice("Draft opened", `${concept.title} was loaded into the draft surface.`, "success");
       clearWhiteboardDecision();
       revealWhiteboard();
+      setDraftOperationStatus("Draft opened", `${concept.title} was loaded into the draft surface.`);
       return "opened";
     }
 
@@ -2554,9 +3413,9 @@ async function performOpenConceptIntoWorkspace(conceptId) {
       markDirty: true,
     });
     persistTurnSnapshot();
-    pushNotice("Draft opened", `${concept.title} is now in the draft surface.`, "success");
     clearWhiteboardDecision();
     revealWhiteboard();
+    setDraftOperationStatus("Draft opened", `${concept.title} is now in the draft surface.`);
     return "opened";
   } catch (error) {
     pushNotice("Open failed", error instanceof Error ? error.message : String(error), "warning");
@@ -2597,9 +3456,9 @@ async function performOpenWorkspace(workspaceId) {
     state.workspace.note = `Opened from saved branch ${payload?.title || workspaceId}.`;
     persistTurnSnapshot();
     renderWorkspaceMeta();
-    pushNotice("Draft opened", `${payload?.title || workspaceId} is now the active draft.`, "success");
     clearWhiteboardDecision();
     revealWhiteboard();
+    setDraftOperationStatus("Draft opened", `${payload?.title || workspaceId} is now the active draft.`);
   } catch (error) {
     pushNotice("Open failed", error instanceof Error ? error.message : String(error), "warning");
   } finally {
@@ -2693,11 +3552,11 @@ async function applyPendingWorkspaceUpdate(mode, { bypassDirtyCheck = false } = 
       markDirty: true,
     });
     revealWhiteboard();
-    dismissWorkspaceUpdate("applied", {
-      title: "Draft opened",
-      message: "The pending draft was opened as a fresh whiteboard so it would not overwrite the current one.",
-      tone: "success",
-    });
+    dismissWorkspaceUpdate("applied");
+    setDraftOperationStatus(
+      "Draft opened",
+      "The pending draft was opened as a fresh whiteboard so it would not overwrite the current one.",
+    );
     clearWhiteboardDecision();
     return;
   }
@@ -2710,13 +3569,13 @@ async function applyPendingWorkspaceUpdate(mode, { bypassDirtyCheck = false } = 
 
   applyWorkspaceDraft(nextContent, nextTitle, { note, markDirty: true });
   revealWhiteboard();
-  dismissWorkspaceUpdate(mode === "append" ? "appended" : "applied", {
-    title: mode === "append" ? "Draft appended" : "Draft applied",
-    message: mode === "append"
+  dismissWorkspaceUpdate(mode === "append" ? "appended" : "applied");
+  setDraftOperationStatus(
+    mode === "append" ? "Draft appended" : "Draft applied",
+    mode === "append"
       ? "The pending draft was appended to the whiteboard without saving it yet."
       : "The pending draft was applied to the whiteboard without saving it yet.",
-    tone: "success",
-  });
+  );
   clearWhiteboardDecision();
 }
 
@@ -2848,7 +3707,6 @@ function autoApplyWorkspaceDraft(workspaceUpdate) {
     ...workspaceUpdate,
     decision: "applied",
   };
-  pushNotice("Draft ready", "The draft is ready for editing.", "success");
   return true;
 }
 
@@ -2871,8 +3729,24 @@ function syncWorkspaceFromEditor() {
   state.workspace.dirty = state.workspace.content !== state.workspace.savedContent;
   state.workspace.lifecycle = state.workspace.dirty ? "transient_draft" : "saved_whiteboard";
   state.workspace.note = state.workspace.dirty ? "Unsaved changes in this draft." : "Saved whiteboard.";
+  if (state.workspace.dirty) {
+    clearDraftOperationStatus();
+  }
   persistTurnSnapshot();
   renderWorkspaceMeta();
+}
+
+function setDraftOperationStatus(title, message = "") {
+  if (!draftOperationStatusEl) {
+    return;
+  }
+  const normalizedTitle = String(title || "").trim();
+  const normalizedMessage = String(message || "").trim();
+  draftOperationStatusEl.textContent = [normalizedTitle, normalizedMessage].filter(Boolean).join(": ");
+}
+
+function clearDraftOperationStatus() {
+  setDraftOperationStatus("");
 }
 
 function renderWorkspaceMeta() {
@@ -3028,6 +3902,7 @@ function renderTurnPanel() {
     scenarioLabStatus: scenarioLabFailed ? "failed" : (scenarioLab ? "ready" : ""),
     scenarioLabBranchCount: scenarioBranchCount,
     graphActionSummary: learnedCount ? "" : describeGraphAction(state.turn.graphAction),
+    memoryTraceRecorded: Boolean(state.turnMemoryTraceRecord?.id),
   });
 
   renderTurnSummaryFacts({
@@ -3247,9 +4122,63 @@ function renderInspectBuckets({
     recentItems: traceItems,
     draftItems,
   });
+  const surfaceReceipt = createSurfaceInvocationReceipt();
+  if (surfaceReceipt) {
+    turnInspectBucketsEl.append(surfaceReceipt);
+  }
   for (const bucket of buckets) {
     turnInspectBucketsEl.append(createInspectBucket(bucket));
   }
+}
+
+function createSurfaceInvocationReceipt() {
+  const invocation = state.turn.surfaceInvocation;
+  if (!invocation || invocation.primarySurface === "chat") {
+    return null;
+  }
+  const article = document.createElement("article");
+  article.className = "inspect-bucket inspect-bucket--surface";
+  const top = document.createElement("div");
+  top.className = "inspect-bucket__top";
+  const label = document.createElement("div");
+  label.className = "section-label section-label--subtle";
+  label.textContent = "Surface";
+  const count = document.createElement("span");
+  count.className = "inspect-bucket__count";
+  count.textContent = String(state.turn.surfacePayloads.length || 1);
+  top.append(label, count);
+  const summary = document.createElement("p");
+  summary.className = "inspect-bucket__summary";
+  summary.textContent = invocation.reason || "Vantage selected an operational surface for this request.";
+  const facts = document.createElement("div");
+  facts.className = "surface-receipt__facts";
+  facts.append(
+    createSurfaceReceiptFact("Intent", humanizeSemanticToken(invocation.intent)),
+    createSurfaceReceiptFact("Primary", humanizeSemanticSurface(invocation.primarySurface)),
+    createSurfaceReceiptFact("Write mode", humanizeSemanticToken(invocation.writeBehavior)),
+  );
+  if (Number.isFinite(invocation.confidence)) {
+    facts.append(createSurfaceReceiptFact("Confidence", `${Math.round(invocation.confidence * 100)}%`));
+  }
+  const sourceRefs = state.turn.surfacePayloads.flatMap((surface) => surface.sourceRefs || []);
+  if (sourceRefs.length) {
+    const sources = document.createElement("p");
+    sources.className = "inspect-bucket__sample";
+    sources.textContent = sourceRefs
+      .map((ref) => `${ref.label || humanizeSemanticToken(ref.kind)}: ${ref.count ?? 0}`)
+      .join(" • ");
+    article.append(top, summary, facts, sources);
+    return article;
+  }
+  article.append(top, summary, facts);
+  return article;
+}
+
+function createSurfaceReceiptFact(label, value) {
+  const node = document.createElement("span");
+  node.className = "surface-receipt__fact";
+  node.textContent = `${label}: ${value || "None"}`;
+  return node;
 }
 
 function createInspectBucket(bucket) {
@@ -7494,6 +8423,9 @@ function setBusy(value) {
   }
   if (logoutButtonEl) {
     logoutButtonEl.disabled = value;
+  }
+  if (inspectBrandButtonEl) {
+    inspectBrandButtonEl.disabled = value;
   }
   whiteboardToggleButtonEl.disabled = value;
   vantageToggleButtonEl.disabled = value;

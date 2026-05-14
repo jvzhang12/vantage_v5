@@ -1,6 +1,6 @@
 # `src/vantage_v5/config.py`
 
-Environment-backed configuration layer for Vantage V5. It centralizes repo/data paths, canonical-default paths, API credentials, host/port selection, deployment safety controls, optional Basic Auth, optional multi-user credential maps, workspace defaults, and Nexus include/exclude controls.
+Environment-backed configuration layer for Vantage V5. It centralizes repo/data paths, canonical-default paths, model provider/auth settings, host/port selection, deployment safety controls, optional Basic Auth, optional multi-user credential maps, workspace defaults, and Nexus include/exclude controls.
 
 ## Purpose
 
@@ -14,6 +14,11 @@ Environment-backed configuration layer for Vantage V5. It centralizes repo/data 
   - `repo_root`
   - `openai_api_key`
   - `model`
+  - `model_provider`
+  - `codex_auth_path`
+  - `codex_base_url`
+  - `calendar_events_path`
+  - `tasks_path`
   - `host`
   - `port`
   - `active_workspace`
@@ -24,6 +29,7 @@ Environment-backed configuration layer for Vantage V5. It centralizes repo/data 
   - `auth_username`
   - `auth_password`
   - `auth_users`
+  - `account_creation_code`
   - `allowed_hosts`
   - `allowed_origins`
   - `cookie_secure`
@@ -42,6 +48,7 @@ Environment-backed configuration layer for Vantage V5. It centralizes repo/data 
 - `pathlib.Path`
 - `dataclasses.dataclass`
 - `dotenv.load_dotenv`
+- `vantage_v5.services.model_client`
 
 ## Notable Behavior
 
@@ -49,8 +56,11 @@ Environment-backed configuration layer for Vantage V5. It centralizes repo/data 
 - Loads `.env` without overriding already-set environment variables.
 - Loads the package-root `.env` first, then an overridden `VANTAGE_V5_REPO_ROOT/.env` when `VANTAGE_V5_REPO_ROOT` points at a separate persistent data directory.
 - Defaults `VANTAGE_V5_CANONICAL_ROOT` to the package/source checkout's `canonical/` directory so Docker can keep shipped defaults in the image while user data lives under `/data`.
-- Defaults `VANTAGE_V5_MODEL` to `gpt-4.1`, `VANTAGE_V5_HOST` to `127.0.0.1`, and `VANTAGE_V5_PORT` to `8005`.
+- Defaults `VANTAGE_V5_MODEL_PROVIDER` to `codex_oauth`; the model default follows the provider (`gpt-5.5` for Codex OAuth, `gpt-4.1` for direct OpenAI API-key mode). Host and port still default to `127.0.0.1:8005`.
+- Reads `VANTAGE_V5_CALENDAR_EVENTS_FILE` as an optional local JSON event source for the read-only calendar backend; when unset, the server defaults to `state/calendar/events.json` under the repo root.
+- Reads `VANTAGE_V5_TASKS_FILE` as an optional local JSON task source for the read-only task focus backend; when unset, the server defaults to `state/tasks/tasks.json` under the repo root.
 - Reads `VANTAGE_V5_ACTIVE_WORKSPACE` first, but can infer it from `state/active_workspace.json` if unset.
 - Enables single shared HTTP Basic Auth when `VANTAGE_V5_AUTH_PASSWORD` is set, or multi-user profile auth when `VANTAGE_V5_AUTH_USERS_JSON` / `VANTAGE_V5_AUTH_USERS_FILE` is set; local development remains unauthenticated by default.
+- Reads `VANTAGE_V5_ACCOUNT_CREATION_CODE` as an optional invite-style code for account creation in hosted/profile deployments.
 - Reads deployment hardening settings for trusted hosts, allowed browser origins, secure cookies, and the explicit unsafe-public-no-auth override.
 - Parses `VANTAGE_V5_NEXUS_INCLUDE` and `VANTAGE_V5_NEXUS_EXCLUDE` as comma-separated allow/deny lists.

@@ -404,6 +404,29 @@ test("buildQuietActivityCopy prefers explicit activity and otherwise summarizes 
   );
 });
 
+test("buildQuietActivityCopy ignores unsafe explicit activity copy", () => {
+  assert.equal(
+    buildQuietActivityCopy({
+      activity: [
+        { message: "Provider debug JSON schema details." },
+        { label: "Memory Trace record created" },
+        { label: "Draft ready" },
+      ],
+    }),
+    "Draft ready",
+  );
+
+  assert.equal(
+    buildQuietActivityCopy({
+      activity: [
+        { message: "turn_interpretation reason copied from provider payload" },
+      ],
+      busy: true,
+    }),
+    "Vantage is interpreting the request and preparing context.",
+  );
+});
+
 test("describeLearnedScopeLabel distinguishes temporary and durable learned items", () => {
   assert.equal(
     describeLearnedScopeLabel({ scope: "experiment", durability: "temporary" }),
@@ -532,7 +555,7 @@ test("buildTurnAtAGlanceSummary keeps the first Vantage summary short and outcom
       hasGroundedContext: true,
       learnedCount: 1,
     }),
-    "This answer used 2 recalled items. Saved for Later: 1 item from this turn.",
+    "Inspect shows 2 recalled items in scope for this answer. Saved for Later: 1 item recorded after the answer.",
   );
 
   assert.equal(
@@ -549,7 +572,7 @@ test("buildTurnAtAGlanceSummary keeps the first Vantage summary short and outcom
       scenarioLabStatus: "failed",
       learnedCount: 1,
     }),
-    "Scenario Lab fell back to chat. Saved for Later: 1 item from this turn.",
+    "Scenario Lab fell back to chat. Saved for Later: 1 item recorded after the answer.",
   );
 
   assert.equal(
@@ -558,7 +581,7 @@ test("buildTurnAtAGlanceSummary keeps the first Vantage summary short and outcom
       hasGroundedContext: true,
       learnedCount: 0,
     }),
-    "Reusable protocol guidance shaped this answer.",
+    "Reusable protocol guidance was in scope for this answer.",
   );
 
   assert.equal(
@@ -567,7 +590,16 @@ test("buildTurnAtAGlanceSummary keeps the first Vantage summary short and outcom
       isBestGuess: true,
       learnedCount: 0,
     }),
-    "No recalled Vantage context was used. This answer came from the current request and general intuition.",
+    "No recalled Vantage context surfaced. This answer used the current request and general intuition.",
+  );
+
+  assert.equal(
+    buildTurnAtAGlanceSummary({
+      groundingLabel: "Intuitive Answer",
+      isBestGuess: true,
+      memoryTraceRecorded: true,
+    }),
+    "No recalled Vantage context surfaced. This answer used the current request and general intuition. Memory Trace was recorded after the answer for future continuity.",
   );
 });
 
@@ -676,7 +708,7 @@ test("buildMemoryTraceSummary explains trace-backed recall and the created trace
       traceNotes: [{ id: "trace-1" }, { id: "trace-2" }],
       memoryTraceRecord: { id: "turn-trace-3", scope: "durable" },
     }),
-    "Recent history contributed 2 recalled items to Recall. This turn also left a durable Memory Trace record.",
+    "Recent history contributed 2 recalled items to Recall. After the answer, Vantage recorded a durable Memory Trace record for future continuity.",
   );
 
   assert.equal(
@@ -684,7 +716,7 @@ test("buildMemoryTraceSummary explains trace-backed recall and the created trace
       traceNotes: [],
       memoryTraceRecord: { id: "turn-trace-4", scope: "experiment" },
     }),
-    "No recalled items came from recent history for this answer, but this turn still left an experiment-scoped Memory Trace record for future continuity.",
+    "No recalled items came from recent history for this answer. After the answer, Vantage recorded an experiment-scoped Memory Trace record for future continuity.",
   );
 });
 

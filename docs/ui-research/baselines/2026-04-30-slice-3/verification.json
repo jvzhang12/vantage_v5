@@ -1,0 +1,1592 @@
+[
+  {
+    "surface": "chat",
+    "viewport": {
+      "width": 390,
+      "height": 900
+    },
+    "documentWidth": 390,
+    "bodyWidth": 390,
+    "clientWidth": 390,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Chat is open",
+        "ariaPressed": "true",
+        "title": "Chat is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 47,
+          "y": 75.8125,
+          "width": 90.984375,
+          "height": 30.578125,
+          "top": 75.8125,
+          "right": 137.984375,
+          "bottom": 106.390625,
+          "left": 47
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Open Draft",
+        "ariaPressed": "false",
+        "title": "Open Draft",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 139.984375,
+          "y": 76.8125,
+          "width": 93.453125,
+          "height": 30.578125,
+          "top": 76.8125,
+          "right": 233.4375,
+          "bottom": 107.390625,
+          "left": 139.984375
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Open Inspect",
+        "ariaPressed": "false",
+        "title": "Open Inspect",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 235.4375,
+          "y": 76.8125,
+          "width": 107.5625,
+          "height": 30.578125,
+          "top": 76.8125,
+          "right": 343,
+          "bottom": 107.390625,
+          "left": 235.4375
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 43,
+          "y": 118.390625,
+          "width": 62.15625,
+          "height": 27.625,
+          "top": 118.390625,
+          "right": 105.15625,
+          "bottom": 146.015625,
+          "left": 43
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 113.15625,
+          "y": 118.390625,
+          "width": 66.9375,
+          "height": 27.625,
+          "top": 118.390625,
+          "right": 180.09375,
+          "bottom": 146.015625,
+          "left": 113.15625
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "draft",
+    "viewport": {
+      "width": 390,
+      "height": 900
+    },
+    "documentWidth": 390,
+    "bodyWidth": 390,
+    "clientWidth": 390,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Open Chat",
+        "ariaPressed": "false",
+        "title": "Open Chat",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 165,
+          "y": 27,
+          "width": 64,
+          "height": 30.203125,
+          "top": 27,
+          "right": 229,
+          "bottom": 57.203125,
+          "left": 165
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Draft is open",
+        "ariaPressed": "true",
+        "title": "Draft is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 231,
+          "y": 27,
+          "width": 64,
+          "height": 30.203125,
+          "top": 27,
+          "right": 295,
+          "bottom": 57.203125,
+          "left": 231
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Open Inspect",
+        "ariaPressed": "false",
+        "title": "Open Inspect",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 297,
+          "y": 27,
+          "width": 64,
+          "height": 30.203125,
+          "top": 27,
+          "right": 361,
+          "bottom": 57.203125,
+          "left": 297
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 161,
+          "y": 65.203125,
+          "width": 63.703125,
+          "height": 30.203125,
+          "top": 65.203125,
+          "right": 224.703125,
+          "bottom": 95.40625,
+          "left": 161
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 229.703125,
+          "y": 66.203125,
+          "width": 68.65625,
+          "height": 30.203125,
+          "top": 66.203125,
+          "right": 298.359375,
+          "bottom": 96.40625,
+          "left": 229.703125
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "inspect",
+    "viewport": {
+      "width": 390,
+      "height": 900
+    },
+    "documentWidth": 390,
+    "bodyWidth": 390,
+    "clientWidth": 390,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Open Chat",
+        "ariaPressed": "false",
+        "title": "Open Chat",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 47,
+          "y": 2203.1875,
+          "width": 90.984375,
+          "height": 30.578125,
+          "top": 2203.1875,
+          "right": 137.984375,
+          "bottom": 2233.765625,
+          "left": 47
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Open Draft",
+        "ariaPressed": "false",
+        "title": "Return to Draft",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 139.984375,
+          "y": 2203.1875,
+          "width": 93.453125,
+          "height": 30.578125,
+          "top": 2203.1875,
+          "right": 233.4375,
+          "bottom": 2233.765625,
+          "left": 139.984375
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Inspect is open",
+        "ariaPressed": "true",
+        "title": "Inspect is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 235.4375,
+          "y": 2203.1875,
+          "width": 107.5625,
+          "height": 30.578125,
+          "top": 2203.1875,
+          "right": 343,
+          "bottom": 2233.765625,
+          "left": 235.4375
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 43,
+          "y": 2244.765625,
+          "width": 62.15625,
+          "height": 27.625,
+          "top": 2244.765625,
+          "right": 105.15625,
+          "bottom": 2272.390625,
+          "left": 43
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 113.15625,
+          "y": 2244.765625,
+          "width": 66.9375,
+          "height": 27.625,
+          "top": 2244.765625,
+          "right": 180.09375,
+          "bottom": 2272.390625,
+          "left": 113.15625
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "chat",
+    "viewport": {
+      "width": 640,
+      "height": 900
+    },
+    "documentWidth": 640,
+    "bodyWidth": 640,
+    "clientWidth": 640,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Chat is open",
+        "ariaPressed": "true",
+        "title": "Chat is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 47,
+          "y": 75.8125,
+          "width": 174.328125,
+          "height": 30.578125,
+          "top": 75.8125,
+          "right": 221.328125,
+          "bottom": 106.390625,
+          "left": 47
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Open Draft",
+        "ariaPressed": "false",
+        "title": "Open Draft",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 223.328125,
+          "y": 76.8125,
+          "width": 176.78125,
+          "height": 30.578125,
+          "top": 76.8125,
+          "right": 400.109375,
+          "bottom": 107.390625,
+          "left": 223.328125
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Open Inspect",
+        "ariaPressed": "false",
+        "title": "Open Inspect",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 402.109375,
+          "y": 76.8125,
+          "width": 190.890625,
+          "height": 30.578125,
+          "top": 76.8125,
+          "right": 593,
+          "bottom": 107.390625,
+          "left": 402.109375
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 43,
+          "y": 118.390625,
+          "width": 62.15625,
+          "height": 27.625,
+          "top": 118.390625,
+          "right": 105.15625,
+          "bottom": 146.015625,
+          "left": 43
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 113.15625,
+          "y": 118.390625,
+          "width": 66.9375,
+          "height": 27.625,
+          "top": 118.390625,
+          "right": 180.09375,
+          "bottom": 146.015625,
+          "left": 113.15625
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "draft",
+    "viewport": {
+      "width": 640,
+      "height": 900
+    },
+    "documentWidth": 640,
+    "bodyWidth": 640,
+    "clientWidth": 640,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Open Chat",
+        "ariaPressed": "false",
+        "title": "Open Chat",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 272.640625,
+          "y": 27,
+          "width": 64,
+          "height": 30.203125,
+          "top": 27,
+          "right": 336.640625,
+          "bottom": 57.203125,
+          "left": 272.640625
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Draft is open",
+        "ariaPressed": "true",
+        "title": "Draft is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 338.640625,
+          "y": 27,
+          "width": 64,
+          "height": 30.203125,
+          "top": 27,
+          "right": 402.640625,
+          "bottom": 57.203125,
+          "left": 338.640625
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Open Inspect",
+        "ariaPressed": "false",
+        "title": "Open Inspect",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 404.640625,
+          "y": 27,
+          "width": 64,
+          "height": 30.203125,
+          "top": 27,
+          "right": 468.640625,
+          "bottom": 57.203125,
+          "left": 404.640625
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 477.640625,
+          "y": 27,
+          "width": 63.703125,
+          "height": 30.203125,
+          "top": 27,
+          "right": 541.34375,
+          "bottom": 57.203125,
+          "left": 477.640625
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 546.34375,
+          "y": 27,
+          "width": 68.65625,
+          "height": 30.203125,
+          "top": 27,
+          "right": 615,
+          "bottom": 57.203125,
+          "left": 546.34375
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "inspect",
+    "viewport": {
+      "width": 640,
+      "height": 900
+    },
+    "documentWidth": 640,
+    "bodyWidth": 640,
+    "clientWidth": 640,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Open Chat",
+        "ariaPressed": "false",
+        "title": "Open Chat",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 47,
+          "y": 1784.953125,
+          "width": 174.328125,
+          "height": 30.578125,
+          "top": 1784.953125,
+          "right": 221.328125,
+          "bottom": 1815.53125,
+          "left": 47
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Open Draft",
+        "ariaPressed": "false",
+        "title": "Return to Draft",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 223.328125,
+          "y": 1784.953125,
+          "width": 176.78125,
+          "height": 30.578125,
+          "top": 1784.953125,
+          "right": 400.109375,
+          "bottom": 1815.53125,
+          "left": 223.328125
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Inspect is open",
+        "ariaPressed": "true",
+        "title": "Inspect is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 402.109375,
+          "y": 1784.953125,
+          "width": 190.890625,
+          "height": 30.578125,
+          "top": 1784.953125,
+          "right": 593,
+          "bottom": 1815.53125,
+          "left": 402.109375
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 43,
+          "y": 1826.53125,
+          "width": 62.15625,
+          "height": 27.625,
+          "top": 1826.53125,
+          "right": 105.15625,
+          "bottom": 1854.15625,
+          "left": 43
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 113.15625,
+          "y": 1826.53125,
+          "width": 66.9375,
+          "height": 27.625,
+          "top": 1826.53125,
+          "right": 180.09375,
+          "bottom": 1854.15625,
+          "left": 113.15625
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "chat",
+    "viewport": {
+      "width": 768,
+      "height": 900
+    },
+    "documentWidth": 768,
+    "bodyWidth": 768,
+    "clientWidth": 768,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Chat is open",
+        "ariaPressed": "true",
+        "title": "Chat is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 63,
+          "y": 91.8125,
+          "width": 64,
+          "height": 30.578125,
+          "top": 91.8125,
+          "right": 127,
+          "bottom": 122.390625,
+          "left": 63
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Open Draft",
+        "ariaPressed": "false",
+        "title": "Open Draft",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 129,
+          "y": 92.8125,
+          "width": 64,
+          "height": 30.578125,
+          "top": 92.8125,
+          "right": 193,
+          "bottom": 123.390625,
+          "left": 129
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Open Inspect",
+        "ariaPressed": "false",
+        "title": "Open Inspect",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 195,
+          "y": 92.8125,
+          "width": 67.03125,
+          "height": 30.578125,
+          "top": 92.8125,
+          "right": 262.03125,
+          "bottom": 123.390625,
+          "left": 195
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 59,
+          "y": 134.390625,
+          "width": 62.15625,
+          "height": 27.625,
+          "top": 134.390625,
+          "right": 121.15625,
+          "bottom": 162.015625,
+          "left": 59
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 129.15625,
+          "y": 134.390625,
+          "width": 66.9375,
+          "height": 27.625,
+          "top": 134.390625,
+          "right": 196.09375,
+          "bottom": 162.015625,
+          "left": 129.15625
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "draft",
+    "viewport": {
+      "width": 768,
+      "height": 900
+    },
+    "documentWidth": 768,
+    "bodyWidth": 768,
+    "clientWidth": 768,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Open Chat",
+        "ariaPressed": "false",
+        "title": "Open Chat",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 400.640625,
+          "y": 29,
+          "width": 64,
+          "height": 30.203125,
+          "top": 29,
+          "right": 464.640625,
+          "bottom": 59.203125,
+          "left": 400.640625
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Draft is open",
+        "ariaPressed": "true",
+        "title": "Draft is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 466.640625,
+          "y": 29,
+          "width": 64,
+          "height": 30.203125,
+          "top": 29,
+          "right": 530.640625,
+          "bottom": 59.203125,
+          "left": 466.640625
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Open Inspect",
+        "ariaPressed": "false",
+        "title": "Open Inspect",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 532.640625,
+          "y": 29,
+          "width": 64,
+          "height": 30.203125,
+          "top": 29,
+          "right": 596.640625,
+          "bottom": 59.203125,
+          "left": 532.640625
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 605.640625,
+          "y": 29,
+          "width": 63.703125,
+          "height": 30.203125,
+          "top": 29,
+          "right": 669.34375,
+          "bottom": 59.203125,
+          "left": 605.640625
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 674.34375,
+          "y": 29,
+          "width": 68.65625,
+          "height": 30.203125,
+          "top": 29,
+          "right": 743,
+          "bottom": 59.203125,
+          "left": 674.34375
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "inspect",
+    "viewport": {
+      "width": 768,
+      "height": 900
+    },
+    "documentWidth": 768,
+    "bodyWidth": 768,
+    "clientWidth": 768,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Open Chat",
+        "ariaPressed": "false",
+        "title": "Open Chat",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 63,
+          "y": 1785.234375,
+          "width": 64,
+          "height": 30.578125,
+          "top": 1785.234375,
+          "right": 127,
+          "bottom": 1815.8125,
+          "left": 63
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Open Draft",
+        "ariaPressed": "false",
+        "title": "Return to Draft",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 129,
+          "y": 1785.234375,
+          "width": 64,
+          "height": 30.578125,
+          "top": 1785.234375,
+          "right": 193,
+          "bottom": 1815.8125,
+          "left": 129
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Inspect is open",
+        "ariaPressed": "true",
+        "title": "Inspect is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 195,
+          "y": 1785.234375,
+          "width": 67.03125,
+          "height": 30.578125,
+          "top": 1785.234375,
+          "right": 262.03125,
+          "bottom": 1815.8125,
+          "left": 195
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 59,
+          "y": 1826.8125,
+          "width": 62.15625,
+          "height": 27.625,
+          "top": 1826.8125,
+          "right": 121.15625,
+          "bottom": 1854.4375,
+          "left": 59
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 129.15625,
+          "y": 1826.8125,
+          "width": 66.9375,
+          "height": 27.625,
+          "top": 1826.8125,
+          "right": 196.09375,
+          "bottom": 1854.4375,
+          "left": 129.15625
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "chat",
+    "viewport": {
+      "width": 1024,
+      "height": 900
+    },
+    "documentWidth": 1024,
+    "bodyWidth": 1024,
+    "clientWidth": 1024,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Chat is open",
+        "ariaPressed": "true",
+        "title": "Chat is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 63,
+          "y": 91.8125,
+          "width": 64,
+          "height": 30.578125,
+          "top": 91.8125,
+          "right": 127,
+          "bottom": 122.390625,
+          "left": 63
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Open Draft",
+        "ariaPressed": "false",
+        "title": "Open Draft",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 129,
+          "y": 92.8125,
+          "width": 64,
+          "height": 30.578125,
+          "top": 92.8125,
+          "right": 193,
+          "bottom": 123.390625,
+          "left": 129
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Open Inspect",
+        "ariaPressed": "false",
+        "title": "Open Inspect",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 195,
+          "y": 92.8125,
+          "width": 67.03125,
+          "height": 30.578125,
+          "top": 92.8125,
+          "right": 262.03125,
+          "bottom": 123.390625,
+          "left": 195
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 59,
+          "y": 134.390625,
+          "width": 62.15625,
+          "height": 27.625,
+          "top": 134.390625,
+          "right": 121.15625,
+          "bottom": 162.015625,
+          "left": 59
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 129.15625,
+          "y": 134.390625,
+          "width": 66.9375,
+          "height": 27.625,
+          "top": 134.390625,
+          "right": 196.09375,
+          "bottom": 162.015625,
+          "left": 129.15625
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "draft",
+    "viewport": {
+      "width": 1024,
+      "height": 900
+    },
+    "documentWidth": 1024,
+    "bodyWidth": 1024,
+    "clientWidth": 1024,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Open Chat",
+        "ariaPressed": "false",
+        "title": "Open Chat",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 27,
+          "y": 33,
+          "width": 64,
+          "height": 30.203125,
+          "top": 33,
+          "right": 91,
+          "bottom": 63.203125,
+          "left": 27
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Draft is open",
+        "ariaPressed": "true",
+        "title": "Draft is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 93,
+          "y": 33,
+          "width": 64,
+          "height": 30.203125,
+          "top": 33,
+          "right": 157,
+          "bottom": 63.203125,
+          "left": 93
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Open Inspect",
+        "ariaPressed": "false",
+        "title": "Open Inspect",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 159,
+          "y": 33,
+          "width": 64,
+          "height": 30.203125,
+          "top": 33,
+          "right": 223,
+          "bottom": 63.203125,
+          "left": 159
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 23,
+          "y": 72.203125,
+          "width": 63.703125,
+          "height": 30.203125,
+          "top": 72.203125,
+          "right": 86.703125,
+          "bottom": 102.40625,
+          "left": 23
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 91.703125,
+          "y": 72.203125,
+          "width": 68.65625,
+          "height": 30.203125,
+          "top": 72.203125,
+          "right": 160.359375,
+          "bottom": 102.40625,
+          "left": 91.703125
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "inspect",
+    "viewport": {
+      "width": 1024,
+      "height": 900
+    },
+    "documentWidth": 1024,
+    "bodyWidth": 1024,
+    "clientWidth": 1024,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Open Chat",
+        "ariaPressed": "false",
+        "title": "Open Chat",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 63,
+          "y": 92.8125,
+          "width": 64,
+          "height": 30.578125,
+          "top": 92.8125,
+          "right": 127,
+          "bottom": 123.390625,
+          "left": 63
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Open Draft",
+        "ariaPressed": "false",
+        "title": "Return to Draft",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 129,
+          "y": 92.8125,
+          "width": 64,
+          "height": 30.578125,
+          "top": 92.8125,
+          "right": 193,
+          "bottom": 123.390625,
+          "left": 129
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Inspect is open",
+        "ariaPressed": "true",
+        "title": "Inspect is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 195,
+          "y": 92.8125,
+          "width": 67.03125,
+          "height": 30.578125,
+          "top": 92.8125,
+          "right": 262.03125,
+          "bottom": 123.390625,
+          "left": 195
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 59,
+          "y": 134.390625,
+          "width": 62.15625,
+          "height": 27.625,
+          "top": 134.390625,
+          "right": 121.15625,
+          "bottom": 162.015625,
+          "left": 59
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 129.15625,
+          "y": 134.390625,
+          "width": 66.9375,
+          "height": 27.625,
+          "top": 134.390625,
+          "right": 196.09375,
+          "bottom": 162.015625,
+          "left": 129.15625
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "chat",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "documentWidth": 1440,
+    "bodyWidth": 1440,
+    "clientWidth": 1440,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Chat is open",
+        "ariaPressed": "true",
+        "title": "Chat is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 1177.96875,
+          "y": 52,
+          "width": 64,
+          "height": 30.578125,
+          "top": 52,
+          "right": 1241.96875,
+          "bottom": 82.578125,
+          "left": 1177.96875
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Open Draft",
+        "ariaPressed": "false",
+        "title": "Open Draft",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 1243.96875,
+          "y": 53,
+          "width": 64,
+          "height": 30.578125,
+          "top": 53,
+          "right": 1307.96875,
+          "bottom": 83.578125,
+          "left": 1243.96875
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Open Inspect",
+        "ariaPressed": "false",
+        "title": "Open Inspect",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 1309.96875,
+          "y": 53,
+          "width": 67.03125,
+          "height": 30.578125,
+          "top": 53,
+          "right": 1377,
+          "bottom": 83.578125,
+          "left": 1309.96875
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 1243.90625,
+          "y": 94.578125,
+          "width": 62.15625,
+          "height": 27.625,
+          "top": 94.578125,
+          "right": 1306.0625,
+          "bottom": 122.203125,
+          "left": 1243.90625
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 1314.0625,
+          "y": 94.578125,
+          "width": 66.9375,
+          "height": 27.625,
+          "top": 94.578125,
+          "right": 1381,
+          "bottom": 122.203125,
+          "left": 1314.0625
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "draft",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "documentWidth": 1440,
+    "bodyWidth": 1440,
+    "clientWidth": 1440,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Open Chat",
+        "ariaPressed": "false",
+        "title": "Open Chat",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 141,
+          "y": 27,
+          "width": 64,
+          "height": 30.203125,
+          "top": 27,
+          "right": 205,
+          "bottom": 57.203125,
+          "left": 141
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Draft is open",
+        "ariaPressed": "true",
+        "title": "Draft is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 207,
+          "y": 27,
+          "width": 64,
+          "height": 30.203125,
+          "top": 27,
+          "right": 271,
+          "bottom": 57.203125,
+          "left": 207
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Open Inspect",
+        "ariaPressed": "false",
+        "title": "Open Inspect",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 273,
+          "y": 27,
+          "width": 64,
+          "height": 30.203125,
+          "top": 27,
+          "right": 337,
+          "bottom": 57.203125,
+          "left": 273
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 137,
+          "y": 66.203125,
+          "width": 63.703125,
+          "height": 30.203125,
+          "top": 66.203125,
+          "right": 200.703125,
+          "bottom": 96.40625,
+          "left": 137
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 205.703125,
+          "y": 66.203125,
+          "width": 68.65625,
+          "height": 30.203125,
+          "top": 66.203125,
+          "right": 274.359375,
+          "bottom": 96.40625,
+          "left": 205.703125
+        }
+      }
+    ],
+    "overflowingText": []
+  },
+  {
+    "surface": "inspect",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "documentWidth": 1440,
+    "bodyWidth": 1440,
+    "clientWidth": 1440,
+    "horizontalOverflow": false,
+    "activeSurfaceValid": true,
+    "buttons": [
+      {
+        "id": "chatSurfaceButton",
+        "text": "Chat",
+        "ariaLabel": "Open Chat",
+        "ariaPressed": "false",
+        "title": "Open Chat",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 485.515625,
+          "y": 53,
+          "width": 64,
+          "height": 30.578125,
+          "top": 53,
+          "right": 549.515625,
+          "bottom": 83.578125,
+          "left": 485.515625
+        }
+      },
+      {
+        "id": "whiteboardToggleButton",
+        "text": "Draft",
+        "ariaLabel": "Open Draft",
+        "ariaPressed": "false",
+        "title": "Return to Draft",
+        "active": false,
+        "hidden": false,
+        "rect": {
+          "x": 551.515625,
+          "y": 53,
+          "width": 64,
+          "height": 30.578125,
+          "top": 53,
+          "right": 615.515625,
+          "bottom": 83.578125,
+          "left": 551.515625
+        }
+      },
+      {
+        "id": "vantageToggleButton",
+        "text": "Inspect",
+        "ariaLabel": "Inspect is open",
+        "ariaPressed": "true",
+        "title": "Inspect is open",
+        "active": true,
+        "hidden": false,
+        "rect": {
+          "x": 617.515625,
+          "y": 53,
+          "width": 67.03125,
+          "height": 30.578125,
+          "top": 53,
+          "right": 684.546875,
+          "bottom": 83.578125,
+          "left": 617.515625
+        }
+      }
+    ],
+    "utilityButtons": [
+      {
+        "id": "apiKeyButton",
+        "text": "API key",
+        "ariaLabel": "Open API key settings",
+        "title": "Using environment key (sk-p...xUMA). Open API key settings.",
+        "rect": {
+          "x": 551.453125,
+          "y": 94.578125,
+          "width": 62.15625,
+          "height": 27.625,
+          "top": 94.578125,
+          "right": 613.609375,
+          "bottom": 122.203125,
+          "left": 551.453125
+        }
+      },
+      {
+        "id": "logoutButton",
+        "text": "Sign out",
+        "ariaLabel": "Sign out",
+        "title": "Sign out",
+        "rect": {
+          "x": 621.609375,
+          "y": 94.578125,
+          "width": 66.9375,
+          "height": 27.625,
+          "top": 94.578125,
+          "right": 688.546875,
+          "bottom": 122.203125,
+          "left": 621.609375
+        }
+      }
+    ],
+    "overflowingText": []
+  }
+]

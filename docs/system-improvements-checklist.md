@@ -63,6 +63,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 
 ## Frontend Experience
 
+- [ ] Track the active UI polish pass in [ui-research/frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md).
 - [ ] Continue consolidating surface state across Chat, Whiteboard, and Vantage.
 - [ ] Reduce surprising layout changes.
 - [ ] Keep compact evidence visible in chat without turning chat into an inspection panel.

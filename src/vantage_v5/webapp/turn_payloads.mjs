@@ -674,6 +674,9 @@ export function normalizeTurnPayload(payload) {
     turnStage: normalizeTurnStage(normalizedPayload.turn_stage || normalizedPayload.turnStage),
     stageProgress: normalizeStageProgress(normalizedPayload.stage_progress || normalizedPayload.stageProgress),
     stageAudit: normalizeStageAudit(normalizedPayload.stage_audit || normalizedPayload.stageAudit),
+    surfaceInvocation: normalizeSurfaceInvocation(normalizedPayload.surface_invocation || normalizedPayload.surfaceInvocation),
+    surfacePayloads: normalizeSurfacePayloads(normalizedPayload.surface_payloads || normalizedPayload.surfacePayloads),
+    activeSurfaceId: String(normalizedPayload.active_surface_id || normalizedPayload.activeSurfaceId || "").trim() || null,
     workspaceUpdate: normalizeWorkspaceUpdate(normalizedPayload.workspace_update, normalizedPayload.workspace),
     workspaceContextScope,
     pinnedContextId: normalizedPayload.pinned_context_id || normalizedPayload.pinnedContextId || normalizedPayload.selected_record_id || normalizedPayload.selectedRecordId || null,
@@ -681,6 +684,73 @@ export function normalizeTurnPayload(payload) {
     selectedRecordId: normalizedPayload.selected_record_id || normalizedPayload.selectedRecordId || normalizedPayload.pinned_context_id || normalizedPayload.pinnedContextId || null,
     selectedRecord: pinnedContext,
   };
+}
+
+export function normalizeSurfaceInvocation(surfaceInvocation = null) {
+  if (!surfaceInvocation || typeof surfaceInvocation !== "object" || Array.isArray(surfaceInvocation)) {
+    return null;
+  }
+  const primarySurface = normalizeSemanticToken(surfaceInvocation.primary_surface || surfaceInvocation.primarySurface, "chat");
+  const supportingSurfaces = Array.isArray(surfaceInvocation.supporting_surfaces || surfaceInvocation.supportingSurfaces)
+    ? (surfaceInvocation.supporting_surfaces || surfaceInvocation.supportingSurfaces)
+      .map((surface) => normalizeSemanticToken(surface, ""))
+      .filter(Boolean)
+    : [];
+  const surfaces = Array.isArray(surfaceInvocation.surfaces)
+    ? surfaceInvocation.surfaces
+      .filter((surface) => surface && typeof surface === "object")
+      .map((surface) => ({
+        kind: normalizeSemanticToken(surface.kind, ""),
+        role: normalizeSemanticToken(surface.role, ""),
+        reason: normalizeSemanticDisplayText(surface.reason || ""),
+        status: normalizeSemanticToken(surface.status, ""),
+      }))
+      .filter((surface) => surface.kind)
+    : [];
+  const confidence = Number(surfaceInvocation.confidence);
+  return {
+    ...surfaceInvocation,
+    intent: normalizeSemanticToken(surfaceInvocation.intent, "general_chat"),
+    primarySurface,
+    primary_surface: primarySurface,
+    supportingSurfaces,
+    supporting_surfaces: supportingSurfaces,
+    surfaces,
+    writeBehavior: normalizeSemanticToken(surfaceInvocation.write_behavior || surfaceInvocation.writeBehavior, "none"),
+    write_behavior: normalizeSemanticToken(surfaceInvocation.write_behavior || surfaceInvocation.writeBehavior, "none"),
+    reason: normalizeSemanticDisplayText(surfaceInvocation.reason || ""),
+    confidence: Number.isFinite(confidence) ? confidence : null,
+    trigger: normalizeSemanticToken(surfaceInvocation.trigger, ""),
+    policyVersion: String(surfaceInvocation.policy_version || surfaceInvocation.policyVersion || "").trim(),
+    policy_version: String(surfaceInvocation.policy_version || surfaceInvocation.policyVersion || "").trim(),
+  };
+}
+
+export function normalizeSurfacePayloads(surfacePayloads = []) {
+  const source = Array.isArray(surfacePayloads) ? surfacePayloads : [];
+  return source
+    .filter((surface) => surface && typeof surface === "object")
+    .map((surface) => {
+      const id = String(surface.id || "").trim();
+      const kind = normalizeSemanticToken(surface.kind, "");
+      if (!id || !kind) {
+        return null;
+      }
+      const sourceRefs = Array.isArray(surface.source_refs || surface.sourceRefs)
+        ? (surface.source_refs || surface.sourceRefs).filter((ref) => ref && typeof ref === "object")
+        : [];
+      return {
+        ...surface,
+        id,
+        kind,
+        title: normalizeSemanticDisplayText(surface.title || humanizeSemanticToken(kind)),
+        summary: normalizeSemanticDisplayText(surface.summary || ""),
+        sourceRefs,
+        source_refs: sourceRefs,
+        data: surface.data && typeof surface.data === "object" ? surface.data : {},
+      };
+    })
+    .filter(Boolean);
 }
 
 export function normalizeProtocolMetadata(item) {
@@ -1964,6 +2034,14 @@ export function normalizeSemanticPolicy(policy, semanticFrame = null) {
 
 function normalizeSemanticDisplayText(value) {
   return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function humanizeSemanticToken(value) {
+  return String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 function normalizeSemanticStringList(value) {

@@ -33,9 +33,10 @@ RULES = (
         summary_root=REPO_ROOT / "docs" / "codebase" / "webapp",
         source_roots=(
             REPO_ROOT / "src" / "vantage_v5" / "webapp",
+            REPO_ROOT / "src" / "vantage_v5" / "webapp_react",
             REPO_ROOT / "tests",
         ),
-        suffixes=(".js", ".mjs", ".html", ".css"),
+        suffixes=(".js", ".mjs", ".html", ".css", ".ts", ".tsx"),
         exact_suffixes=(".test.mjs",),
     ),
 )
@@ -49,6 +50,10 @@ REQUIRED_GUIDES = (
 
 def _is_relevant_source(path: Path, rule: SummaryRule) -> bool:
     if "__pycache__" in path.parts:
+        return False
+    if "node_modules" in path.parts:
+        return False
+    if "generated" in path.parts and "webapp" in path.parts:
         return False
     if path.suffix == ".pyc":
         return False

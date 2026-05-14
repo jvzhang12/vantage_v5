@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,6 +23,15 @@ WHITEBOARD_TYPE_TO_STATUS = {
     "draft_whiteboard": "draft_ready",
 }
 WHITEBOARD_STATUS_TO_TYPE = {status: kind for kind, status in WHITEBOARD_TYPE_TO_STATUS.items()}
+UNSAFE_ACTIVITY_TEXT_PATTERN = re.compile(
+    r"\b("
+    r"memory\s+trace|debug(?:ging)?|provider|json\s+schema|turn[_\s-]?interpretation|"
+    r"chain[-\s]?of[-\s]?thought|scratchpad|system\s+prompt|developer\s+message|"
+    r"raw\s+provider|stack\s+trace|traceback|hidden\s+context|openai|"
+    r"gpt[-_\s]?\d|o[1345](?:[-_\s]?(?:mini|preview|pro))?"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +64,7 @@ class TurnResultParts:
     turn_stage: TurnStage | dict[str, Any] | None = None
     stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
     stage_audit: StageAuditResult | dict[str, Any] | None = None
+    surface_invocation: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +80,7 @@ class LocalTurnContext:
     pinned_context_id: str | None
     pinned_context: dict[str, Any] | None
     experiment: dict[str, Any]
+    surface_invocation: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +104,7 @@ class ScenarioLabFallbackParts:
     turn_stage: TurnStage | dict[str, Any] | None = None
     stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
     stage_audit: StageAuditResult | dict[str, Any] | None = None
+    surface_invocation: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +123,7 @@ class ServiceTurnPayloadParts:
     turn_stage: TurnStage | dict[str, Any] | None = None
     stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
     stage_audit: StageAuditResult | dict[str, Any] | None = None
+    surface_invocation: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +156,7 @@ class ChatTurnBodyParts:
     turn_stage: TurnStage | dict[str, Any] | None = None
     stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
     stage_audit: StageAuditResult | dict[str, Any] | None = None
+    visible_artifacts: list[dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +186,7 @@ class ScenarioLabTurnBodyParts:
     turn_stage: TurnStage | dict[str, Any] | None = None
     stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
     stage_audit: StageAuditResult | dict[str, Any] | None = None
+    visible_artifacts: list[dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +196,7 @@ class TurnInterpretationParts:
     resolved_whiteboard_mode: str
     whiteboard_entry_mode: str | None
     explicit_whiteboard_draft_request: bool
+    whiteboard_mode_source: str | None = None
 
 
 def assemble_turn_interpretation_payload(parts: TurnInterpretationParts) -> dict[str, Any]:
@@ -196,7 +213,8 @@ def assemble_turn_interpretation_payload(parts: TurnInterpretationParts) -> dict
         "reason": parts.navigation.reason,
         "requested_whiteboard_mode": requested_mode,
         "resolved_whiteboard_mode": parts.resolved_whiteboard_mode if parts.navigation.mode == "chat" else None,
-        "whiteboard_mode_source": _whiteboard_mode_source(
+        "whiteboard_mode_source": parts.whiteboard_mode_source
+        or _whiteboard_mode_source(
             requested_mode,
             parts.navigation,
             parts.resolved_whiteboard_mode,
@@ -247,6 +265,7 @@ def build_local_turn_parts(
         turn_stage=turn_stage,
         stage_progress=stage_progress,
         stage_audit=stage_audit,
+        surface_invocation=context.surface_invocation,
     )
 
 
@@ -298,6 +317,7 @@ def assemble_local_turn_payload(
             "turn_interpretation": _turn_interpretation_payload(parts.turn_interpretation),
             "semantic_frame": parts.semantic_frame,
             "semantic_policy": parts.semantic_policy,
+            "surface_invocation": parts.surface_invocation,
             "experiment": parts.experiment,
             "turn_stage": parts.turn_stage or parts.turn_body.turn_stage,
             "stage_progress": parts.stage_progress or parts.turn_body.stage_progress,
@@ -320,6 +340,7 @@ def assemble_service_turn_payload(
     payload["turn_interpretation"] = _turn_interpretation_payload(parts.turn_interpretation)
     payload["semantic_frame"] = parts.semantic_frame
     payload["semantic_policy"] = parts.semantic_policy
+    payload["surface_invocation"] = parts.surface_invocation
     payload["workspace"] = assemble_workspace_payload_for_turn(
         payload.get("workspace"),
         workspace=parts.workspace,
@@ -354,6 +375,7 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
             "content": parts.workspace_content,
         },
         "workspace_update": parts.workspace_update,
+        "visible_artifacts": parts.visible_artifacts or [],
         "memory": selected_memory,
         "selected_memory": selected_memory,
         "candidate_memory": candidate_memory,
@@ -430,6 +452,7 @@ def assemble_scenario_lab_turn_body(parts: ScenarioLabTurnBodyParts) -> dict[str
         "turn_stage": parts.turn_stage,
         "stage_progress": parts.stage_progress or [],
         "stage_audit": parts.stage_audit,
+        "visible_artifacts": parts.visible_artifacts or [],
         "scenario_lab": {
             "navigator": parts.navigator,
             "question": parts.comparison_question,
@@ -473,6 +496,7 @@ def assemble_scenario_lab_fallback_payload(
     payload["turn_interpretation"] = _turn_interpretation_payload(parts.turn_interpretation)
     payload["semantic_frame"] = parts.semantic_frame
     payload["semantic_policy"] = parts.semantic_policy
+    payload["surface_invocation"] = parts.surface_invocation
     payload["workspace"] = assemble_workspace_payload_for_turn(
         payload.get("workspace"),
         workspace=parts.workspace,
@@ -616,7 +640,16 @@ def safe_system_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
     workspace = payload.get("workspace") if isinstance(payload.get("workspace"), dict) else {}
     return {
         "mode": payload.get("mode"),
-        "available_surfaces": ["chat", "draft", "inspect", "scenario_lab"],
+        "available_surfaces": [
+            "chat",
+            "draft",
+            "inspect",
+            "scenario_lab",
+            "calendar_day",
+            "calendar_week",
+            "task_focus",
+            "code_artifact",
+        ],
         "available_controls": [
             "respond",
             "recall",
@@ -644,6 +677,7 @@ def safe_system_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "pinned_context": _safe_context_reference(payload.get("pinned_context")),
         "selected_record": _safe_context_reference(payload.get("selected_record")),
         "pending_workspace_update": _safe_pending_workspace_reference(payload.get("workspace_update")),
+        "surface_invocation": _safe_surface_invocation_reference(payload.get("surface_invocation")),
     }
 
 
@@ -653,22 +687,44 @@ def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
     scenario_lab = payload.get("scenario_lab") if isinstance(payload.get("scenario_lab"), dict) else {}
     response_mode = payload.get("response_mode") if isinstance(payload.get("response_mode"), dict) else {}
     answer_basis = payload.get("answer_basis") if isinstance(payload.get("answer_basis"), dict) else {}
-    summary = (
-        str(graph_action.get("summary") or "").strip()
-        or str(workspace_update.get("summary") or "").strip()
-        or str(scenario_lab.get("summary") or "").strip()
-        or _single_line(payload.get("assistant_message") or "")[:180]
-    )
+    surface_invocation = payload.get("surface_invocation") if isinstance(payload.get("surface_invocation"), dict) else {}
     mode = _activity_kind(payload)
+    summary = _first_safe_activity_summary(
+        [
+            graph_action.get("summary"),
+            workspace_update.get("summary"),
+            scenario_lab.get("summary"),
+            payload.get("assistant_message"),
+        ],
+        fallback=_activity_default_summary(mode, workspace_update=workspace_update, scenario_lab=scenario_lab),
+    )
     recall_count = response_mode.get("recall_count", len(payload.get("working_memory") or []))
-    context_summary = _activity_context_summary(answer_basis, recall_count=recall_count)
+    context_summary = _safe_activity_summary(
+        _activity_context_summary(answer_basis, recall_count=recall_count),
+        "Context prepared.",
+    )
     steps = [
         {
             "id": "interpret",
             "label": "Interpreted request",
             "status": "completed",
-            "summary": _single_line((payload.get("turn_interpretation") or {}).get("reason") or ""),
+            "summary": _activity_interpretation_summary(mode),
         },
+        *(
+            [
+                {
+                    "id": "surface_invocation",
+                    "label": "Selected surfaces",
+                    "status": "completed",
+                    "summary": _safe_activity_summary(
+                        surface_invocation.get("reason"),
+                        "Surface selection prepared.",
+                    ),
+                }
+            ]
+            if surface_invocation and surface_invocation.get("primary_surface") != "chat"
+            else []
+        ),
         {
             "id": "context",
             "label": "Prepared context",
@@ -691,7 +747,7 @@ def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "id": "draft",
                 "label": "Prepared draft",
                 "status": "completed",
-                "summary": str(workspace_update.get("summary") or "").strip(),
+                "summary": _safe_activity_summary(workspace_update.get("summary"), "Draft ready."),
             }
         )
     else:
@@ -725,7 +781,57 @@ def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
         else None,
         "graph_action_type": graph_action.get("type"),
         "workspace_update_status": workspace_update.get("status"),
+        "surface_invocation": _safe_surface_invocation_reference(surface_invocation),
     }
+
+
+def _first_safe_activity_summary(values: list[Any], *, fallback: str) -> str:
+    for value in values:
+        summary = _safe_activity_summary(value)
+        if summary:
+            return summary
+    return fallback
+
+
+def _safe_activity_summary(value: Any, fallback: str = "", *, max_length: int = 180) -> str:
+    summary = _single_line(value)
+    if not summary or UNSAFE_ACTIVITY_TEXT_PATTERN.search(summary):
+        return fallback
+    if len(summary) > max_length:
+        return summary[:max_length].rstrip()
+    return summary
+
+
+def _activity_interpretation_summary(mode: str) -> str:
+    if mode == "scenario_lab":
+        return "Scenario Lab path selected."
+    if mode == "whiteboard":
+        return "Draft path selected."
+    if mode == "clarification":
+        return "Clarifying path selected."
+    if mode == "local_action":
+        return "Local action selected."
+    return "Request path selected."
+
+
+def _activity_default_summary(
+    mode: str,
+    *,
+    workspace_update: dict[str, Any],
+    scenario_lab: dict[str, Any],
+) -> str:
+    if mode == "scenario_lab":
+        return "Scenario Lab returned to chat." if scenario_lab.get("status") == "failed" else "Scenario Lab result ready."
+    if mode == "whiteboard":
+        status = str(workspace_update.get("status") or "").strip().lower()
+        if status == "offered":
+            return "Draft offered."
+        return "Draft ready."
+    if mode == "clarification":
+        return "Clarifying question ready."
+    if mode == "local_action":
+        return "Action completed."
+    return "Response ready."
 
 
 def _activity_context_summary(answer_basis: dict[str, Any], *, recall_count: Any) -> str:
@@ -794,6 +900,21 @@ def _safe_pending_workspace_reference(value: Any) -> dict[str, Any] | None:
         "workspace_id": value.get("workspace_id"),
         "title": value.get("title"),
         "proposal_kind": value.get("proposal_kind"),
+    }
+
+
+def _safe_surface_invocation_reference(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "intent": value.get("intent"),
+        "primary_surface": value.get("primary_surface"),
+        "supporting_surfaces": value.get("supporting_surfaces") if isinstance(value.get("supporting_surfaces"), list) else [],
+        "write_behavior": value.get("write_behavior"),
+        "reason": value.get("reason"),
+        "confidence": value.get("confidence"),
+        "whiteboard_mode": value.get("whiteboard_mode"),
+        "resolved_whiteboard_mode": value.get("resolved_whiteboard_mode"),
     }
 
 

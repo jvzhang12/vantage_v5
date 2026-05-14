@@ -1,0 +1,917 @@
+[
+  {
+    "viewport": {
+      "name": "390x900",
+      "width": 390,
+      "height": 900
+    },
+    "state": "chat",
+    "metrics": {
+      "viewportWidth": 390,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 390,
+      "documentScrollWidth": 390,
+      "shellScrollWidth": 390,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel",
+          "left": 12,
+          "right": 378,
+          "top": 12,
+          "bottom": 888,
+          "width": 366,
+          "height": 876
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nDraft\nInspect\nReady\nUse sample prompt\nSend"
+    }
+  },
+  {
+    "viewport": {
+      "name": "390x900",
+      "width": 390,
+      "height": 900
+    },
+    "state": "draft",
+    "metrics": {
+      "viewportWidth": 390,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 390,
+      "documentScrollWidth": 390,
+      "shellScrollWidth": 390,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel chat-panel--sidebar",
+          "left": 12,
+          "right": 378,
+          "top": 12,
+          "bottom": 88,
+          "width": 366,
+          "height": 76
+        },
+        {
+          "className": "panel whiteboard-panel",
+          "left": 12,
+          "right": 378,
+          "top": 100,
+          "bottom": 888,
+          "width": 366,
+          "height": 788
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nInspect\nBack to chat\nSave draft\nPublish artifact\nSaved whiteboard\nWorking Draft\nSaved whiteboard • Draft loaded from disk."
+    }
+  },
+  {
+    "viewport": {
+      "name": "390x900",
+      "width": 390,
+      "height": 900
+    },
+    "state": "inspect",
+    "metrics": {
+      "viewportWidth": 390,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 390,
+      "documentScrollWidth": 390,
+      "shellScrollWidth": 390,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel",
+          "left": 12,
+          "right": 378,
+          "top": 1584,
+          "bottom": 2304,
+          "width": 366,
+          "height": 720
+        },
+        {
+          "className": "panel vantage-panel",
+          "left": 12,
+          "right": 378,
+          "top": 12,
+          "bottom": 1572,
+          "width": 366,
+          "height": 1560
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 29,
+          "right": 361,
+          "top": 354,
+          "bottom": 1555,
+          "width": 332,
+          "height": 1201
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nBack to draft\nBack to draft\nReady\nUse sample prompt\nSend\nInspect\n\nStart here: Recall: none • Grounding: Idle • Saved for Later: nothing new yet\n\nBack to draft\n\nANSWER CONTEXT\n\nWhat I Used\n\nStart here for the answer summary, the context in scope, what was pulled in, and what changed after the turn.\n\nIdle\n\nTHIS TURN\n\nThis turn\nWaiting for a turn\nIdle\nAT A GLANCE\nWhy this answer happened, what supported it, and what changed after the turn.\nPROTOCOLS\n"
+    }
+  },
+  {
+    "viewport": {
+      "name": "640x900",
+      "width": 640,
+      "height": 900
+    },
+    "state": "chat",
+    "metrics": {
+      "viewportWidth": 640,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 640,
+      "documentScrollWidth": 640,
+      "shellScrollWidth": 640,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel",
+          "left": 12,
+          "right": 628,
+          "top": 12,
+          "bottom": 888,
+          "width": 616,
+          "height": 876
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nDraft\nInspect\nReady\nUse sample prompt\nSend"
+    }
+  },
+  {
+    "viewport": {
+      "name": "640x900",
+      "width": 640,
+      "height": 900
+    },
+    "state": "draft",
+    "metrics": {
+      "viewportWidth": 640,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 640,
+      "documentScrollWidth": 640,
+      "shellScrollWidth": 640,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel chat-panel--sidebar",
+          "left": 12,
+          "right": 628,
+          "top": 12,
+          "bottom": 54,
+          "width": 616,
+          "height": 42
+        },
+        {
+          "className": "panel whiteboard-panel",
+          "left": 12,
+          "right": 628,
+          "top": 105,
+          "bottom": 849,
+          "width": 616,
+          "height": 744
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nInspect\nBack to chat\nSave draft\nPublish artifact\nSaved whiteboard\nWorking Draft\nSaved whiteboard • Draft loaded from disk."
+    }
+  },
+  {
+    "viewport": {
+      "name": "640x900",
+      "width": 640,
+      "height": 900
+    },
+    "state": "inspect",
+    "metrics": {
+      "viewportWidth": 640,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 640,
+      "documentScrollWidth": 640,
+      "shellScrollWidth": 640,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel",
+          "left": 12,
+          "right": 628,
+          "top": 1393,
+          "bottom": 2113,
+          "width": 616,
+          "height": 720
+        },
+        {
+          "className": "panel vantage-panel",
+          "left": 12,
+          "right": 628,
+          "top": 12,
+          "bottom": 1381,
+          "width": 616,
+          "height": 1369
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 29,
+          "right": 611,
+          "top": 316,
+          "bottom": 1364,
+          "width": 582,
+          "height": 1048
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nBack to draft\nBack to draft\nReady\nUse sample prompt\nSend\nInspect\n\nStart here: Recall: none • Grounding: Idle • Saved for Later: nothing new yet\n\nBack to draft\n\nANSWER CONTEXT\n\nWhat I Used\n\nStart here for the answer summary, the context in scope, what was pulled in, and what changed after the turn.\n\nIdle\n\nTHIS TURN\n\nThis turn\nWaiting for a turn\nIdle\nAT A GLANCE\nWhy this answer happened, what supported it, and what changed after the turn.\nPROTOCOLS\n"
+    }
+  },
+  {
+    "viewport": {
+      "name": "768x900",
+      "width": 768,
+      "height": 900
+    },
+    "state": "chat",
+    "metrics": {
+      "viewportWidth": 768,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 768,
+      "documentScrollWidth": 768,
+      "shellScrollWidth": 768,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel",
+          "left": 28,
+          "right": 740,
+          "top": 28,
+          "bottom": 872,
+          "width": 712,
+          "height": 844
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nDraft\nInspect\nReady\nUse sample prompt\nSend"
+    }
+  },
+  {
+    "viewport": {
+      "name": "768x900",
+      "width": 768,
+      "height": 900
+    },
+    "state": "draft",
+    "metrics": {
+      "viewportWidth": 768,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 768,
+      "documentScrollWidth": 768,
+      "shellScrollWidth": 768,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel chat-panel--sidebar",
+          "left": 12,
+          "right": 756,
+          "top": 12,
+          "bottom": 68,
+          "width": 744,
+          "height": 56
+        },
+        {
+          "className": "panel whiteboard-panel",
+          "left": 12,
+          "right": 756,
+          "top": 78,
+          "bottom": 992,
+          "width": 744,
+          "height": 914
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nInspect\nBack to chat\nSave draft\nPublish artifact\nSaved whiteboard\nWorking Draft\nSaved whiteboard • Draft loaded from disk."
+    }
+  },
+  {
+    "viewport": {
+      "name": "768x900",
+      "width": 768,
+      "height": 900
+    },
+    "state": "inspect",
+    "metrics": {
+      "viewportWidth": 768,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 768,
+      "documentScrollWidth": 768,
+      "shellScrollWidth": 768,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel",
+          "left": 28,
+          "right": 740,
+          "top": 1366,
+          "bottom": 1716,
+          "width": 712,
+          "height": 350
+        },
+        {
+          "className": "panel vantage-panel",
+          "left": 28,
+          "right": 740,
+          "top": 28,
+          "bottom": 1338,
+          "width": 712,
+          "height": 1310
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 53,
+          "right": 715,
+          "top": 332,
+          "bottom": 1313,
+          "width": 662,
+          "height": 981
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nBack to draft\nBack to draft\nReady\nUse sample prompt\nSend\nInspect\n\nStart here: Recall: none • Grounding: Idle • Saved for Later: nothing new yet\n\nBack to draft\n\nANSWER CONTEXT\n\nWhat I Used\n\nStart here for the answer summary, the context in scope, what was pulled in, and what changed after the turn.\n\nIdle\n\nTHIS TURN\n\nThis turn\nWaiting for a turn\nIdle\nAT A GLANCE\nWhy this answer happened, what supported it, and what changed after the turn.\nPROTOCOLS\n"
+    }
+  },
+  {
+    "viewport": {
+      "name": "1024x900",
+      "width": 1024,
+      "height": 900
+    },
+    "state": "chat",
+    "metrics": {
+      "viewportWidth": 1024,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 1024,
+      "documentScrollWidth": 1024,
+      "shellScrollWidth": 1024,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel",
+          "left": 28,
+          "right": 996,
+          "top": 28,
+          "bottom": 872,
+          "width": 968,
+          "height": 844
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nDraft\nInspect\nReady\nUse sample prompt\nSend"
+    }
+  },
+  {
+    "viewport": {
+      "name": "1024x900",
+      "width": 1024,
+      "height": 900
+    },
+    "state": "draft",
+    "metrics": {
+      "viewportWidth": 1024,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 1024,
+      "documentScrollWidth": 1024,
+      "shellScrollWidth": 1024,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel chat-panel--sidebar",
+          "left": 12,
+          "right": 272,
+          "top": 12,
+          "bottom": 888,
+          "width": 260,
+          "height": 876
+        },
+        {
+          "className": "panel whiteboard-panel",
+          "left": 282,
+          "right": 1012,
+          "top": 12,
+          "bottom": 888,
+          "width": 730,
+          "height": 876
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "API key\nSign out\nInspect\nReady\nSend\nBack to chat\nSave draft\nPublish artifact\nSaved whiteboard\nWorking Draft\nSaved whiteboard • Draft loaded from disk."
+    }
+  },
+  {
+    "viewport": {
+      "name": "1024x900",
+      "width": 1024,
+      "height": 900
+    },
+    "state": "inspect",
+    "metrics": {
+      "viewportWidth": 1024,
+      "viewportHeight": 900,
+      "bodyScrollWidth": 1024,
+      "documentScrollWidth": 1024,
+      "shellScrollWidth": 1024,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel",
+          "left": 28,
+          "right": 451,
+          "top": 28,
+          "bottom": 872,
+          "width": 423,
+          "height": 844
+        },
+        {
+          "className": "panel vantage-panel",
+          "left": 479,
+          "right": 996,
+          "top": 28,
+          "bottom": 872,
+          "width": 517,
+          "height": 844
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 504,
+          "right": 971,
+          "top": 351,
+          "bottom": 1437,
+          "width": 467,
+          "height": 1086
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nBack to draft\nBack to draft\nReady\nUse sample prompt\nSend\nInspect\n\nStart here: Recall: none • Grounding: Idle • Saved for Later: nothing new yet\n\nBack to draft\n\nANSWER CONTEXT\n\nWhat I Used\n\nStart here for the answer summary, the context in scope, what was pulled in, and what changed after the turn.\n\nIdle\n\nTHIS TURN\n\nThis turn\nWaiting for a turn\nIdle\nAT A GLANCE\nWhy this answer happened, what supported it, and what changed after the turn.\nPROTOCOLS\n"
+    }
+  },
+  {
+    "viewport": {
+      "name": "1440x1000",
+      "width": 1440,
+      "height": 1000
+    },
+    "state": "chat",
+    "metrics": {
+      "viewportWidth": 1440,
+      "viewportHeight": 1000,
+      "bodyScrollWidth": 1440,
+      "documentScrollWidth": 1440,
+      "shellScrollWidth": 1440,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel",
+          "left": 28,
+          "right": 1412,
+          "top": 28,
+          "bottom": 972,
+          "width": 1384,
+          "height": 944
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nDraft\nInspect\nReady\nUse sample prompt\nSend"
+    }
+  },
+  {
+    "viewport": {
+      "name": "1440x1000",
+      "width": 1440,
+      "height": 1000
+    },
+    "state": "draft",
+    "metrics": {
+      "viewportWidth": 1440,
+      "viewportHeight": 1000,
+      "bodyScrollWidth": 1440,
+      "documentScrollWidth": 1440,
+      "shellScrollWidth": 1440,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel chat-panel--sidebar",
+          "left": 12,
+          "right": 352,
+          "top": 12,
+          "bottom": 988,
+          "width": 340,
+          "height": 976
+        },
+        {
+          "className": "panel whiteboard-panel",
+          "left": 362,
+          "right": 1428,
+          "top": 12,
+          "bottom": 988,
+          "width": 1066,
+          "height": 976
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "API key\nSign out\nInspect\nReady\nSend\nBack to chat\nSave draft\nPublish artifact\nSaved whiteboard\nWorking Draft\nSaved whiteboard • Draft loaded from disk."
+    }
+  },
+  {
+    "viewport": {
+      "name": "1440x1000",
+      "width": 1440,
+      "height": 1000
+    },
+    "state": "inspect",
+    "metrics": {
+      "viewportWidth": 1440,
+      "viewportHeight": 1000,
+      "bodyScrollWidth": 1440,
+      "documentScrollWidth": 1440,
+      "shellScrollWidth": 1440,
+      "horizontalOverflow": false,
+      "panelRects": [
+        {
+          "className": "panel chat-panel",
+          "left": 28,
+          "right": 720,
+          "top": 28,
+          "bottom": 972,
+          "width": 692,
+          "height": 944
+        },
+        {
+          "className": "panel vantage-panel",
+          "left": 748,
+          "right": 1412,
+          "top": 28,
+          "bottom": 972,
+          "width": 664,
+          "height": 944
+        },
+        {
+          "className": "panel turn-panel",
+          "left": 773,
+          "right": 1387,
+          "top": 268,
+          "bottom": 1529,
+          "width": 614,
+          "height": 1261
+        },
+        {
+          "className": "panel scenario-lab-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        },
+        {
+          "className": "panel concepts-panel",
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "topText": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nBack to draft\nBack to draft\nSYSTEM\nHi, I'm Vantage.\n\nI help manage context so our work stays inspectable and reusable. Chat with me naturally, open Inspect when you want to see what shaped an answer, move work into Draft, save or publish useful work products, and ask me to use Scenario Lab when you want to compare branches or explore tradeoffs.\n\nYou're currently in durable mode, so saved memories and work products can stay in your library.\n\nLet me"
+    }
+  }
+]

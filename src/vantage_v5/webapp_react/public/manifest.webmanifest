@@ -1,0 +1,25 @@
+{
+  "name": "Vantage v6",
+  "short_name": "Vantage",
+  "description": "A private chat-first Vantage workspace for memory, whiteboard drafts, and trusted collaboration.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#080A0C",
+  "theme_color": "#080A0C",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/vantage-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/vantage-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

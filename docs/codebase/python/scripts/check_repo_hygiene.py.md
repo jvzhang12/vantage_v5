@@ -11,7 +11,8 @@ Small structural hygiene checker for the repository.
 ## Scope
 
 - Python source, tests, and scripts
-- Webapp source and `.test.mjs` tests
+- Legacy webapp source, React/TypeScript webapp source, and browser-facing tests
+- Generated frontend bundles under `src/vantage_v5/webapp/generated/` are ignored because they are build outputs.
 
 ## Usage
 

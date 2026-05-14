@@ -5,7 +5,9 @@ import {
   normalizeProtocolMetadata,
   normalizeResponseMode,
   normalizeWriteReview,
-} from "./turn_payloads.mjs?v=20260429-context-budget";
+} from "./turn_payloads.mjs?v=20260501-safe-activity";
+
+const UNSAFE_ACTIVITY_COPY_PATTERN = /\b(memory\s+trace|debug(?:ging)?|provider|json\s+schema|turn[_\s-]?interpretation|chain[-\s]?of[-\s]?thought|scratchpad|system\s+prompt|developer\s+message|raw\s+provider|stack\s+trace|traceback|hidden\s+context|openai|gpt[-_\s]?\d|o[1345](?:[-_\s]?(?:mini|preview|pro))?)\b/i;
 
 function pluralize(word, count) {
   if (word === "branch") {
@@ -543,6 +545,7 @@ export function buildTurnAtAGlanceSummary({
   scenarioLabStatus = "",
   scenarioLabBranchCount = 0,
   graphActionSummary = "",
+  memoryTraceRecorded = false,
 } = {}) {
   const normalizedGrounding = String(groundingLabel || "").trim();
   const normalizedScenarioStatus = String(scenarioLabStatus || "").trim().toLowerCase();
@@ -557,9 +560,9 @@ export function buildTurnAtAGlanceSummary({
         : "Scenario Lab ran for this turn.",
     );
   } else if (isBestGuess) {
-    parts.push("No recalled Vantage context was used. This answer came from the current request and general intuition.");
+    parts.push("No recalled Vantage context surfaced. This answer used the current request and general intuition.");
   } else if (recallCount > 0) {
-    parts.push(`This answer used ${recallCount} recalled ${pluralize("item", recallCount)}.`);
+    parts.push(`Inspect shows ${recallCount} recalled ${pluralize("item", recallCount)} in scope for this answer.`);
   } else if ((hasGroundedContext || hasBroaderGrounding) && normalizedGrounding) {
     parts.push(answerBasisSummarySentence(normalizedGrounding));
   } else if (graphActionSummary) {
@@ -567,26 +570,30 @@ export function buildTurnAtAGlanceSummary({
   }
 
   if (learnedCount > 0) {
-    parts.push(`Saved for Later: ${learnedCount} ${pluralize("item", learnedCount)} from this turn.`);
+    parts.push(`Saved for Later: ${learnedCount} ${pluralize("item", learnedCount)} recorded after the answer.`);
   }
 
-  return parts.join(" ") || "This view explains why the answer happened, what entered Recall, and what changed after the turn.";
+  if (memoryTraceRecorded) {
+    parts.push("Memory Trace was recorded after the answer for future continuity.");
+  }
+
+  return parts.join(" ") || "This view explains the request path, what entered Recall, and what changed after the turn.";
 }
 
 function answerBasisSummarySentence(label) {
   switch (String(label || "").trim()) {
     case "Protocol-Guided":
-      return "Reusable protocol guidance shaped this answer.";
+      return "Reusable protocol guidance was in scope for this answer.";
     case "Whiteboard-Grounded":
-      return "Whiteboard context supported this answer.";
+      return "Whiteboard context was in scope for this answer.";
     case "Mixed Context":
-      return "Multiple context sources shaped this answer.";
+      return "Multiple context sources were in scope for this answer.";
     case "Recent Chat":
-      return "Recent chat continuity supported this answer.";
+      return "Recent chat continuity was in scope for this answer.";
     case "Memory-Backed":
-      return "Recalled memory supported this answer.";
+      return "Recalled memory was in scope for this answer.";
     default:
-      return `This answer used ${String(label || "").trim().toLowerCase()}.`;
+      return `Inspect labels this answer as ${String(label || "").trim().toLowerCase()}.`;
   }
 }
 
@@ -746,7 +753,7 @@ export function buildQuietActivityCopy({
   busy = false,
 } = {}) {
   const explicit = Array.isArray(activity)
-    ? activity.map((item) => String(item?.message || item?.label || "").trim()).filter(Boolean)
+    ? activity.map((item) => firstSafeQuietActivityText(item?.message, item?.label)).filter(Boolean)
     : [];
   if (explicit.length) {
     return explicit.slice(0, 2).join(" · ");
@@ -774,6 +781,24 @@ export function buildQuietActivityCopy({
     parts.push(`Context: ${grounding.groundingLabel}`);
   }
   return parts.slice(0, 3).join(" · ") || "Ready";
+}
+
+function firstSafeQuietActivityText(...values) {
+  for (const value of values) {
+    const text = sanitizeQuietActivityText(value);
+    if (text) {
+      return text;
+    }
+  }
+  return "";
+}
+
+function sanitizeQuietActivityText(value) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (!text || UNSAFE_ACTIVITY_COPY_PATTERN.test(text)) {
+    return "";
+  }
+  return text;
 }
 
 function normalizeInspectItems(items = []) {
@@ -1030,7 +1055,7 @@ export function buildMemoryTraceSummary({
       ? "experiment-scoped"
       : "durable";
     const article = scopeLabel === "experiment-scoped" ? "an" : "a";
-    return `Recent history contributed ${traceCount} recalled item${traceCount === 1 ? "" : "s"} to Recall. This turn also left ${article} ${scopeLabel} Memory Trace record.`;
+    return `Recent history contributed ${traceCount} recalled item${traceCount === 1 ? "" : "s"} to Recall. After the answer, Vantage recorded ${article} ${scopeLabel} Memory Trace record for future continuity.`;
   }
   if (traceCount > 0) {
     return `Recent history contributed ${traceCount} recalled item${traceCount === 1 ? "" : "s"} to Recall.`;
@@ -1040,7 +1065,7 @@ export function buildMemoryTraceSummary({
       ? "experiment-scoped"
       : "durable";
     const article = scopeLabel === "experiment-scoped" ? "an" : "a";
-    return `No recalled items came from recent history for this answer, but this turn still left ${article} ${scopeLabel} Memory Trace record for future continuity.`;
+    return `No recalled items came from recent history for this answer. After the answer, Vantage recorded ${article} ${scopeLabel} Memory Trace record for future continuity.`;
   }
   return "No Memory Trace details are available for this turn yet.";
 }
@@ -1555,7 +1580,7 @@ export function buildMemoryTraceInspectionSummary({
     ? `Recent history contributed ${recalledTraceCount} recalled ${pluralize("item", recalledTraceCount)} to Recall.`
     : "Recent history did not contribute to Recall.";
   const traceRecordText = memoryTraceRecord
-    ? `Created trace: ${traceTitle}${traceCard ? ` - ${traceCard}` : ""}.`
+    ? `Recorded after the answer: ${traceTitle}${traceCard ? ` - ${traceCard}` : ""}.`
     : "No trace record was returned for this turn.";
 
   return {
@@ -1937,7 +1962,7 @@ function buildOutcomeSummary({
   }
 
   if (hasTraceRecord) {
-    parts.push("A Memory Trace record was captured for continuity.");
+    parts.push("After the answer, a Memory Trace record was captured for future continuity.");
   }
   return parts.join(" ");
 }

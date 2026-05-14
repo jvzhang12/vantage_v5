@@ -411,9 +411,7 @@ Responses should also disclose their grounding mode:
 - `Grounded` when relevant context materially informed the final answer, with the finer path surfaced as working memory, whiteboard, recent chat, pending whiteboard, or mixed context
 - `Best Guess` when no relevant grounded context supported the turn
 
-The visible best-guess disclosure should be honest and plain:
-
-`This is new to me, but my best guess is:`
+The visible best-guess disclosure should be handled through compact answer metadata, such as the `Intuitive Answer` badge, rather than a repeated sentence in the response body.
 
 ### Suggested User Controls
 Useful first controls for the MVP:
@@ -830,10 +828,10 @@ python3 scripts/check_repo_hygiene.py
 
 ## Run Locally
 
-To run the current V5 demo locally:
+To run the current Vantage v6 app locally:
 
 ```bash
-cd "/Users/eden/Documents/Obsidian Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5"
+cd "/Users/eden/Documents/Vantage v6"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
@@ -846,7 +844,13 @@ Then open [http://127.0.0.1:8005](http://127.0.0.1:8005).
 If `OPENAI_API_KEY` is present in `.env`, chat runs through OpenAI.
 If not, the app falls back to a local placeholder chat response so the UI and workspace flow still work.
 
-For online access, see [docs/deployment.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/deployment.md). The supported V5 path is Docker Compose plus required auth, persistent Markdown storage, and an optional Tailscale, Cloudflare Tunnel, or Caddy public-facing layer.
+For online access, see [docs/deployment.md](/Users/eden/Documents/Vantage%20v6/docs/deployment.md). The supported Vantage v6 path is Docker Compose plus required auth, persistent Markdown storage, and an optional Tailscale, Cloudflare Tunnel, or Caddy public-facing layer.
+
+## Phone Website / PWA
+
+Vantage v6 can be hosted as a phone-installable website. The React build includes a web app manifest, iOS home-screen metadata, Apple touch icon, and a root service worker. The service worker caches only static generated assets and icons; it deliberately skips `/api/*` so chat, auth, whiteboard, memory, and artifact payloads never enter the browser cache.
+
+For a small trusted group, use Cloudflare Tunnel pointed at `http://127.0.0.1:8005`, protect the hostname with Cloudflare Access when you want the strongest hosted setup, and keep Vantage auth enabled with `VANTAGE_V5_AUTH_USERS_FILE` for per-user profiles. For a simpler Vantage-only gate, set `VANTAGE_V5_ACCOUNT_CREATION_CODE` so new users must know the shared invite code before they can create an isolated local account. On iPhone, users open the HTTPS URL in Safari and choose Share -> Add to Home Screen.
 
 ## Milestones
 

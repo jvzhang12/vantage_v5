@@ -14,6 +14,7 @@ from vantage_v5.services.navigator import NavigatorService
 from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.semantic_frame import build_semantic_frame
 from vantage_v5.services.semantic_policy import decide_semantic_policy
+from vantage_v5.services.surface_invocation import build_surface_invocation
 from vantage_v5.services.turn_payloads import assemble_local_turn_payload
 from vantage_v5.services.turn_payloads import assemble_scenario_lab_fallback_payload
 from vantage_v5.services.turn_payloads import assemble_service_turn_payload
@@ -68,12 +69,27 @@ class TurnOrchestrator:
                 selected_record=context.pinned_context,
                 pending_workspace_update=context.pending_workspace_update,
                 continuity_context=context.continuity_context,
+                visible_artifacts=context.visible_artifacts,
             )
-        resolved_whiteboard_mode = self.whiteboard_routing.resolve_whiteboard_mode(
+        surface_invocation = build_surface_invocation(
+            user_message=request.message,
+            requested_whiteboard_mode=request.whiteboard_mode,
+            navigation=navigation,
+            visible_artifacts=context.visible_artifacts,
+        )
+        routed_whiteboard_mode = self.whiteboard_routing.resolve_whiteboard_mode(
             request.whiteboard_mode,
             navigation,
             user_message=request.message,
             workspace=context.workspace,
+        )
+        resolved_whiteboard_mode = surface_invocation.resolved_whiteboard_mode(
+            requested_mode=request.whiteboard_mode,
+            current_mode=routed_whiteboard_mode,
+        )
+        surface_invocation_payload = surface_invocation.to_dict()
+        surface_invocation_payload["resolved_whiteboard_mode"] = (
+            resolved_whiteboard_mode if navigation.mode == "chat" else None
         )
         resolved_protocols = self.protocol_engine.resolve_for_turn(
             navigation=navigation,
@@ -114,6 +130,9 @@ class TurnOrchestrator:
             explicit_whiteboard_draft_request=self.whiteboard_routing.is_explicit_whiteboard_draft_request(
                 request.message
             ),
+            whiteboard_mode_source="surface_invocation"
+            if resolved_whiteboard_mode != routed_whiteboard_mode
+            else None,
         )
         turn_stage = build_turn_stage(
             navigation_mode=navigation.mode,
@@ -137,7 +156,11 @@ class TurnOrchestrator:
         )
         if local_semantic_parts is not None:
             return assemble_local_turn_payload(
-                replace(local_semantic_parts, turn_interpretation=turn_interpretation_parts)
+                replace(
+                    local_semantic_parts,
+                    turn_interpretation=turn_interpretation_parts,
+                    surface_invocation=surface_invocation_payload,
+                )
             )
 
         if self.hooks.should_enter_scenario_lab(navigation):
@@ -149,6 +172,7 @@ class TurnOrchestrator:
                     navigation=navigation,
                     selected_record_id=request.pinned_context_id,
                     pending_workspace_update=context.pending_workspace_update,
+                    visible_artifacts=context.visible_artifacts,
                     applied_protocol_kinds=applied_protocol_kinds,
                 )
             except Exception as exc:
@@ -168,6 +192,7 @@ class TurnOrchestrator:
                     pending_workspace_update=context.pending_workspace_update,
                     applied_protocol_kinds=applied_protocol_kinds,
                     turn_interpretation=turn_interpretation_parts,
+                    surface_invocation=surface_invocation_payload,
                     error=exc,
                 )
             turn.turn_stage = turn_stage.to_dict()
@@ -197,6 +222,7 @@ class TurnOrchestrator:
                 pending_workspace_update=context.pending_workspace_update,
                 workspace_is_transient=context.transient_workspace,
                 workspace_scope=context.normalized_workspace_scope,
+                visible_artifacts=context.visible_artifacts,
                 applied_protocol_kinds=applied_protocol_kinds,
                 turn_stage=turn_stage,
             )
@@ -214,6 +240,7 @@ class TurnOrchestrator:
                 workspace_scope=context.normalized_workspace_scope,
                 transient_workspace=context.transient_workspace,
                 experiment=self.local_semantic_actions.session_info(context.session),
+                surface_invocation=surface_invocation_payload,
             )
         )
 
@@ -234,6 +261,7 @@ class TurnOrchestrator:
         pending_workspace_update: dict[str, Any] | None,
         applied_protocol_kinds: list[str],
         turn_interpretation: TurnInterpretationParts,
+        surface_invocation: dict[str, Any],
         error: Exception,
     ) -> dict[str, Any]:
         turn = runtime["chat_service"].reply(
@@ -252,6 +280,7 @@ class TurnOrchestrator:
             pending_workspace_update=pending_workspace_update,
             workspace_is_transient=transient_workspace,
             workspace_scope=normalized_workspace_scope,
+            visible_artifacts=request.visible_artifacts,
             applied_protocol_kinds=applied_protocol_kinds,
             turn_stage=build_turn_stage(
                 navigation_mode="chat",
@@ -277,6 +306,7 @@ class TurnOrchestrator:
                 workspace_scope=normalized_workspace_scope,
                 transient_workspace=transient_workspace,
                 experiment=self.local_semantic_actions.session_info(session),
+                surface_invocation=surface_invocation,
             )
         )
 

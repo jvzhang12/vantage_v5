@@ -1,0 +1,14 @@
+# `tests/test_artifact_actions.py`
+
+Unit tests for Vantage’s generic artifact-action layer and first writable calendar executor.
+
+## Coverage
+
+- Calendar action planning creates a `replace_event` proposal from the visible Today surface without mutating the calendar file.
+- Ambiguous visible calendar matches are rejected with clarification text.
+- Read-only calendar providers do not produce writable actions.
+- Accepted calendar actions commit through the writable local calendar provider.
+
+## Why It Matters
+
+These tests lock in the safety model for operational artifacts: Vantage can understand and stage edits, but mutation only happens after a validated action is accepted against the user-scoped provider.

@@ -1,0 +1,602 @@
+[
+  {
+    "surface": "chat",
+    "viewport": {
+      "width": 390,
+      "height": 900
+    },
+    "documentWidth": 390,
+    "bodyWidth": 390,
+    "clientWidth": 390,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "draft",
+    "viewport": {
+      "width": 390,
+      "height": 900
+    },
+    "documentWidth": 390,
+    "bodyWidth": 390,
+    "clientWidth": 390,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "inspect",
+    "viewport": {
+      "width": 390,
+      "height": 900
+    },
+    "documentWidth": 390,
+    "bodyWidth": 390,
+    "clientWidth": 390,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [
+      {
+        "selector": "turn-summary-block",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--protocol",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--used",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--recent",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--draft",
+        "radius": "8px"
+      },
+      {
+        "selector": "protocol-guidance",
+        "radius": "8px"
+      }
+    ],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "scenario-lab",
+    "viewport": {
+      "width": 390,
+      "height": 900
+    },
+    "documentWidth": 390,
+    "bodyWidth": 390,
+    "clientWidth": 390,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [
+      {
+        "selector": "turn-summary-block",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--protocol",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--used",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--recent",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--draft",
+        "radius": "8px"
+      },
+      {
+        "selector": "protocol-guidance",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__overview-card scenario-lab__overview-card--question",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__overview-card scenario-lab__overview-card--recommendation",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__section scenario-lab__section--artifact",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card scenario-lab__artifact-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__section scenario-lab__section--branches",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card scenario-lab__branch-card--active",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__support-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__support-card",
+        "radius": "8px"
+      }
+    ],
+    "scenarioHeroRadius": "0px",
+    "scenarioHeroBackground": "none"
+  },
+  {
+    "surface": "chat",
+    "viewport": {
+      "width": 768,
+      "height": 900
+    },
+    "documentWidth": 768,
+    "bodyWidth": 768,
+    "clientWidth": 768,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "draft",
+    "viewport": {
+      "width": 768,
+      "height": 900
+    },
+    "documentWidth": 768,
+    "bodyWidth": 768,
+    "clientWidth": 768,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "inspect",
+    "viewport": {
+      "width": 768,
+      "height": 900
+    },
+    "documentWidth": 768,
+    "bodyWidth": 768,
+    "clientWidth": 768,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [
+      {
+        "selector": "turn-summary-block",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--protocol",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--used",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--recent",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--draft",
+        "radius": "8px"
+      },
+      {
+        "selector": "protocol-guidance",
+        "radius": "8px"
+      }
+    ],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "scenario-lab",
+    "viewport": {
+      "width": 768,
+      "height": 900
+    },
+    "documentWidth": 768,
+    "bodyWidth": 768,
+    "clientWidth": 768,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [
+      {
+        "selector": "turn-summary-block",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--protocol",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--used",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--recent",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--draft",
+        "radius": "8px"
+      },
+      {
+        "selector": "protocol-guidance",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__overview-card scenario-lab__overview-card--question",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__overview-card scenario-lab__overview-card--recommendation",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__section scenario-lab__section--artifact",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card scenario-lab__artifact-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__section scenario-lab__section--branches",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card scenario-lab__branch-card--active",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__support-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__support-card",
+        "radius": "8px"
+      }
+    ],
+    "scenarioHeroRadius": "0px",
+    "scenarioHeroBackground": "none"
+  },
+  {
+    "surface": "chat",
+    "viewport": {
+      "width": 1024,
+      "height": 900
+    },
+    "documentWidth": 1024,
+    "bodyWidth": 1024,
+    "clientWidth": 1024,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "draft",
+    "viewport": {
+      "width": 1024,
+      "height": 900
+    },
+    "documentWidth": 1024,
+    "bodyWidth": 1024,
+    "clientWidth": 1024,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "inspect",
+    "viewport": {
+      "width": 1024,
+      "height": 900
+    },
+    "documentWidth": 1024,
+    "bodyWidth": 1024,
+    "clientWidth": 1024,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [
+      {
+        "selector": "turn-summary-block",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--protocol",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--used",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--recent",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--draft",
+        "radius": "8px"
+      },
+      {
+        "selector": "protocol-guidance",
+        "radius": "8px"
+      }
+    ],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "scenario-lab",
+    "viewport": {
+      "width": 1024,
+      "height": 900
+    },
+    "documentWidth": 1024,
+    "bodyWidth": 1024,
+    "clientWidth": 1024,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [
+      {
+        "selector": "turn-summary-block",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--protocol",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--used",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--recent",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--draft",
+        "radius": "8px"
+      },
+      {
+        "selector": "protocol-guidance",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__overview-card scenario-lab__overview-card--question",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__overview-card scenario-lab__overview-card--recommendation",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__section scenario-lab__section--artifact",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card scenario-lab__artifact-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__section scenario-lab__section--branches",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card scenario-lab__branch-card--active",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__support-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__support-card",
+        "radius": "8px"
+      }
+    ],
+    "scenarioHeroRadius": "0px",
+    "scenarioHeroBackground": "none"
+  },
+  {
+    "surface": "chat",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "documentWidth": 1440,
+    "bodyWidth": 1440,
+    "clientWidth": 1440,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "draft",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "documentWidth": 1440,
+    "bodyWidth": 1440,
+    "clientWidth": 1440,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "inspect",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "documentWidth": 1440,
+    "bodyWidth": 1440,
+    "clientWidth": 1440,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [
+      {
+        "selector": "turn-summary-block",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--protocol",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--used",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--recent",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--draft",
+        "radius": "8px"
+      },
+      {
+        "selector": "protocol-guidance",
+        "radius": "8px"
+      }
+    ],
+    "scenarioHeroRadius": null,
+    "scenarioHeroBackground": null
+  },
+  {
+    "surface": "scenario-lab",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "documentWidth": 1440,
+    "bodyWidth": 1440,
+    "clientWidth": 1440,
+    "horizontalOverflow": false,
+    "overflowingText": [],
+    "radiusChecks": [
+      {
+        "selector": "turn-summary-block",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--protocol",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--used",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--recent",
+        "radius": "8px"
+      },
+      {
+        "selector": "inspect-bucket inspect-bucket--draft",
+        "radius": "8px"
+      },
+      {
+        "selector": "protocol-guidance",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__overview-card scenario-lab__overview-card--question",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__overview-card scenario-lab__overview-card--recommendation",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__section scenario-lab__section--artifact",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card scenario-lab__artifact-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__section scenario-lab__section--branches",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card scenario-lab__branch-card--active",
+        "radius": "8px"
+      },
+      {
+        "selector": "concept-card concept-card--turn scenario-lab__branch-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__support-card",
+        "radius": "8px"
+      },
+      {
+        "selector": "scenario-lab__support-card",
+        "radius": "8px"
+      }
+    ],
+    "scenarioHeroRadius": "0px",
+    "scenarioHeroBackground": "none"
+  }
+]

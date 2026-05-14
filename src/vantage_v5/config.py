@@ -7,6 +7,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from vantage_v5.services.model_client import default_model_for_provider
+from vantage_v5.services.model_client import MODEL_PROVIDER_CODEX_OAUTH
+from vantage_v5.services.model_client import MODEL_PROVIDER_OPENAI
+from vantage_v5.services.model_client import normalize_model_provider
+
 
 @dataclass(frozen=True, slots=True)
 class AppConfig:
@@ -18,11 +23,17 @@ class AppConfig:
     nexus_root: Path | None
     nexus_include_paths: list[str]
     nexus_exclude_paths: list[str]
+    model_provider: str = MODEL_PROVIDER_OPENAI
+    codex_auth_path: Path | None = None
+    codex_base_url: str | None = None
+    calendar_events_path: Path | None = None
+    tasks_path: Path | None = None
     canonical_root: Path | None = None
     host: str = "127.0.0.1"
     auth_username: str = "vantage"
     auth_password: str | None = None
     auth_users: dict[str, str] = field(default_factory=dict)
+    account_creation_code: str | None = None
     allowed_hosts: list[str] = field(default_factory=list)
     allowed_origins: list[str] = field(default_factory=list)
     cookie_secure: bool = False
@@ -34,11 +45,17 @@ class AppConfig:
         load_dotenv(default_repo_root / ".env", override=False)
         repo_root = _optional_path(os.getenv("VANTAGE_V5_REPO_ROOT")) or default_repo_root
         load_dotenv(repo_root / ".env", override=False)
+        model_provider = normalize_model_provider(os.getenv("VANTAGE_V5_MODEL_PROVIDER", MODEL_PROVIDER_CODEX_OAUTH))
         return cls(
             repo_root=repo_root,
             canonical_root=_optional_path(os.getenv("VANTAGE_V5_CANONICAL_ROOT")) or default_repo_root / "canonical",
             openai_api_key=os.getenv("OPENAI_API_KEY"),
-            model=os.getenv("VANTAGE_V5_MODEL", "gpt-4.1"),
+            model=os.getenv("VANTAGE_V5_MODEL", default_model_for_provider(model_provider)),
+            model_provider=model_provider,
+            codex_auth_path=_optional_path(os.getenv("VANTAGE_V5_CODEX_AUTH_PATH")),
+            codex_base_url=os.getenv("VANTAGE_V5_CODEX_BASE_URL") or None,
+            calendar_events_path=_optional_path(os.getenv("VANTAGE_V5_CALENDAR_EVENTS_FILE")),
+            tasks_path=_optional_path(os.getenv("VANTAGE_V5_TASKS_FILE")),
             host=os.getenv("VANTAGE_V5_HOST", "127.0.0.1"),
             port=int(os.getenv("VANTAGE_V5_PORT", "8005")),
             active_workspace=os.getenv(
@@ -51,6 +68,7 @@ class AppConfig:
             auth_username=os.getenv("VANTAGE_V5_AUTH_USERNAME", "vantage"),
             auth_password=os.getenv("VANTAGE_V5_AUTH_PASSWORD") or None,
             auth_users=_auth_users_from_env(repo_root),
+            account_creation_code=os.getenv("VANTAGE_V5_ACCOUNT_CREATION_CODE", "").strip() or None,
             allowed_hosts=_csv_env("VANTAGE_V5_ALLOWED_HOSTS"),
             allowed_origins=_csv_env("VANTAGE_V5_ALLOWED_ORIGINS"),
             cookie_secure=_bool_env("VANTAGE_V5_COOKIE_SECURE"),

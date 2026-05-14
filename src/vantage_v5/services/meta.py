@@ -4,9 +4,10 @@ from dataclasses import dataclass
 import json
 from typing import Any
 
-from openai import OpenAI
-
+from vantage_v5.services.model_client import create_model_client
+from vantage_v5.services.model_client import ModelClientConfig
 from vantage_v5.services.search import CandidateMemory
+from vantage_v5.services.visible_artifacts import visible_artifacts_prompt_payload
 from vantage_v5.services.search import tokenize
 from vantage_v5.storage.markdown_store import slugify
 from vantage_v5.storage.workspaces import WorkspaceDocument
@@ -41,9 +42,17 @@ class MetaDecision:
 
 
 class MetaService:
-    def __init__(self, *, model: str, openai_api_key: str | None) -> None:
+    def __init__(
+        self,
+        *,
+        model: str,
+        openai_api_key: str | None,
+        model_client_config: ModelClientConfig | None = None,
+    ) -> None:
         self.model = model
-        self.client = OpenAI(api_key=openai_api_key) if openai_api_key else None
+        self.client = create_model_client(
+            model_client_config or ModelClientConfig(openai_api_key=openai_api_key)
+        )
 
     def decide(
         self,
@@ -55,6 +64,7 @@ class MetaService:
         history: list[dict[str, str]],
         memory_mode: str,
         workspace_update: dict[str, Any] | None = None,
+        visible_artifacts: list[dict[str, Any]] | None = None,
     ) -> MetaDecision:
         if _is_pending_whiteboard_update(workspace_update):
             return MetaDecision(
@@ -88,6 +98,7 @@ class MetaService:
                     vetted_items=vetted_items,
                     history=history,
                     memory_mode=memory_mode,
+                    visible_artifacts=visible_artifacts,
                 )
             except Exception:
                 pass
@@ -108,6 +119,7 @@ class MetaService:
         vetted_items: list[CandidateMemory],
         history: list[dict[str, str]],
         memory_mode: str,
+        visible_artifacts: list[dict[str, Any]] | None = None,
     ) -> MetaDecision:
         concept_ids = [item.id for item in vetted_items if item.source == "concept"]
         concept_items = [item for item in vetted_items if item.source == "concept"]
@@ -126,6 +138,7 @@ class MetaService:
                 "content_excerpt": workspace.content[:1200],
             },
             "recent_history": history[-6:],
+            "visible_artifacts": visible_artifacts_prompt_payload(visible_artifacts),
             "vetted_items": [item.to_dict() for item in vetted_items],
             "related_concept_ids": concept_ids,
             "source_notes": source_notes,

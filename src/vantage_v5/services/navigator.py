@@ -5,8 +5,9 @@ from dataclasses import field
 import json
 import re
 
-from openai import OpenAI
-
+from vantage_v5.services.model_client import create_model_client
+from vantage_v5.services.model_client import ModelClientConfig
+from vantage_v5.services.visible_artifacts import visible_artifacts_prompt_payload
 from vantage_v5.storage.workspaces import WorkspaceDocument
 
 
@@ -24,13 +25,37 @@ ALLOWED_CONTROL_PANEL_ACTIONS = {
     "ask_clarification",
 }
 ALLOWED_PROTOCOL_KINDS = {"email", "research_paper", "scenario_lab"}
-WORK_PRODUCT_RE = re.compile(
-    r"\b(?:draft|write|compose|plan|outline|create|build)\b.{0,120}\b(?:email|mail|message|memo|letter|itinerary|plan|checklist|agenda|paper|essay|introduction|intro|report|brief|document|draft)\b"
-    r"|\b(?:email|memo|letter|itinerary|checklist|agenda|research paper|paper introduction|report|brief)\b",
+COMPLEX_WORK_PRODUCT_RE = re.compile(
+    r"\b(?:draft|write|compose|plan|outline|create|build|prepare|develop|make|put together)\b.{0,140}\b(?:itinerary|travel plan|trip plan|road trip|plan|checklist|agenda|research paper|paper introduction|paper intro|academic paper|essay|report|brief|document|doc|outline|proposal|roadmap|strategy|playbook|schedule)\b"
+    r"|\b(?:itinerary|research paper|paper introduction|paper intro|academic paper|essay|report|checklist)\b",
     re.IGNORECASE,
 )
 CHAT_ONLY_RE = re.compile(r"\b(?:chat only|in chat only|keep (?:it|the full draft|this) in chat|answer directly in chat)\b", re.IGNORECASE)
-EMAIL_RE = re.compile(r"\b(?:email|mail|message|memo|letter)\b", re.IGNORECASE)
+EMAIL_RE = re.compile(r"\b(?:e-?mail|mail|message|memo|letter|subject[- ]line)\b", re.IGNORECASE)
+SIMPLE_EMAIL_MESSAGE_DRAFT_RE = re.compile(
+    r"\b(?:draft|write|compose|prepare|create|make|help me draft)\b.{0,90}\b(?:an?\s+|the\s+|a\s+short\s+|a\s+quick\s+)?(?:e-?mail|mail|message|memo|letter)\b",
+    re.IGNORECASE,
+)
+SUBJECT_LINE_RE = re.compile(r"\bsubject[- ]line\b", re.IGNORECASE)
+MULTI_OPTION_DOC_RE = re.compile(
+    r"\b(?:(?:two|three|four|five|six|seven|eight|nine|ten|\d+|several|multiple|a few)\s+(?:options|versions|variants|alternatives|drafts|e-?mails|messages|memos|letters|subject[- ]lines)|(?:compare|comparison|contrast|tradeoffs?|pros and cons|versus|vs\.?))\b",
+    re.IGNORECASE,
+)
+COMPLEX_EMAIL_FORMAT_RE = re.compile(r"\b(?:e-?mail|message|memo|letter)\s+(?:campaign|sequence|series|drip|template|templates)\b", re.IGNORECASE)
+COMPOUND_WORK_PRODUCT_RE = re.compile(
+    r"\b(?:e-?mail|message|memo|letter|subject[- ]line)\b.{0,50}\b(?:and|plus)\b.{0,50}\b(?:itinerary|plan|checklist|agenda|paper|essay|report|brief|document|outline|proposal|roadmap)\b"
+    r"|\b(?:itinerary|plan|checklist|agenda|paper|essay|report|brief|document|outline|proposal|roadmap)\b.{0,50}\b(?:and|plus)\b.{0,50}\b(?:e-?mail|message|memo|letter|subject[- ]line)\b",
+    re.IGNORECASE,
+)
+COMPLEX_PRODUCT_BEFORE_EMAIL_RE = re.compile(
+    r"\b(?:draft|write|compose|plan|outline|create|build|prepare|develop|make|put together)\b.{0,90}\b(?:itinerary|plan|checklist|agenda|research paper|paper|essay|report|brief|document|outline|proposal|roadmap)\b.{0,90}\b(?:e-?mail|message|memo|letter|subject[- ]line)\b",
+    re.IGNORECASE,
+)
+SAVE_PUBLISH_COLLAB_RE = re.compile(r"\b(?:save|publish|collaborat\w*|co-?edit|artifact)\b", re.IGNORECASE)
+WORK_PRODUCT_CONTEXT_RE = re.compile(
+    r"\b(?:draft|write|compose|plan|outline|create|build|prepare|develop|make|put together|e-?mail|message|memo|letter|subject[- ]line|itinerary|checklist|agenda|paper|essay|report|brief|document|outline|proposal|roadmap)\b",
+    re.IGNORECASE,
+)
 RESEARCH_PAPER_RE = re.compile(r"\b(?:research paper|paper introduction|paper intro|academic paper)\b", re.IGNORECASE)
 EXPLICIT_WHITEBOARD_DRAFT_RE = re.compile(
     r"\b(?:draft|write|put|move|build|plan|outline|sketch|work|create|review|refine|play)\b.{0,80}\b(?:in|on|into)\s+(?:the\s+)?whiteboard\b"
@@ -87,9 +112,17 @@ class NavigationDecision:
 
 
 class NavigatorService:
-    def __init__(self, *, model: str, openai_api_key: str | None) -> None:
+    def __init__(
+        self,
+        *,
+        model: str,
+        openai_api_key: str | None,
+        model_client_config: ModelClientConfig | None = None,
+    ) -> None:
         self.model = model
-        self.client = OpenAI(api_key=openai_api_key) if openai_api_key else None
+        self.client = create_model_client(
+            model_client_config or ModelClientConfig(openai_api_key=openai_api_key)
+        )
 
     def route_turn(
         self,
@@ -104,9 +137,10 @@ class NavigatorService:
         selected_record: dict[str, object] | None = None,
         pending_workspace_update: dict[str, object] | None = None,
         continuity_context: dict[str, object] | None = None,
+        visible_artifacts: list[dict[str, object]] | None = None,
     ) -> NavigationDecision:
         if not self.client:
-            return self._fallback_decision("OpenAI mode is unavailable, so the turn stays in normal chat.")
+            return self._fallback_decision("The model provider is unavailable, so the turn stays in normal chat.")
         try:
             return self._openai_route(
                 user_message=user_message,
@@ -119,6 +153,7 @@ class NavigatorService:
                 selected_record=selected_record,
                 pending_workspace_update=pending_workspace_update,
                 continuity_context=continuity_context,
+                visible_artifacts=visible_artifacts,
             )
         except Exception:
             return self._fallback_decision("Navigator routing fell back to normal chat after an unavailable or invalid model response.")
@@ -136,6 +171,7 @@ class NavigatorService:
         selected_record: dict[str, object] | None,
         pending_workspace_update: dict[str, object] | None,
         continuity_context: dict[str, object] | None,
+        visible_artifacts: list[dict[str, object]] | None,
     ) -> NavigationDecision:
         payload = {
             "user_message": user_message,
@@ -152,6 +188,7 @@ class NavigatorService:
             "pinned_context": pinned_context or selected_record,
             "pending_workspace_update": pending_workspace_update,
             "continuity_context": continuity_context,
+            "visible_artifacts": visible_artifacts_prompt_payload(visible_artifacts),
             "allowed_modes": ["chat", "scenario_lab"],
             "allowed_whiteboard_modes": ["chat", "offer", "draft", "auto"],
             "available_control_panel_actions": [
@@ -195,13 +232,15 @@ class NavigatorService:
                 "Only re-enter Scenario Lab when the user explicitly asks to create new branches, rerun the comparison, or compare a new option set. "
                 "The payload may include pending_workspace_update from the immediately previous turn. "
                 "When it exists, treat it as live context for a still-open whiteboard invitation or draft. "
+                "The payload may include visible_artifacts from the user's current view. Treat those artifacts as current turn context when routing follow-ups about the visible calendar, task list, whiteboard, plan, or surface. "
                 "If the current user message accepts, confirms, refines, or continues that pending whiteboard flow, choose whiteboard_mode='draft' rather than repeating the invitation. "
                 "If the user both accepts the pending offer and states a future preference, still treat the current turn as acceptance unless they clearly decline the current work product. "
                 "The payload may also include continuity_context with the current whiteboard, a very short recent-whiteboards list, the strongest last-turn referenced saved record, and a short last-turn recall shortlist. "
                 "Use that continuity context to resolve deictic follow-ups like 'that one', 'the other email', or 'pull that up on the whiteboard' without overfitting to older history. "
                 "Prefer the current whiteboard when the user is clearly continuing the active draft. "
                 "Prefer last_turn_referenced_record over generic recent-whiteboard recency when the user is referring back to a recently surfaced saved item. "
-                "For ordinary chat turns, choose whiteboard_mode='offer' when the user is asking for a concrete work product that should first invite whiteboard collaboration. "
+                "For ordinary chat turns, choose whiteboard_mode='chat' for simple one-off email, message, memo, letter, or subject-line drafts; still add apply_protocol for email when email guidance should shape that chat answer. "
+                "Choose whiteboard_mode='offer' when the user is asking for a complex work product that should first invite whiteboard collaboration, including itineraries, research papers, essays, reports, checklists, plans, multi-option documents, or work the user wants saved, published, or collaboratively drafted. "
                 "If the current whiteboard already contains a live draft and the user is revising, updating, refining, or continuing that draft, choose whiteboard_mode='draft' rather than reopening or reoffering the whiteboard. "
                 "Choose whiteboard_mode='draft' when the user is clearly continuing or explicitly requesting whiteboard drafting now. "
                 "Choose whiteboard_mode='chat' when the turn should stay in plain chat. "
@@ -446,15 +485,17 @@ def _stabilize_decision(
         whiteboard_mode = "draft"
     elif _is_active_draft_revision(message, workspace):
         whiteboard_mode = "draft"
-    elif _is_work_product_request(message) and not _is_chat_only_request(message):
+    elif _is_simple_email_or_message_draft_request(message):
+        whiteboard_mode = "chat"
+    elif _is_complex_work_product_request(message) and not _is_chat_only_request(message):
         whiteboard_mode = "offer"
     if whiteboard_mode != original_whiteboard_mode:
         if whiteboard_mode == "offer":
-            stabilized_reason = "Canonical work-product policy invites whiteboard collaboration before drafting."
+            stabilized_reason = "Canonical complex work-product policy invites whiteboard collaboration before drafting."
         elif whiteboard_mode == "draft":
             stabilized_reason = "Canonical whiteboard policy keeps accepted, explicit, or active-draft work in draft mode."
         elif whiteboard_mode == "chat":
-            stabilized_reason = "The user or UI explicitly requested plain chat, so whiteboard drafting stays off."
+            stabilized_reason = "Simple one-off email, message, and subject-line drafts stay in chat while email protocol guidance still applies."
 
     control_panel = _normalize_control_panel(decision.control_panel)
     protocol_kind = _infer_protocol_kind(
@@ -470,17 +511,21 @@ def _stabilize_decision(
             reason=f"Use the reusable {protocol_kind.replace('_', ' ')} protocol for this work type.",
         )
     if whiteboard_mode == "draft":
+        control_panel = _without_control_panel_actions(control_panel, {"open_whiteboard"})
         control_panel = _ensure_control_panel_action(
             control_panel,
             action_type="draft_whiteboard",
             reason="The turn is continuing or explicitly requesting a whiteboard draft.",
         )
     elif whiteboard_mode == "offer":
+        control_panel = _without_control_panel_actions(control_panel, {"draft_whiteboard"})
         control_panel = _ensure_control_panel_action(
             control_panel,
             action_type="open_whiteboard",
             reason="The turn asks for a concrete work product that should first invite whiteboard collaboration.",
         )
+    elif whiteboard_mode == "chat":
+        control_panel = _without_control_panel_actions(control_panel, {"open_whiteboard", "draft_whiteboard"})
     return NavigationDecision(
         mode=decision.mode,
         confidence=decision.confidence,
@@ -497,8 +542,34 @@ def _stabilize_decision(
     )
 
 
-def _is_work_product_request(message: str) -> bool:
-    return bool(WORK_PRODUCT_RE.search(message))
+def _is_complex_work_product_request(message: str) -> bool:
+    if MULTI_OPTION_DOC_RE.search(message) and WORK_PRODUCT_CONTEXT_RE.search(message):
+        return True
+    if SAVE_PUBLISH_COLLAB_RE.search(message) and WORK_PRODUCT_CONTEXT_RE.search(message):
+        return True
+    return bool(COMPLEX_WORK_PRODUCT_RE.search(message))
+
+
+def _is_simple_email_or_message_draft_request(message: str) -> bool:
+    has_email_message_target = bool(SIMPLE_EMAIL_MESSAGE_DRAFT_RE.search(message))
+    has_subject_line_target = bool(SUBJECT_LINE_RE.search(message))
+    if not has_email_message_target and not has_subject_line_target:
+        return False
+    if has_subject_line_target and not has_email_message_target and COMPLEX_WORK_PRODUCT_RE.search(message):
+        return False
+    if MULTI_OPTION_DOC_RE.search(message):
+        return False
+    if SAVE_PUBLISH_COLLAB_RE.search(message):
+        return False
+    if "whiteboard" in message.lower():
+        return False
+    if (
+        COMPLEX_EMAIL_FORMAT_RE.search(message)
+        or COMPOUND_WORK_PRODUCT_RE.search(message)
+        or COMPLEX_PRODUCT_BEFORE_EMAIL_RE.search(message)
+    ):
+        return False
+    return True
 
 
 def _is_chat_only_request(message: str) -> bool:
@@ -572,6 +643,25 @@ def _ensure_control_panel_action(
         {
             **control_panel,
             "actions": actions,
+            "working_memory_queries": control_panel.get("working_memory_queries", []),
+            "response_call": control_panel.get("response_call") or {"type": "chat_response", "after_working_memory": True},
+        }
+    )
+
+
+def _without_control_panel_actions(control_panel: dict[str, object], action_types: set[str]) -> dict[str, object]:
+    actions = control_panel.get("actions") if isinstance(control_panel.get("actions"), list) else []
+    filtered_actions = [
+        action
+        for action in actions
+        if not (isinstance(action, dict) and str(action.get("type") or "").strip().lower() in action_types)
+    ]
+    if len(filtered_actions) == len(actions):
+        return control_panel
+    return _normalize_control_panel(
+        {
+            **control_panel,
+            "actions": filtered_actions,
             "working_memory_queries": control_panel.get("working_memory_queries", []),
             "response_call": control_panel.get("response_call") or {"type": "chat_response", "after_working_memory": True},
         }

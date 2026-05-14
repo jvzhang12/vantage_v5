@@ -7,11 +7,11 @@ from pathlib import Path
 import re
 from typing import Any
 
-from openai import OpenAI
-
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_card_fields
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_kind
 from vantage_v5.services.learned_review import build_write_review
+from vantage_v5.services.model_client import create_model_client
+from vantage_v5.services.model_client import ModelClientConfig
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.response_mode import build_response_mode_payload
@@ -26,6 +26,9 @@ from vantage_v5.services.vetting import build_continuity_hint
 from vantage_v5.services.vetting import resolve_selected_record_candidate
 from vantage_v5.services.vetting import should_preserve_selected_record
 from vantage_v5.services.vetting import ConceptVettingService
+from vantage_v5.services.visible_artifacts import normalize_visible_artifacts
+from vantage_v5.services.visible_artifacts import visible_artifacts_have_context
+from vantage_v5.services.visible_artifacts import visible_artifacts_prompt_payload
 from vantage_v5.storage.artifacts import ArtifactRecord
 from vantage_v5.storage.artifacts import ArtifactStore
 from vantage_v5.storage.memory_trace import parse_memory_trace_metadata
@@ -130,6 +133,7 @@ class ScenarioLabTurn:
     turn_stage: dict[str, Any] | None = None
     stage_progress: list[dict[str, Any]] | None = None
     stage_audit: dict[str, Any] | None = None
+    visible_artifacts: list[dict[str, Any]] | None = None
 
     def to_body_parts(self) -> ScenarioLabTurnBodyParts:
         return ScenarioLabTurnBodyParts(
@@ -158,6 +162,7 @@ class ScenarioLabTurn:
             turn_stage=self.turn_stage,
             stage_progress=self.stage_progress,
             stage_audit=self.stage_audit,
+            visible_artifacts=self.visible_artifacts or [],
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -170,6 +175,7 @@ class ScenarioLabService:
         *,
         model: str,
         openai_api_key: str | None,
+        model_client_config: ModelClientConfig | None = None,
         concept_store: ConceptStore,
         reference_concept_store: ConceptStore | None,
         memory_store: MemoryStore,
@@ -200,7 +206,9 @@ class ScenarioLabService:
         self.vetting_service = vetting_service
         self.protocol_engine = protocol_engine
         self.traces_dir = traces_dir
-        self.client = OpenAI(api_key=openai_api_key) if openai_api_key else None
+        self.client = create_model_client(
+            model_client_config or ModelClientConfig(openai_api_key=openai_api_key)
+        )
 
     def run(
         self,
@@ -211,11 +219,13 @@ class ScenarioLabService:
         navigation: NavigationDecision,
         selected_record_id: str | None = None,
         pending_workspace_update: dict[str, Any] | None = None,
+        visible_artifacts: list[dict[str, Any]] | None = None,
         applied_protocol_kinds: list[str] | None = None,
     ) -> ScenarioLabTurn:
         if not self.client:
-            raise RuntimeError("Scenario Lab requires OpenAI mode.")
+            raise RuntimeError("Scenario Lab requires an available model provider.")
 
+        visible_artifacts = normalize_visible_artifacts(visible_artifacts)
         concepts = _merge_records(
             self.concept_store.list_concepts(),
             self.reference_concept_store.list_concepts() if self.reference_concept_store else [],
@@ -284,6 +294,7 @@ class ScenarioLabService:
             message=message,
             candidates=candidate_memory,
             continuity_hint=continuity_hint.to_dict() if continuity_hint else None,
+            visible_artifacts=visible_artifacts,
         )
         if preserve_selected_memory and selected_memory is not None:
             vetted_memory, vetting = anchor_selected_record_candidate(
@@ -310,10 +321,11 @@ class ScenarioLabService:
             selected_record=selected_record,
             selected_record_payload=selected_record_payload,
             pending_workspace_update=pending_workspace_update,
+            visible_artifacts=visible_artifacts,
         )
         response_mode = build_response_mode_payload(
             vetted_memory,
-            workspace_has_context=bool(workspace.content.strip()),
+            workspace_has_context=bool(workspace.content.strip()) or visible_artifacts_have_context(visible_artifacts),
             history_has_context=bool(history),
             pending_workspace_has_context=bool(pending_workspace_update),
         )
@@ -373,6 +385,7 @@ class ScenarioLabService:
                 response_mode=response_mode,
                 scope="experiment" if "experiments" in self.memory_trace_store.records_dir.parts else "durable",
                 pending_workspace_update=pending_workspace_update,
+                visible_artifacts=visible_artifacts,
                 turn_mode="scenario_lab",
                 preserved_context=_selected_record_trace_payload(selected_record),
                 referenced_record=_scenario_referenced_record_payload(
@@ -411,6 +424,7 @@ class ScenarioLabService:
                     "workspace_count": len(saved_branches),
                 },
                 created_record=created_record,
+                visible_artifacts=visible_artifacts,
             )
             self._trace_turn(
                 turn=turn,
@@ -418,6 +432,7 @@ class ScenarioLabService:
                 history=history,
                 scenario_plan=scenario_plan,
                 pending_workspace_update=pending_workspace_update,
+                visible_artifacts=visible_artifacts,
             )
             return turn
         except Exception:
@@ -435,6 +450,7 @@ class ScenarioLabService:
         selected_record: CandidateMemory | None,
         selected_record_payload: dict[str, Any] | None,
         pending_workspace_update: dict[str, Any] | None,
+        visible_artifacts: list[dict[str, Any]] | None,
     ) -> ScenarioPlan:
         requested_count = _requested_branch_count(navigation)
         requested_labels = _requested_branch_labels(navigation, requested_count)
@@ -451,6 +467,7 @@ class ScenarioLabService:
             "selected_record": selected_record_payload,
             "vetted_memory": [item.to_dict() for item in vetted_memory],
             "pending_workspace_update": pending_workspace_update,
+            "visible_artifacts": visible_artifacts_prompt_payload(visible_artifacts),
             "requested_branch_count": requested_count,
             "requested_branch_labels": requested_labels,
         }
@@ -465,6 +482,7 @@ class ScenarioLabService:
                 "Keep assumptions explicit. "
                 "If a selected record is provided, treat it as the in-focus continuity anchor for follow-up turns. "
                 "If pending whiteboard context is provided, treat it as live continuity context from the immediately prior turn. "
+                "If visible_artifacts are provided, treat them as the user's current-view ground truth and prefer them over older memory when they are relevant. "
                 "Treat protocol items in vetted_memory as task recipes and reasoning guidance, not as factual source claims. "
                 "When a Scenario Lab Protocol is present, use its first-principles, counterfactual, causal, and tradeoff guidance to shape the branches. "
                 "Use compact, concrete language that works well in Markdown workspaces. "
@@ -752,6 +770,7 @@ class ScenarioLabService:
         history: list[dict[str, str]],
         scenario_plan: ScenarioPlan,
         pending_workspace_update: dict[str, Any] | None,
+        visible_artifacts: list[dict[str, Any]] | None,
     ) -> None:
         self.traces_dir.mkdir(parents=True, exist_ok=True)
         trace_path = self._next_trace_path()
@@ -762,6 +781,7 @@ class ScenarioLabService:
                     "workspace_excerpt": workspace.content[:1200],
                     "history": history[-6:],
                     "pending_workspace_update": pending_workspace_update,
+                    "visible_artifacts": visible_artifacts or [],
                     "scenario_plan": _scenario_plan_payload(scenario_plan),
                 },
                 indent=2,

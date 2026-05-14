@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from typing import Any, Callable
 
 from vantage_v5.services.context_support import ContextSupport
+from vantage_v5.services.visible_artifacts import normalize_visible_artifacts
 from vantage_v5.storage.workspaces import WorkspaceDocument
 
 
@@ -19,6 +21,7 @@ class ChatTurnRequestContext:
     pinned_context_id: str | None
     memory_intent: str
     pending_workspace_update: dict[str, Any] | None
+    visible_artifacts: list[dict[str, Any]] | None = None
     navigation: Any | None = None
     force_pending_workspace_update: bool = False
 
@@ -36,6 +39,7 @@ class PreparedTurnContext:
     pending_workspace_update: dict[str, Any] | None
     whiteboard_entry_mode: str | None
     continuity_context: dict[str, Any]
+    visible_artifacts: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -130,6 +134,7 @@ class ContextEngine:
             workspace=workspace,
             workspace_scope=normalized_workspace_scope,
         )
+        visible_artifacts = normalize_visible_artifacts(request.visible_artifacts)
         return PreparedTurnContext(
             session=session,
             runtime=runtime,
@@ -142,4 +147,5 @@ class ContextEngine:
             pending_workspace_update=pending_workspace_update,
             whiteboard_entry_mode=whiteboard_entry_mode,
             continuity_context=continuity_context,
+            visible_artifacts=visible_artifacts,
         )

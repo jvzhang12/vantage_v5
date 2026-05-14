@@ -4,9 +4,10 @@ from dataclasses import dataclass
 import json
 from typing import Any
 
-from openai import OpenAI
-
+from vantage_v5.services.model_client import create_model_client
+from vantage_v5.services.model_client import ModelClientConfig
 from vantage_v5.services.search import CandidateMemory
+from vantage_v5.services.visible_artifacts import visible_artifacts_prompt_payload
 from vantage_v5.storage.markdown_store import MarkdownRecord
 
 
@@ -65,9 +66,17 @@ class ProtocolInterpretation:
 
 
 class ProtocolInterpreter:
-    def __init__(self, *, model: str, openai_api_key: str | None) -> None:
+    def __init__(
+        self,
+        *,
+        model: str,
+        openai_api_key: str | None,
+        model_client_config: ModelClientConfig | None = None,
+    ) -> None:
         self.model = model
-        self.client = OpenAI(api_key=openai_api_key) if openai_api_key else None
+        self.client = create_model_client(
+            model_client_config or ModelClientConfig(openai_api_key=openai_api_key)
+        )
 
     def interpret(
         self,
@@ -75,6 +84,7 @@ class ProtocolInterpreter:
         message: str,
         history: list[dict[str, str]],
         existing_protocols: list[MarkdownRecord],
+        visible_artifacts: list[dict[str, Any]] | None = None,
     ) -> ProtocolInterpretation:
         if self.client is None:
             return ProtocolInterpretation(rationale="No model client is configured for protocol interpretation.")
@@ -83,6 +93,7 @@ class ProtocolInterpreter:
                 message=message,
                 history=history,
                 existing_protocols=existing_protocols,
+                visible_artifacts=visible_artifacts,
             )
         except Exception:
             return ProtocolInterpretation(rationale="Protocol interpretation failed; no protocol action was taken.")
@@ -93,6 +104,7 @@ class ProtocolInterpreter:
         message: str,
         history: list[dict[str, str]],
         existing_protocols: list[MarkdownRecord],
+        visible_artifacts: list[dict[str, Any]] | None,
     ) -> ProtocolInterpretation:
         protocol_payload = [
             {
@@ -123,6 +135,7 @@ class ProtocolInterpreter:
                 {
                     "user_message": message,
                     "recent_chat": history[-6:],
+                    "visible_artifacts": visible_artifacts_prompt_payload(visible_artifacts),
                     "existing_protocols": protocol_payload,
                     "supported_protocol_kinds": sorted(SUPPORTED_PROTOCOL_KINDS),
                 }

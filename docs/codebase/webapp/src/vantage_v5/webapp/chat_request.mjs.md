@@ -14,8 +14,10 @@ Small helper module for deciding when the current whiteboard should be included 
 - `isDeicticWhiteboardReopenRequest()`
 - `resolveWhiteboardReopenTarget()`
 - `shouldCarryPendingWorkspaceUpdate()`
+- `isExplicitChatOnlyRequest()`
 - `deriveWorkspaceContextScope()`
 - `buildWorkspaceContextPayload()`
+- `deriveChatWhiteboardMode()`
 
 ## Notable Behavior
 
@@ -28,4 +30,6 @@ Small helper module for deciding when the current whiteboard should be included 
 - Supports an explicit force override for the dedicated accept-button flow, so `/api/chat/whiteboard/accept` does not depend on the ordinary chat carry matcher.
 - Uses the current surface plus optional pin/request hints to choose the canonical request scope, while still allowing an explicit `auto` override when a caller wants the backend to decide.
 - Keeps hidden whiteboard content out of fresh chat-originated whiteboard requests such as `draft this in the whiteboard`; hidden content is only requested when the user explicitly resumes/continues/reopens the existing whiteboard, pins it, focuses it, or a caller forces the scope.
+- When Chat is focused and the hidden active whiteboard has non-empty draft content, targeted revision/edit follow-ups such as making the current email warmer request the hidden draft as `workspace_scope: requested` and pair that with `whiteboard_mode: draft`.
+- Keeps that hidden-draft revision path conservative: explicit chat-only requests or composer chat mode exclude the workspace and route as chat, while generic questions, fresh/new draft requests, pinned-record follow-ups, and subject-line brainstorming stay out of the hidden draft.
 - Only includes `workspace_content` when the resulting scope is intentionally in scope for the turn: `visible`, `pinned`, or `requested`.

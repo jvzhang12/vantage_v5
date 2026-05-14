@@ -37,6 +37,9 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - [src/vantage_v5/services/search.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/search.py.md)
 - [src/vantage_v5/services/semantic_frame.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/semantic_frame.py.md)
 - [src/vantage_v5/services/semantic_policy.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/semantic_policy.py.md)
+- [src/vantage_v5/services/surface_invocation.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/surface_invocation.py.md)
+- [src/vantage_v5/services/surface_payloads.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/surface_payloads.py.md)
+- [src/vantage_v5/services/tasks.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/tasks.py.md)
 - [src/vantage_v5/services/turn_orchestrator.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_orchestrator.py.md)
 - [src/vantage_v5/services/turn_payloads.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_payloads.py.md)
 - [src/vantage_v5/services/turn_staging.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_staging.py.md)
@@ -66,6 +69,9 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - `chat.py` owns the normal answer path: bounded retrieval, protocol candidate injection, vetting, model/fallback response, conservative meta writes, and Memory Trace creation.
 - `scenario_lab.py` owns comparative branch generation and persists branch workspaces plus a comparison artifact.
 - `semantic_frame.py` and `semantic_policy.py` are transitional read-model/policy layers for product-facing understanding and narrow local actions such as save, publish, and experiment management.
+- `surface_invocation.py` is the deterministic surface-selection layer: it decides when Vantage should summon whiteboard, calendar day, task focus, or code-artifact surfaces and records that reason for Inspect.
+- `surface_payloads.py` converts surface-selection decisions into renderable operational payloads, including the composite Today briefing.
+- `tasks.py` provides the first read-only local task focus backend for the Today surface.
 
 ## Storage
 
@@ -100,6 +106,9 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - [tests/test_record_cards.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_record_cards.py.md)
 - [tests/test_search.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_search.py.md)
 - [tests/test_server.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_server.py.md)
+- [tests/test_surface_invocation.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_surface_invocation.py.md)
+- [tests/test_surface_payloads.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_surface_payloads.py.md)
+- [tests/test_tasks.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_tasks.py.md)
 - [tests/test_turn_payloads.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_turn_payloads.py.md)
 - [tests/test_turn_staging.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_turn_staging.py.md)
 - [tests/test_whiteboard_routing.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_whiteboard_routing.py.md)

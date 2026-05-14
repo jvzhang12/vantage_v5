@@ -14,6 +14,8 @@ from vantage_v5.config import AppConfig
 from vantage_v5.services.executor import GraphActionExecutor
 from vantage_v5.services.meta import MetaDecision
 from vantage_v5.services.meta import MetaService
+from vantage_v5.services.model_client import MODEL_PROVIDER_CODEX_OAUTH
+from vantage_v5.services.model_client import MODEL_PROVIDER_OPENAI
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.navigator import NavigatorService
 from vantage_v5.services.chat import ReplyVerification
@@ -82,18 +84,30 @@ def _client(
     auth_username: str = "vantage",
     auth_password: str | None = None,
     auth_users: dict[str, str] | None = None,
+    account_creation_code: str | None = None,
     host: str = "127.0.0.1",
     allowed_hosts: list[str] | None = None,
     allowed_origins: list[str] | None = None,
     cookie_secure: bool = False,
     allow_unsafe_public_no_auth: bool = False,
+    model_provider: str = MODEL_PROVIDER_OPENAI,
+    model: str = "gpt-4.1",
+    codex_auth_path: Path | None = None,
+    codex_base_url: str | None = None,
+    calendar_events_path: Path | None = None,
+    tasks_path: Path | None = None,
 ) -> tuple[TestClient, Path]:
     repo_root = _test_repo(tmp_path)
     app = create_app(
         AppConfig(
             repo_root=repo_root,
             openai_api_key=openai_api_key,
-            model="gpt-4.1",
+            model=model,
+            model_provider=model_provider,
+            codex_auth_path=codex_auth_path,
+            codex_base_url=codex_base_url,
+            calendar_events_path=calendar_events_path,
+            tasks_path=tasks_path,
             host=host,
             port=8005,
             active_workspace="v5-milestone-1",
@@ -103,6 +117,7 @@ def _client(
             auth_username=auth_username,
             auth_password=auth_password,
             auth_users=auth_users or {},
+            account_creation_code=account_creation_code,
             allowed_hosts=allowed_hosts or [],
             allowed_origins=allowed_origins or [],
             cookie_secure=cookie_secure,
@@ -117,7 +132,80 @@ def _basic_auth_header(username: str, password: str) -> dict[str, str]:
     return {"Authorization": f"Basic {token}"}
 
 
-def _fallback_vet_for_tests(self, *, message, candidates, continuity_hint=None):
+def _today_calendar_artifact() -> dict[str, object]:
+    return {
+        "id": "today-2026-05-14",
+        "kind": "today_briefing",
+        "title": "Today",
+        "summary": "1 scheduled event.",
+        "content": "# Today\n- Advisor check-in | 11:00 AM - 11:30 AM",
+        "data": {
+            "date": "2026-05-14",
+            "calendar": {
+                "date": "2026-05-14",
+                "events": [
+                    {
+                        "id": "advisor-check-in",
+                        "calendar_id": "school",
+                        "title": "Advisor check-in",
+                        "start": "2026-05-14T11:00:00",
+                        "end": "2026-05-14T11:30:00",
+                    }
+                ],
+                "free_blocks": [],
+            },
+            "tasks": {"groups": {}, "summary": {}},
+            "suggestions": [],
+        },
+    }
+
+
+def _fake_jwt(exp: int) -> str:
+    def encode(payload: dict[str, object]) -> str:
+        raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    return f"{encode({'alg': 'none'})}.{encode({'exp': exp})}.signature"
+
+
+def _write_codex_auth(path: Path, *, access_token: str = "codex-access-token") -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "auth_mode": "chatgpt",
+                "tokens": {
+                    "access_token": access_token,
+                    "refresh_token": "codex-refresh-token",
+                    "account_id": "account-id-for-tests",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_calendar_events(path: Path, *, events: list[dict[str, object]]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "calendars": [{"id": "school", "title": "School"}],
+                "events": events,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_tasks(path: Path, *, tasks: list[dict[str, object]]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"tasks": tasks}), encoding="utf-8")
+    return path
+
+
+def _fallback_vet_for_tests(self, *, message, candidates, continuity_hint=None, visible_artifacts=None):
     vetted = candidates[:4]
     return vetted, {
         "selected_ids": [candidate.id for candidate in vetted],
@@ -126,7 +214,7 @@ def _fallback_vet_for_tests(self, *, message, candidates, continuity_hint=None):
     }
 
 
-def _no_relevant_matches_for_tests(self, *, message, candidates, continuity_hint=None):
+def _no_relevant_matches_for_tests(self, *, message, candidates, continuity_hint=None, visible_artifacts=None):
     return [], {
         "selected_ids": [],
         "none_relevant": True,
@@ -460,6 +548,495 @@ def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     assert recalled_item["recall_status"] == "recalled"
 
 
+def test_calendar_day_endpoint_returns_read_only_day_payload(tmp_path: Path) -> None:
+    calendar_events_path = _write_calendar_events(
+        tmp_path / "calendar" / "events.json",
+        events=[
+            {
+                "id": "homework",
+                "calendar_id": "school",
+                "title": "Homework block",
+                "start": "2026-05-13T13:00:00",
+                "end": "2026-05-13T14:00:00",
+            },
+            {
+                "id": "midterm",
+                "calendar_id": "school",
+                "title": "Midterm study",
+                "start": "2026-05-13T16:00:00",
+                "end": "2026-05-13T17:30:00",
+            },
+        ],
+    )
+    client, _ = _client(tmp_path, calendar_events_path=calendar_events_path)
+
+    response = client.get("/api/calendar/day", params={"date": "2026-05-13"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["date"] == "2026-05-13"
+    assert payload["source"]["configured"] is True
+    assert payload["source"]["read_only"] is True
+    assert [event["id"] for event in payload["events"]] == ["homework", "midterm"]
+    assert payload["summary"]["event_count"] == 2
+    assert payload["summary"]["free_block_count"] == 3
+
+
+def test_calendar_week_endpoint_returns_read_only_week_payload(tmp_path: Path) -> None:
+    calendar_events_path = _write_calendar_events(
+        tmp_path / "calendar" / "events.json",
+        events=[
+            {
+                "id": "monday",
+                "calendar_id": "school",
+                "title": "Monday lab",
+                "start": "2026-05-11T10:00:00",
+                "end": "2026-05-11T11:00:00",
+            },
+            {
+                "id": "wednesday",
+                "calendar_id": "school",
+                "title": "Wednesday lecture",
+                "start": "2026-05-13T14:00:00",
+                "end": "2026-05-13T15:00:00",
+            },
+            {
+                "id": "next-week",
+                "calendar_id": "school",
+                "title": "Next week",
+                "start": "2026-05-18T09:00:00",
+                "end": "2026-05-18T10:00:00",
+            },
+        ],
+    )
+    client, _ = _client(tmp_path, calendar_events_path=calendar_events_path)
+
+    response = client.get("/api/calendar/week", params={"date": "2026-05-13"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["start_date"] == "2026-05-11"
+    assert payload["end_date"] == "2026-05-17"
+    assert payload["source"]["configured"] is True
+    assert payload["source"]["read_only"] is True
+    assert payload["summary"]["day_count"] == 7
+    assert payload["summary"]["event_count"] == 2
+    assert [event["id"] for event in payload["days"][0]["events"]] == ["monday"]
+    assert [event["id"] for event in payload["days"][2]["events"]] == ["wednesday"]
+
+
+def test_calendar_day_endpoint_requires_auth_when_profiles_are_enabled(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, auth_users={"eden": "eden-password"})
+
+    blocked = client.get("/api/calendar/day", params={"date": "2026-05-13"})
+    assert blocked.status_code == 401
+
+    login = client.post("/api/login", json={"username": "eden", "password": "eden-password"})
+    assert login.status_code == 200
+    allowed = client.get("/api/calendar/day", params={"date": "2026-05-13"})
+    assert allowed.status_code == 200
+    allowed_week = client.get("/api/calendar/week", params={"date": "2026-05-13"})
+    assert allowed_week.status_code == 200
+
+
+def test_calendar_day_endpoint_rejects_unknown_date_phrase(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+
+    response = client.get("/api/calendar/day", params={"date": "next month"})
+
+    assert response.status_code == 400
+    assert "YYYY-MM-DD" in response.json()["detail"]
+
+    week_response = client.get("/api/calendar/week", params={"date": "next month"})
+    assert week_response.status_code == 400
+    assert "YYYY-MM-DD" in week_response.json()["detail"]
+
+
+def test_task_focus_endpoint_returns_grouped_read_only_tasks(tmp_path: Path) -> None:
+    tasks_path = _write_tasks(
+        tmp_path / "tasks" / "tasks.json",
+        tasks=[
+            {"id": "homework-2", "title": "Homework 2", "due_date": "2026-05-13", "priority": "high"},
+            {"id": "problem-set-3", "title": "Problem Set 3", "due_date": "2026-05-14", "priority": "normal"},
+            {"id": "reading", "title": "Read graph algorithms", "priority": "low"},
+            {"id": "done", "title": "Already done", "status": "completed"},
+        ],
+    )
+    client, _ = _client(tmp_path, tasks_path=tasks_path)
+
+    response = client.get("/api/tasks/focus", params={"date": "2026-05-13"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["date"] == "2026-05-13"
+    assert payload["source"]["configured"] is True
+    assert payload["source"]["read_only"] is True
+    assert [task["id"] for task in payload["groups"]["must_do_today"]] == ["homework-2"]
+    assert [task["id"] for task in payload["groups"]["good_next"]] == ["problem-set-3"]
+    assert [task["id"] for task in payload["groups"]["can_defer"]] == ["reading"]
+    assert payload["summary"]["task_count"] == 3
+
+
+def test_task_focus_endpoint_requires_auth_when_profiles_are_enabled(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, auth_users={"eden": "eden-password"})
+
+    blocked = client.get("/api/tasks/focus", params={"date": "2026-05-13"})
+    assert blocked.status_code == 401
+
+    login = client.post("/api/login", json={"username": "eden", "password": "eden-password"})
+    assert login.status_code == 200
+    allowed = client.get("/api/tasks/focus", params={"date": "2026-05-13"})
+    assert allowed.status_code == 200
+
+
+def test_calendar_and_tasks_use_user_scoped_demo_files_when_profiles_are_enabled(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password", "sam": "sam-password"})
+    _write_calendar_events(
+        repo_root / "users" / "eden" / "state" / "calendar" / "events.json",
+        events=[
+            {
+                "id": "eden-demo",
+                "calendar_id": "school",
+                "title": "Eden demo review",
+                "start": "2026-05-13T10:00:00",
+                "end": "2026-05-13T11:00:00",
+            }
+        ],
+    )
+    _write_tasks(
+        repo_root / "users" / "eden" / "state" / "tasks" / "tasks.json",
+        tasks=[{"id": "eden-homework", "title": "Eden homework", "due_date": "2026-05-13", "priority": "high"}],
+    )
+
+    eden_headers = _basic_auth_header("eden", "eden-password")
+    sam_headers = _basic_auth_header("sam", "sam-password")
+
+    eden_calendar = client.get("/api/calendar/day", params={"date": "2026-05-13"}, headers=eden_headers)
+    sam_calendar = client.get("/api/calendar/day", params={"date": "2026-05-13"}, headers=sam_headers)
+    eden_tasks = client.get("/api/tasks/focus", params={"date": "2026-05-13"}, headers=eden_headers)
+    sam_tasks = client.get("/api/tasks/focus", params={"date": "2026-05-13"}, headers=sam_headers)
+
+    assert eden_calendar.status_code == 200
+    assert sam_calendar.status_code == 200
+    assert eden_tasks.status_code == 200
+    assert sam_tasks.status_code == 200
+    assert eden_calendar.json()["summary"]["event_count"] == 1
+    assert sam_calendar.json()["summary"]["event_count"] == 0
+    assert eden_tasks.json()["summary"]["must_do_today_count"] == 1
+    assert sam_tasks.json()["summary"]["task_count"] == 0
+
+
+def test_chat_attaches_today_briefing_surface_for_day_planning(tmp_path: Path) -> None:
+    calendar_events_path = _write_calendar_events(
+        tmp_path / "calendar" / "events.json",
+        events=[
+            {
+                "id": "lecture",
+                "calendar_id": "school",
+                "title": "Data Structures II",
+                "start": "2026-05-13T14:00:00",
+                "end": "2026-05-13T15:00:00",
+            },
+        ],
+    )
+    tasks_path = _write_tasks(
+        tmp_path / "tasks" / "tasks.json",
+        tasks=[
+            {"id": "homework-2", "title": "Homework 2", "due_date": "2026-05-13", "priority": "high"},
+            {"id": "midterm-review", "title": "Midterm Review", "priority": "high", "duration_minutes": 90},
+        ],
+    )
+    client, _ = _client(tmp_path, calendar_events_path=calendar_events_path, tasks_path=tasks_path)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Tell me about what I have planned for today on 2026-05-13.",
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_invocation"]["primary_surface"] == "calendar_day"
+    assert payload["active_surface_id"] == "today-2026-05-13"
+    assert [surface["kind"] for surface in payload["surface_payloads"]] == ["today_briefing"]
+    surface = payload["surface_payloads"][0]
+    assert surface["data"]["calendar"]["summary"]["event_count"] == 1
+    assert surface["data"]["tasks"]["summary"]["must_do_today_count"] == 2
+    assert surface["data"]["suggestions"]
+
+
+def test_chat_attaches_task_focus_surface_for_task_only_prompt(tmp_path: Path) -> None:
+    tasks_path = _write_tasks(
+        tmp_path / "tasks" / "tasks.json",
+        tasks=[
+            {"id": "problem-set-3", "title": "Problem Set 3", "due_date": "2026-05-14"},
+        ],
+    )
+    client, _ = _client(tmp_path, tasks_path=tasks_path)
+
+    response = client.post(
+        "/api/chat",
+        json={"message": "Show my to-do list and what I should focus on.", "history": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_surface_id"].startswith("tasks-")
+    assert [surface["kind"] for surface in payload["surface_payloads"]] == ["task_focus"]
+
+
+def test_chat_attaches_calendar_week_surface_for_week_prompt(tmp_path: Path) -> None:
+    calendar_events_path = _write_calendar_events(
+        tmp_path / "calendar" / "events.json",
+        events=[
+            {
+                "id": "lab",
+                "calendar_id": "school",
+                "title": "Algorithms lab",
+                "start": "2026-05-11T10:00:00",
+                "end": "2026-05-11T11:00:00",
+            },
+        ],
+    )
+    client, _ = _client(tmp_path, calendar_events_path=calendar_events_path)
+
+    response = client.post(
+        "/api/chat",
+        json={"message": "Show me my calendar for this week on 2026-05-13.", "history": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_invocation"]["primary_surface"] == "calendar_week"
+    assert payload["active_surface_id"] == "calendar-week-2026-05-11"
+    assert [surface["kind"] for surface in payload["surface_payloads"]] == ["calendar_week"]
+    assert payload["surface_payloads"][0]["data"]["calendar_week"]["summary"]["event_count"] == 1
+    assert "opened your week calendar" in payload["assistant_message"]
+    assert "Algorithms lab" in payload["assistant_message"]
+
+
+def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+    visible_artifacts = [
+        {
+            "id": "calendar-week-2026-05-11",
+            "kind": "calendar_week",
+            "title": "Week",
+            "summary": "1 scheduled event this week.",
+            "content": "# Calendar Week\n- Algorithms lab",
+            "data": {
+                "calendar_week": {
+                    "start_date": "2026-05-11",
+                    "end_date": "2026-05-17",
+                }
+            },
+        }
+    ]
+    captured: dict[str, object] = {}
+
+    def _route(self, **kwargs):
+        captured["navigator_visible"] = kwargs["visible_artifacts"]
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.93,
+            reason="The visible calendar is relevant current-view context.",
+            whiteboard_mode="chat",
+        )
+
+    def _interpret(self, **kwargs):
+        captured["protocol_visible"] = kwargs["visible_artifacts"]
+        return ProtocolInterpretation(rationale="No protocol action.")
+
+    def _vet(self, *, message, candidates, continuity_hint=None, visible_artifacts=None):
+        captured["vetting_visible"] = visible_artifacts
+        return [], {
+            "selected_ids": [],
+            "none_relevant": True,
+            "rationale": "Visible artifacts supplied current-view context.",
+        }
+
+    def _reply(self, **kwargs):
+        captured["reply_visible"] = kwargs["visible_artifacts"]
+        return "I see the current week calendar with Algorithms lab."
+
+    def _decide(self, **kwargs):
+        captured["meta_visible"] = kwargs["visible_artifacts"]
+        return MetaDecision(action="no_op", rationale="Visible context was read-only.")
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.protocols.ProtocolInterpreter.interpret", _interpret)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _vet)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr("vantage_v5.services.meta.MetaService.decide", _decide)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "What am I looking at this week?",
+            "history": [],
+            "whiteboard_mode": "chat",
+            "visible_artifacts": visible_artifacts,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "I see the current week calendar with Algorithms lab."
+    assert payload["visible_artifacts"][0]["id"] == "calendar-week-2026-05-11"
+    assert "Algorithms lab" in payload["visible_artifacts"][0]["content"]
+    for key in ["navigator_visible", "protocol_visible", "vetting_visible", "reply_visible", "meta_visible"]:
+        assert captured[key][0]["id"] == "calendar-week-2026-05-11"
+        assert "Algorithms lab" in captured[key][0]["content"]
+
+
+def test_chat_returns_proposed_calendar_action_without_mutating_user_file(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
+    calendar_events_path = _write_calendar_events(
+        repo_root / "users" / "eden" / "state" / "calendar" / "events.json",
+        events=[
+            {
+                "id": "advisor-check-in",
+                "calendar_id": "school",
+                "title": "Advisor check-in",
+                "start": "2026-05-14T11:00:00",
+                "end": "2026-05-14T11:30:00",
+            }
+        ],
+    )
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={
+            "message": "replace Advisor check-in with Grocery shopping",
+            "history": [],
+            "visible_artifacts": [_today_calendar_artifact()],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["artifact_actions"][0]["status"] == "proposed"
+    assert payload["artifact_actions"][0]["operation"] == "replace_event"
+    assert payload["artifact_actions"][0]["payload"]["updates"] == {"title": "Grocery shopping"}
+    assert payload["surface_invocation"]["write_behavior"] == "proposal_only"
+    assert "after you confirm" in payload["assistant_message"]
+    assert json.loads(calendar_events_path.read_text(encoding="utf-8"))["events"][0]["title"] == "Advisor check-in"
+
+
+def test_accept_calendar_artifact_action_mutates_only_user_calendar_and_refreshes_surface(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password", "sam": "sam-password"})
+    eden_calendar = _write_calendar_events(
+        repo_root / "users" / "eden" / "state" / "calendar" / "events.json",
+        events=[
+            {
+                "id": "advisor-check-in",
+                "calendar_id": "school",
+                "title": "Advisor check-in",
+                "start": "2026-05-14T11:00:00",
+                "end": "2026-05-14T11:30:00",
+            }
+        ],
+    )
+    sam_calendar = _write_calendar_events(
+        repo_root / "users" / "sam" / "state" / "calendar" / "events.json",
+        events=[
+            {
+                "id": "advisor-check-in",
+                "calendar_id": "school",
+                "title": "Advisor check-in",
+                "start": "2026-05-14T11:00:00",
+                "end": "2026-05-14T11:30:00",
+            }
+        ],
+    )
+    headers = _basic_auth_header("eden", "eden-password")
+    proposed = client.post(
+        "/api/chat",
+        headers=headers,
+        json={
+            "message": "replace Advisor check-in with Grocery shopping",
+            "history": [],
+            "visible_artifacts": [_today_calendar_artifact()],
+        },
+    ).json()["artifact_actions"][0]
+
+    response = client.post(f"/api/artifact-actions/{proposed['id']}/accept", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["artifact_actions"][0]["status"] == "accepted"
+    assert payload["graph_action"]["type"] == "calendar_replace_event"
+    assert payload["surface_payloads"][0]["kind"] == "today_briefing"
+    assert payload["surface_payloads"][0]["data"]["calendar"]["events"][0]["title"] == "Grocery shopping"
+    assert json.loads(eden_calendar.read_text(encoding="utf-8"))["events"][0]["title"] == "Grocery shopping"
+    assert json.loads(sam_calendar.read_text(encoding="utf-8"))["events"][0]["title"] == "Advisor check-in"
+
+
+def test_reject_calendar_artifact_action_leaves_calendar_unchanged(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
+    calendar_events_path = _write_calendar_events(
+        repo_root / "users" / "eden" / "state" / "calendar" / "events.json",
+        events=[
+            {
+                "id": "advisor-check-in",
+                "title": "Advisor check-in",
+                "start": "2026-05-14T11:00:00",
+                "end": "2026-05-14T11:30:00",
+            }
+        ],
+    )
+    headers = _basic_auth_header("eden", "eden-password")
+    proposed = client.post(
+        "/api/chat",
+        headers=headers,
+        json={
+            "message": "replace Advisor check-in with Grocery shopping",
+            "history": [],
+            "visible_artifacts": [_today_calendar_artifact()],
+        },
+    ).json()["artifact_actions"][0]
+
+    response = client.post(f"/api/artifact-actions/{proposed['id']}/reject", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["artifact_actions"][0]["status"] == "rejected"
+    assert json.loads(calendar_events_path.read_text(encoding="utf-8"))["events"][0]["title"] == "Advisor check-in"
+
+
+def test_calendar_artifact_action_rejects_global_configured_calendar_writes(tmp_path: Path) -> None:
+    global_calendar = _write_calendar_events(
+        tmp_path / "global-calendar" / "events.json",
+        events=[
+            {
+                "id": "advisor-check-in",
+                "title": "Advisor check-in",
+                "start": "2026-05-14T11:00:00",
+                "end": "2026-05-14T11:30:00",
+            }
+        ],
+    )
+    client, _ = _client(tmp_path, auth_users={"eden": "eden-password"}, calendar_events_path=global_calendar)
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={
+            "message": "replace Advisor check-in with Grocery shopping",
+            "history": [],
+            "visible_artifacts": [_today_calendar_artifact()],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["artifact_actions"] == []
+    assert "read-only" in payload["assistant_message"]
+    assert json.loads(global_calendar.read_text(encoding="utf-8"))["events"][0]["title"] == "Advisor check-in"
+
+
 def test_plain_why_question_stays_direct_chat(tmp_path: Path) -> None:
     client, _ = _client(tmp_path)
 
@@ -631,6 +1208,7 @@ def test_create_account_hashes_password_and_creates_user_session(tmp_path: Path)
     health = client.get("/api/health")
     assert health.status_code == 200
     assert health.json()["account_creation_enabled"] is True
+    assert health.json()["account_creation_code_required"] is False
 
     invalid = client.post("/api/accounts", json={"username": "no spaces", "password": password})
     assert invalid.status_code == 400
@@ -679,6 +1257,39 @@ def test_create_account_hashes_password_and_creates_user_session(tmp_path: Path)
     assert workspace.json()["workspace_id"] == "v5-milestone-1"
 
 
+def test_create_account_can_require_access_code(tmp_path: Path) -> None:
+    client, repo_root = _client(
+        tmp_path,
+        auth_users={
+            "eden": "eden-password",
+        },
+        account_creation_code="join-vantage",
+    )
+
+    health = client.get("/api/health")
+    assert health.status_code == 200
+    assert health.json()["account_creation_enabled"] is True
+    assert health.json()["account_creation_code_required"] is True
+
+    missing_code = client.post("/api/accounts", json={"username": "Taylor_01", "password": "taylor-password"})
+    assert missing_code.status_code == 403
+
+    wrong_code = client.post(
+        "/api/accounts",
+        json={"username": "Taylor_01", "password": "taylor-password", "access_code": "wrong-code"},
+    )
+    assert wrong_code.status_code == 403
+
+    created = client.post(
+        "/api/accounts",
+        json={"username": "Taylor_01", "password": "taylor-password", "access_code": "join-vantage"},
+    )
+    assert created.status_code == 201
+    assert created.json()["authenticated"] is True
+    assert created.json()["account_creation_code_required"] is True
+    assert (repo_root / "users" / "taylor_01" / "workspaces" / "v5-milestone-1.md").exists()
+
+
 def test_create_account_is_disabled_when_auth_is_not_enabled(tmp_path: Path) -> None:
     client, _ = _client(tmp_path)
 
@@ -689,6 +1300,47 @@ def test_create_account_is_disabled_when_auth_is_not_enabled(tmp_path: Path) -> 
 
     created = client.post("/api/accounts", json={"username": "Taylor_01", "password": "taylor-password"})
     assert created.status_code == 404
+
+
+def test_pwa_assets_are_served_with_safe_cache_headers(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path)
+
+    manifest = client.get("/manifest.webmanifest")
+    assert manifest.status_code == 200
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
+    assert manifest.headers["cache-control"] == "no-cache"
+    manifest_payload = manifest.json()
+    assert manifest_payload["name"] == "Vantage v6"
+    assert manifest_payload["display"] == "standalone"
+    assert manifest_payload["start_url"] == "/"
+    assert {icon["src"] for icon in manifest_payload["icons"]} == {
+        "/icons/vantage-icon-192.png",
+        "/icons/vantage-icon-512.png",
+    }
+
+    service_worker = client.get("/sw.js")
+    assert service_worker.status_code == 200
+    assert service_worker.headers["content-type"].startswith("text/javascript")
+    assert service_worker.headers["cache-control"] == "no-cache"
+    assert service_worker.headers["service-worker-allowed"] == "/"
+    assert 'url.pathname.startsWith("/api/")' in service_worker.text
+
+    icon = client.get("/icons/vantage-icon-192.png")
+    assert icon.status_code == 200
+    assert icon.headers["content-type"].startswith("image/png")
+    assert icon.headers["cache-control"] == "public, max-age=86400"
+    assert icon.content.startswith(b"\x89PNG")
+
+
+def test_pwa_assets_stay_public_when_auth_is_enabled(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, auth_users={"eden": "eden-password"})
+
+    assert client.get("/manifest.webmanifest").status_code == 200
+    assert client.get("/sw.js").status_code == 200
+    assert client.get("/icons/apple-touch-icon.png").status_code == 200
+    protected_workspace = client.get("/api/workspace")
+    assert protected_workspace.status_code == 401
+    assert protected_workspace.json()["detail"] == "Authentication required."
 
 
 def test_user_openai_key_is_scoped_and_not_returned_or_persisted(tmp_path: Path) -> None:
@@ -780,6 +1432,28 @@ def test_user_openai_key_can_override_environment_key_and_clear_back_to_env(tmp_
     assert restored.json()["mode"] == "openai"
     assert restored.json()["openai_key"]["source"] == "environment"
     assert restored.json()["openai_key"]["masked_key"] == "sk-e...5678"
+
+
+def test_health_reports_codex_oauth_model_auth_without_returning_token(tmp_path: Path) -> None:
+    access_token = _fake_jwt(4_102_444_800)
+    auth_path = _write_codex_auth(tmp_path / "codex-auth.json", access_token=access_token)
+    client, _ = _client(
+        tmp_path,
+        model_provider=MODEL_PROVIDER_CODEX_OAUTH,
+        model="gpt-5.5",
+        codex_auth_path=auth_path,
+    )
+
+    health = client.get("/api/health")
+    assert health.status_code == 200
+    payload = health.json()
+    assert payload["mode"] == "codex_oauth"
+    assert payload["model"] == "gpt-5.5"
+    assert payload["model_provider"] == "codex_oauth"
+    assert payload["model_auth"]["configured"] is True
+    assert payload["model_auth"]["provider"] == "codex_oauth"
+    assert payload["model_auth"]["codex_oauth"]["source"] == "codex_cli"
+    assert access_token not in health.text
 
 
 def test_semantic_policy_saves_visible_whiteboard_without_chat_guessing(tmp_path: Path, monkeypatch) -> None:
@@ -1741,8 +2415,9 @@ def test_scenario_lab_without_grounded_context_remains_explicit_best_guess(tmp_p
     assert payload["response_mode"]["grounding_mode"] == "ungrounded"
     assert payload["response_mode"]["grounding_sources"] == []
     assert payload["response_mode"]["context_sources"] == []
+    assert payload["response_mode"]["label"] == "Best Guess"
     assert payload["response_mode"]["note"] == "No grounded context supported this answer."
-    assert payload["assistant_message"].startswith("This is new to me, but my best guess is:")
+    assert not payload["assistant_message"].startswith("This is new to me, but my best guess is:")
 
 
 def test_scenario_lab_can_be_pending_whiteboard_grounded_without_best_guess_preface(tmp_path: Path, monkeypatch) -> None:
@@ -2352,7 +3027,7 @@ def test_scenario_lab_respects_navigator_selected_record_override(tmp_path: Path
     )
     monkeypatch.setattr(
         "vantage_v5.services.vetting.ConceptVettingService.vet",
-        lambda self, *, message, candidates, continuity_hint=None: (
+        lambda self, *, message, candidates, continuity_hint=None, visible_artifacts=None: (
             candidates[:1],
             {
                 "selected_ids": [candidate.id for candidate in candidates[:1]],
@@ -2660,7 +3335,7 @@ def test_low_context_follow_up_keeps_selected_concept_in_turn_memory(tmp_path: P
     assert "continuity context" in follow_up_payload["vetting"]["rationale"].lower()
 
 
-def test_best_guess_response_is_prefaced_when_no_working_memory(tmp_path: Path, monkeypatch) -> None:
+def test_best_guess_response_uses_metadata_without_legacy_preface(tmp_path: Path, monkeypatch) -> None:
     client, _ = _client(tmp_path)
 
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
@@ -2680,8 +3355,9 @@ def test_best_guess_response_is_prefaced_when_no_working_memory(tmp_path: Path, 
     payload = response.json()
     assert payload["response_mode"]["kind"] == "best_guess"
     assert payload["response_mode"]["grounding_mode"] == "ungrounded"
+    assert payload["response_mode"]["label"] == "Best Guess"
     assert payload["working_memory"] == []
-    assert payload["assistant_message"].startswith("This is new to me, but my best guess is:")
+    assert not payload["assistant_message"].startswith("This is new to me, but my best guess is:")
     assert payload["learned"] == []
 
 
@@ -2919,7 +3595,7 @@ def test_fallback_turn_creates_linked_concept_when_topic_is_related_but_not_dupl
         ),
     )
 
-    def _vet(self, *, message, candidates, continuity_hint=None):
+    def _vet(self, *, message, candidates, continuity_hint=None, visible_artifacts=None):
         return [matching_concept], {
             "selected_ids": [matching_concept.id],
             "none_relevant": False,
@@ -2963,7 +3639,7 @@ def test_fallback_turn_links_only_related_concepts(tmp_path: Path, monkeypatch) 
         body="Tradeoffs for shipping software products.",
     )
 
-    def _vet(self, *, message, candidates, continuity_hint=None):
+    def _vet(self, *, message, candidates, continuity_hint=None, visible_artifacts=None):
         return [related_concept, unrelated_concept], {
             "selected_ids": [related_concept.id, unrelated_concept.id],
             "none_relevant": False,
@@ -3001,7 +3677,7 @@ def test_fallback_turn_can_create_revision_for_explicit_concept_update(tmp_path:
         body="Players guess letters one at a time.",
     )
 
-    def _vet(self, *, message, candidates, continuity_hint=None):
+    def _vet(self, *, message, candidates, continuity_hint=None, visible_artifacts=None):
         return [matching_concept], {
             "selected_ids": [matching_concept.id],
             "none_relevant": False,
@@ -4336,8 +5012,8 @@ def test_chat_ignores_unsaved_workspace_when_whiteboard_is_out_of_scope(tmp_path
     )
     assert response.status_code == 200
     payload = response.json()
-    assert payload["assistant_message"].endswith("I answered without pulling in the hidden whiteboard.")
-    assert payload["assistant_message"].startswith("This is new to me, but my best guess is:")
+    assert payload["assistant_message"] == "I answered without pulling in the hidden whiteboard."
+    assert not payload["assistant_message"].startswith("This is new to me, but my best guess is:")
     assert payload["workspace"]["workspace_id"] == "thank-you-email-to-judy"
     assert payload["workspace"]["context_scope"] == "excluded"
     assert payload["workspace"]["content"] is None
@@ -4377,8 +5053,8 @@ def test_chat_excludes_live_workspace_buffer_when_scope_is_excluded(tmp_path: Pa
     )
     assert response.status_code == 200
     payload = response.json()
-    assert payload["assistant_message"].endswith("I answered without using the hidden live whiteboard buffer.")
-    assert payload["assistant_message"].startswith("This is new to me, but my best guess is:")
+    assert payload["assistant_message"] == "I answered without using the hidden live whiteboard buffer."
+    assert not payload["assistant_message"].startswith("This is new to me, but my best guess is:")
     assert payload["workspace"]["context_scope"] == "excluded"
     assert payload["workspace"]["content"] is None
     assert payload["response_mode"]["grounding_mode"] == "ungrounded"
@@ -4628,7 +5304,7 @@ def test_record_corrections_reject_unsupported_mutation_semantics(
     assert record_id in _saved_note_ids(memory.json())
 
 
-def test_draft_request_does_not_auto_write_memory(tmp_path: Path) -> None:
+def test_draft_request_auto_drafts_whiteboard_without_memory_write(tmp_path: Path) -> None:
     client, repo_root = _client(tmp_path)
 
     chat = client.post(
@@ -4642,10 +5318,15 @@ def test_draft_request_does_not_auto_write_memory(tmp_path: Path) -> None:
     assert chat.status_code == 200
     payload = chat.json()
     assert payload["meta_action"]["action"] == "no_op"
-    assert payload["graph_action"] is None
-    assert payload["created_record"] is None
+    assert payload["surface_invocation"]["intent"] == "durable_artifact"
+    assert payload["workspace_update"]["type"] == "draft_whiteboard"
+    assert payload["workspace_update"]["persisted"] is False
+    assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
+    assert payload["created_record"]["source"] == "artifact"
     artifact_ids = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
-    assert "help-me-draft-an-essay-about-preparing-a-thanksgiving-dinner" not in artifact_ids
+    assert "help-me-draft-an-essay-about-preparing-a-thanksgiving-dinner" in artifact_ids
+    memory_ids = {path.stem for path in (repo_root / "memories").glob("*.md")}
+    assert "help-me-draft-an-essay-about-preparing-a-thanksgiving-dinner" not in memory_ids
 
 
 def test_plan_request_can_draft_detail_into_whiteboard(tmp_path: Path, monkeypatch) -> None:
@@ -4892,26 +5573,30 @@ def test_staged_whiteboard_draft_retries_before_persisting_artifact(tmp_path: Pa
     assert len(list((repo_root / "artifacts").glob("*.md"))) == artifact_count_before + 1
 
 
-def test_navigation_can_drive_auto_whiteboard_offer(tmp_path: Path, monkeypatch) -> None:
+def test_surface_policy_overrides_interpreter_offer_for_durable_artifact(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path, openai_api_key="test-key")
     original_workspace = (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8")
 
     monkeypatch.setattr(
         "vantage_v5.server.NavigatorService.route_turn",
-        lambda self, **kwargs: NavigationDecision(
-            mode="chat",
-            confidence=0.91,
-            reason="The user is asking for a concrete work product, so the turn should invite whiteboard collaboration first.",
-            whiteboard_mode="offer",
+            lambda self, **kwargs: NavigationDecision(
+                mode="chat",
+                confidence=0.91,
+                reason="The user is asking for a concrete work product, so the turn should invite whiteboard collaboration first.",
+                whiteboard_mode="offer",
         ),
     )
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
 
     def _reply(self, **kwargs):
-        assert kwargs["whiteboard_mode"] == "offer"
+        assert kwargs["whiteboard_mode"] == "draft"
         return (
-            "CHAT_RESPONSE: This is a concrete draft. Want me to open the whiteboard so we can write the email there?\n\n"
-            "WHITEBOARD_OFFER: Whiteboard ready for collaboratively drafting the email."
+            "CHAT_RESPONSE: I drafted the email in the whiteboard so we can refine it there.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# Email Declining Meeting\n\n"
+            "Subject: Meeting\n\n"
+            "Hi Maya,\n\n"
+            "I need to decline the meeting, but I appreciate the invitation.\n"
         )
 
     monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
@@ -4919,7 +5604,7 @@ def test_navigation_can_drive_auto_whiteboard_offer(tmp_path: Path, monkeypatch)
         "vantage_v5.services.meta.MetaService.decide",
         lambda self, **kwargs: MetaDecision(
             action="no_op",
-            rationale="The interpreter routed this turn into a non-durable whiteboard invitation.",
+            rationale="The surface policy made this an inspectable whiteboard draft.",
         ),
     )
 
@@ -4933,14 +5618,86 @@ def test_navigation_can_drive_auto_whiteboard_offer(tmp_path: Path, monkeypatch)
     )
     assert response.status_code == 200
     payload = response.json()
-    assert payload["assistant_message"] == "This is a concrete draft. Want me to open the whiteboard so we can write the email there?"
-    assert payload["workspace_update"]["type"] == "offer_whiteboard"
-    assert payload["workspace_update"]["proposal_kind"] == "offer"
+    assert payload["assistant_message"] == "I drafted the email in the whiteboard so we can refine it there."
+    assert payload["workspace_update"]["type"] == "draft_whiteboard"
+    assert payload["workspace_update"]["proposal_kind"] == "draft"
+    assert "Subject: Meeting" in payload["workspace_update"]["content"]
     assert payload["turn_interpretation"]["mode"] == "chat"
-    assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "offer"
-    assert payload["turn_interpretation"]["whiteboard_mode_source"] == "interpreter"
-    assert payload["graph_action"] is None
-    assert payload["created_record"] is None
+    assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "draft"
+    assert payload["turn_interpretation"]["whiteboard_mode_source"] == "surface_invocation"
+    assert payload["surface_invocation"]["intent"] == "durable_artifact"
+    assert payload["surface_invocation"]["primary_surface"] == "whiteboard"
+    assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
+    assert payload["created_record"]["source"] == "artifact"
+    assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
+
+
+def test_surface_policy_auto_drafts_simple_email_with_protocol(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    original_workspace = (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8")
+
+    monkeypatch.setattr(
+        "vantage_v5.server.NavigatorService.route_turn",
+            lambda self, **kwargs: NavigationDecision(
+                mode="chat",
+                confidence=0.91,
+                reason="The interpreter kept this in chat, but surface policy should promote durable artifacts.",
+                whiteboard_mode="chat",
+                control_panel={
+                "actions": [
+                    {"type": "apply_protocol", "protocol_kind": "email", "reason": "Use the email protocol."},
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        ),
+    )
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+
+    def _reply(self, **kwargs):
+        assert kwargs["whiteboard_mode"] == "draft"
+        assert any(item.id == "email-drafting-protocol" for item in kwargs["vetted_memory"])
+        return (
+            "CHAT_RESPONSE: I drafted the email in the whiteboard so we can refine it there.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# Email Declining Meeting\n\n"
+            "Subject: Meeting\n\n"
+            "Hi Maya,\n\n"
+            "I need to decline the meeting, but I appreciate the invitation.\n"
+        )
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="no_op",
+            rationale="The whiteboard draft stays proposed until the user applies or saves it.",
+        ),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Write an email declining the meeting.",
+            "history": [],
+            "workspace_id": "v5-milestone-1",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "I drafted the email in the whiteboard so we can refine it there."
+    assert payload["workspace_update"]["type"] == "draft_whiteboard"
+    assert payload["workspace_update"]["proposal_kind"] == "draft"
+    assert payload["workspace_update"]["title"] == "Email Declining Meeting"
+    assert "Subject: Meeting" in payload["workspace_update"]["content"]
+    assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "draft"
+    assert payload["turn_interpretation"]["whiteboard_mode_source"] == "surface_invocation"
+    assert payload["surface_invocation"]["intent"] == "durable_artifact"
+    assert payload["surface_invocation"]["primary_surface"] == "whiteboard"
+    assert payload["surface_invocation"]["resolved_whiteboard_mode"] == "draft"
+    assert any(item["id"] == "email-drafting-protocol" for item in payload["working_memory"])
+    assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
+    assert payload["created_record"]["source"] == "artifact"
     assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
 
 
@@ -6181,8 +6938,8 @@ def test_hidden_whiteboard_stale_pending_offer_stays_out_of_scope(tmp_path: Path
     )
     assert response.status_code == 200
     payload = response.json()
-    assert payload["assistant_message"].endswith("I answered in chat without reusing the stale whiteboard offer.")
-    assert payload["assistant_message"].startswith("This is new to me, but my best guess is:")
+    assert payload["assistant_message"] == "I answered in chat without reusing the stale whiteboard offer."
+    assert not payload["assistant_message"].startswith("This is new to me, but my best guess is:")
     assert payload["workspace"]["context_scope"] == "excluded"
     assert payload["response_mode"]["grounding_mode"] == "ungrounded"
     assert payload["response_mode"]["context_sources"] == []
@@ -6604,7 +7361,7 @@ def test_continuity_anchor_stays_within_five_items(tmp_path: Path, monkeypatch) 
             ),
         ]
 
-    def _vet(self, *, message, candidates, continuity_hint=None):
+    def _vet(self, *, message, candidates, continuity_hint=None, visible_artifacts=None):
         selected = [candidate for candidate in candidates if candidate.id != "rules-of-hangman-game"][:5]
         return selected, {
             "selected_ids": [candidate.id for candidate in selected],
@@ -6698,7 +7455,7 @@ def test_off_topic_selected_record_does_not_surface_in_working_memory(tmp_path: 
     monkeypatch.setattr("vantage_v5.services.search.ConceptSearchService.search_context", _search_context)
     monkeypatch.setattr(
         "vantage_v5.services.vetting.ConceptVettingService.vet",
-        lambda self, *, message, candidates, continuity_hint=None: (
+        lambda self, *, message, candidates, continuity_hint=None, visible_artifacts=None: (
             candidates[:2],
             {
                 "selected_ids": [candidate.id for candidate in candidates[:2]],
@@ -6791,7 +7548,7 @@ def test_off_topic_selected_scenario_comparison_does_not_anchor_short_turn(tmp_p
     )
     monkeypatch.setattr(
         "vantage_v5.services.vetting.ConceptVettingService.vet",
-        lambda self, *, message, candidates, continuity_hint=None: (
+        lambda self, *, message, candidates, continuity_hint=None, visible_artifacts=None: (
             candidates[:1],
             {
                 "selected_ids": [candidate.id for candidate in candidates[:1]],

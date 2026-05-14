@@ -1,0 +1,9 @@
+{
+  "viewport": {
+    "width": 390,
+    "height": 900
+  },
+  "finalUrl": "http://127.0.0.1:8005/",
+  "title": "Vantage",
+  "visibleTextSample": "VANTAGE\n\neden · Durable session\nAPI key\nSign out\nBack to draft\nBack to draft\nSYSTEM\nHi, I'm Vantage.\n\nI help manage context so our work stays inspectable and reusable. Chat with me naturally, open Inspect when you want to see what shaped an answer, move work into Draft, save or publish useful work products, and ask me to use Scenario Lab when you want to compare branches or explore tradeoffs.\n\nYou're currently in durable mode, so saved memories and work products can stay in your library.\n\nLet me know if you have any questions about how the system works. Otherwise, let's get going.\nReady\nUse sample prompt\nSend\nInspect\n\nStart here: Recall: none • Grounding: Idle • Saved for Later: nothing new yet\n\nBack to draft\n\nANSWER CONTEXT\n\nWhat I Used\n\nStart here for the answer summary, the context in scope, what was pulled in, and what changed after the turn.\n\nIdle\n\nTHIS TURN\n\nThis turn\nNo grounded context surfaced yet\nIdle\nAT A GLANCE\nThis view explains why the answer happened, what entered Recall"
+}

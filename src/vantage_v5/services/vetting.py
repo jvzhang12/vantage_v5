@@ -6,9 +6,10 @@ import logging
 import re
 from typing import Any
 
-from openai import OpenAI
-
+from vantage_v5.services.model_client import create_model_client
+from vantage_v5.services.model_client import ModelClientConfig
 from vantage_v5.services.search import CandidateMemory
+from vantage_v5.services.visible_artifacts import visible_artifacts_prompt_payload
 from vantage_v5.storage.overlay import get_overlay_record
 from vantage_v5.storage.workspaces import WorkspaceDocument
 
@@ -75,9 +76,17 @@ class ContinuityHint:
 
 
 class ConceptVettingService:
-    def __init__(self, *, model: str, openai_api_key: str | None) -> None:
+    def __init__(
+        self,
+        *,
+        model: str,
+        openai_api_key: str | None,
+        model_client_config: ModelClientConfig | None = None,
+    ) -> None:
         self.model = model
-        self.client = OpenAI(api_key=openai_api_key) if openai_api_key else None
+        self.client = create_model_client(
+            model_client_config or ModelClientConfig(openai_api_key=openai_api_key)
+        )
 
     def vet(
         self,
@@ -85,14 +94,20 @@ class ConceptVettingService:
         message: str,
         candidates: list[CandidateMemory],
         continuity_hint: dict[str, Any] | None = None,
+        visible_artifacts: list[dict[str, Any]] | None = None,
     ) -> tuple[list[CandidateMemory], dict[str, Any]]:
         if not candidates:
             return [], {"none_relevant": True, "rationale": "No search candidates."}
         if self.client:
             try:
-                return self._openai_vet(message=message, candidates=candidates, continuity_hint=continuity_hint)
+                return self._openai_vet(
+                    message=message,
+                    candidates=candidates,
+                    continuity_hint=continuity_hint,
+                    visible_artifacts=visible_artifacts,
+                )
             except Exception:
-                logger.exception("OpenAI vetting failed; falling back to deterministic candidate selection.")
+                logger.exception("Model vetting failed; falling back to deterministic candidate selection.")
                 return self._fallback_vet(candidates=candidates, continuity_hint=continuity_hint)
         return self._fallback_vet(candidates=candidates, continuity_hint=continuity_hint)
 
@@ -102,12 +117,14 @@ class ConceptVettingService:
         message: str,
         candidates: list[CandidateMemory],
         continuity_hint: dict[str, Any] | None,
+        visible_artifacts: list[dict[str, Any]] | None,
     ) -> tuple[list[CandidateMemory], dict[str, Any]]:
         payload = {
             "user_message": message,
             "candidates": [candidate.to_dict() for candidate in candidates],
             "selection_limit": 5,
             "continuity_hint": continuity_hint,
+            "visible_artifacts": visible_artifacts_prompt_payload(visible_artifacts),
         }
         response = self.client.responses.create(
             model=self.model,
@@ -118,6 +135,7 @@ class ConceptVettingService:
                 "Candidates may be timeless concepts, saved memories, saved artifacts, or read-only vault notes. "
                 "Prefer timeless concepts for reasoning, prefer saved memories and artifacts for continuity, and include a vault note when it is uniquely useful. "
                 "A continuity hint may summarize a selected record, a live whiteboard draft, or a pending whiteboard follow-up. "
+                "Visible artifacts are the user's current UI context; use them to avoid selecting stale memory when the visible artifact already answers the turn. "
                 "Use that hint as context, but still return only the items that are genuinely relevant. "
                 "Return up to 5 item ids. If none are relevant, say so. "
                 "Prefer a focused subset over a broad noisy set."

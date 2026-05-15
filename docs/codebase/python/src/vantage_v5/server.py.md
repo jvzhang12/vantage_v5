@@ -40,6 +40,8 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 - `_requires_public_auth`
 - `_request_origin_allowed`
 
+`_runtime` also carries canonical and experiment roots into chat, Scenario Lab, and attention so candidate payloads can expose explicit product scope/provenance without changing storage or ranking semantics.
+
 ## Routes
 
 - `GET /api/health`

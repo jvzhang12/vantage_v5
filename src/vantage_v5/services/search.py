@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 import re
+
+from vantage_v5.services.product_scope import ProductScope
+from vantage_v5.services.product_scope import product_scope_for_record
 
 
 TOKEN_RE = re.compile(r"[a-zA-Z0-9]+")
@@ -67,6 +71,9 @@ class CandidateMemory:
     path: str | None = None
     why_recalled: str | None = None
     protocol: dict | None = None
+    scope: str = "durable"
+    durability: str = "durable"
+    is_canonical: bool = False
 
     def to_dict(self) -> dict:
         payload = {
@@ -82,6 +89,9 @@ class CandidateMemory:
             "reason": self.reason,
             "source": self.source,
             "source_label": _source_label(self.source),
+            "scope": self.scope,
+            "durability": self.durability,
+            "is_canonical": self.is_canonical,
             "trust": self.trust,
             "body": self.body,
             "path": self.path,
@@ -105,6 +115,9 @@ class CandidateMemory:
             "source_tier": _source_tier(self.source, self.type),
             "source": self.source,
             "source_label": _source_label(self.source),
+            "scope": self.scope,
+            "durability": self.durability,
+            "is_canonical": self.is_canonical,
             "trust": self.trust,
             "body": self.body,
             "path": self.path,
@@ -134,9 +147,19 @@ class ConceptSearchService:
         concepts: list[SearchableRecord] | None = None,
         records: list[SearchableRecord] | None = None,
         limit: int = 10,
+        canonical_root: Path | None = None,
+        experiment_root: Path | None = None,
+        runtime_scope: str = "durable",
     ) -> list[CandidateMemory]:
         pool = records if records is not None else concepts or []
-        return self._search_records(query=query, records=pool, limit=limit)
+        return self._search_records(
+            query=query,
+            records=pool,
+            limit=limit,
+            canonical_root=canonical_root,
+            experiment_root=experiment_root,
+            runtime_scope=runtime_scope,
+        )
 
     def search_memory(
         self,
@@ -145,9 +168,19 @@ class ConceptSearchService:
         saved_note_records: list[SearchableRecord],
         vault_records: list[SearchableRecord],
         limit: int = 12,
+        canonical_root: Path | None = None,
+        experiment_root: Path | None = None,
+        runtime_scope: str = "durable",
     ) -> list[CandidateMemory]:
-        saved_notes = self._search_records(query=query, records=saved_note_records, limit=limit)
-        vault = self._search_records(query=query, records=vault_records, limit=limit)
+        saved_notes = self._search_records(
+            query=query,
+            records=saved_note_records,
+            limit=limit,
+            canonical_root=canonical_root,
+            experiment_root=experiment_root,
+            runtime_scope=runtime_scope,
+        )
+        vault = self._search_records(query=query, records=vault_records, limit=limit, runtime_scope="reference")
         return _shape_merged_candidates(saved_notes + vault, limit=limit)
 
     def search_context(
@@ -164,6 +197,9 @@ class ConceptSearchService:
         selected_record_id: str | None = None,
         selected_record_source: str | None = None,
         limit: int = 16,
+        canonical_root: Path | None = None,
+        experiment_root: Path | None = None,
+        runtime_scope: str = "durable",
     ) -> list[CandidateMemory]:
         memory_trace = self._search_records(
             query=query,
@@ -174,10 +210,27 @@ class ConceptSearchService:
             workspace_scope=workspace_scope,
             selected_record_id=selected_record_id,
             selected_record_source=selected_record_source,
+            canonical_root=canonical_root,
+            experiment_root=experiment_root,
+            runtime_scope=runtime_scope,
         )
-        concepts = self._search_records(query=query, records=concept_records, limit=limit)
-        saved_notes = self._search_records(query=query, records=saved_note_records, limit=limit)
-        vault = self._search_records(query=query, records=vault_records, limit=limit)
+        concepts = self._search_records(
+            query=query,
+            records=concept_records,
+            limit=limit,
+            canonical_root=canonical_root,
+            experiment_root=experiment_root,
+            runtime_scope=runtime_scope,
+        )
+        saved_notes = self._search_records(
+            query=query,
+            records=saved_note_records,
+            limit=limit,
+            canonical_root=canonical_root,
+            experiment_root=experiment_root,
+            runtime_scope=runtime_scope,
+        )
+        vault = self._search_records(query=query, records=vault_records, limit=limit, runtime_scope="reference")
         return _shape_merged_candidates(memory_trace + concepts + saved_notes + vault, limit=limit)
 
     def _search_records(
@@ -191,6 +244,9 @@ class ConceptSearchService:
         workspace_scope: str | None = None,
         selected_record_id: str | None = None,
         selected_record_source: str | None = None,
+        canonical_root: Path | None = None,
+        experiment_root: Path | None = None,
+        runtime_scope: str = "durable",
     ) -> list[CandidateMemory]:
         query_tokens = tokenize(query)
         query_phrase = _normalized_phrase(query)
@@ -254,6 +310,12 @@ class ConceptSearchService:
                 selected_record_source=selected_record_source,
             )
             score = signal_score + _source_bonus(record.source) + trace_bonus
+            product_scope = product_scope_for_record(
+                record,
+                canonical_root=canonical_root,
+                experiment_root=experiment_root,
+                fallback_scope=runtime_scope,
+            )
 
             candidates.append(
                 CandidateMemory(
@@ -281,6 +343,7 @@ class ConceptSearchService:
                     trust=record.trust,
                     body=record.body,
                     path=record.path_hint,
+                    **_candidate_scope_kwargs(product_scope),
                 )
             )
 
@@ -371,6 +434,14 @@ def _source_label(source: str) -> str:
         "artifact": "Saved artifact",
         "vault_note": "Reference note",
     }.get(source, "Record")
+
+
+def _candidate_scope_kwargs(product_scope: ProductScope) -> dict[str, object]:
+    return {
+        "scope": product_scope.scope,
+        "durability": product_scope.durability,
+        "is_canonical": product_scope.is_canonical,
+    }
 
 
 def _record_kind(source: str, record_type: str) -> str:

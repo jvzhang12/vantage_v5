@@ -116,6 +116,52 @@ def test_attention_hybrid_ranking_uses_semantic_vector_similarity(tmp_path: Path
     assert candidate.to_dict()["retrieval_scores"]["hybrid"] == candidate.score
 
 
+def test_attention_payloads_expose_record_scope_and_selected_provenance(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    canonical_root = tmp_path / "canonical"
+    canonical_store = ConceptStore(canonical_root / "concepts")
+    canonical = canonical_store.create_concept(
+        title="Canonical Scope Marker",
+        card="Canonical concept for attention provenance.",
+        body="Canonical attention provenance marker.",
+    )
+    runtime["reference_concept_store"] = canonical_store
+    runtime["canonical_root"] = canonical_root
+    workspace = runtime["workspace_store"].save("working-draft", "# Working Draft\n\nCurrent scratchpad.")
+    engine = AttentionEngine(
+        calendar_provider=LocalCalendarProvider(events_path=None),
+        task_provider=LocalTaskProvider(tasks_path=None),
+        today=date(2026, 5, 14),
+    )
+
+    turn = engine.prepare_turn(
+        message="Find the canonical attention provenance marker.",
+        runtime=runtime,
+        workspace=workspace,
+        visible_artifacts=[],
+    )
+
+    candidate = next(item for item in turn.candidates if item.resource_id == f"concept:{canonical.id}")
+    candidate_payload = candidate.to_dict()
+    assert candidate_payload["scope"] == "canonical"
+    assert candidate_payload["durability"] == "durable"
+    assert candidate_payload["is_canonical"] is True
+
+    _selection, selected = turn.select(
+        {
+            "selected_ids": [candidate.resource_id],
+            "primary_resource_id": candidate.resource_id,
+            "reason": "Use the canonical concept.",
+            "confidence": 0.9,
+        }
+    )
+    selected_payload = selected[0].to_dict()
+    assert selected_payload["scope"] == "canonical"
+    assert selected_payload["durability"] == "durable"
+    assert selected_payload["is_canonical"] is True
+    assert selected_payload["source_status"]["store"] == "reference_concept_store"
+
+
 def test_attention_retrieval_prefers_saved_artifact_over_unrequested_memory_trace(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
     workspace = runtime["workspace_store"].save("working-draft", "# Working Draft\n\nCurrent scratchpad.")
@@ -393,6 +439,9 @@ def test_attention_surface_selection_overrides_legacy_surface_choice() -> None:
             title="Task focus 2026-05-14",
             summary="Task focus for 2026-05-14.",
             source="tasks",
+            scope="operational",
+            durability="live",
+            is_canonical=False,
             content="# Tasks",
             data={"date": "2026-05-14"},
             source_status={"read_only": False, "writable": True},

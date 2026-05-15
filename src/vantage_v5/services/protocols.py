@@ -7,6 +7,8 @@ from typing import Any
 
 from vantage_v5.services.model_client import create_model_client
 from vantage_v5.services.model_client import ModelClientConfig
+from vantage_v5.services.product_scope import builtin_product_scope
+from vantage_v5.services.product_scope import product_scope_for_record
 from vantage_v5.services.search import CandidateMemory
 from vantage_v5.services.visible_artifacts import visible_artifacts_prompt_payload
 from vantage_v5.storage.markdown_store import MarkdownRecord
@@ -357,6 +359,7 @@ def protocol_candidates_for_kinds(
             continue
         seen.add(record_kind)
         label = record_kind.replace("_", " ")
+        product_scope = product_scope_for_record(record, canonical_root=canonical_root)
         candidates.append(
             CandidateMemory(
                 id=record.id,
@@ -370,6 +373,9 @@ def protocol_candidates_for_kinds(
                 trust=record.trust,
                 body=record.body,
                 path=record.path_hint,
+                scope=product_scope.scope,
+                durability=product_scope.durability,
+                is_canonical=product_scope.is_canonical,
                 protocol={
                     "protocol_kind": record_kind,
                     "variables": record.metadata.get("variables") or {},
@@ -389,6 +395,7 @@ def protocol_candidates_for_kinds(
         if built_in is None:
             continue
         label = protocol_kind.replace("_", " ")
+        product_scope = builtin_product_scope()
         candidates.append(
             CandidateMemory(
                 id=str(built_in["id"]),
@@ -402,6 +409,9 @@ def protocol_candidates_for_kinds(
                 trust="high",
                 body=str(built_in["body"]),
                 path=None,
+                scope=product_scope.scope,
+                durability=product_scope.durability,
+                is_canonical=product_scope.is_canonical,
                 protocol={
                     "protocol_kind": protocol_kind,
                     "variables": built_in.get("variables") or {},

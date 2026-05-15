@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import logging
+from pathlib import Path
 import re
 from typing import Any
 
 from vantage_v5.services.model_client import create_model_client
 from vantage_v5.services.model_client import ModelClientConfig
+from vantage_v5.services.product_scope import product_scope_for_record
 from vantage_v5.services.search import CandidateMemory
 from vantage_v5.services.visible_artifacts import visible_artifacts_prompt_payload
 from vantage_v5.storage.overlay import get_overlay_record
@@ -317,6 +319,9 @@ def resolve_selected_record_candidate(
     vault_store: Any,
     *,
     reason: str | None = None,
+    canonical_root: Path | None = None,
+    experiment_root: Path | None = None,
+    runtime_scope: str = "durable",
 ) -> CandidateMemory | None:
     if not record_id:
         return None
@@ -328,6 +333,12 @@ def resolve_selected_record_candidate(
         (artifact_store, reference_artifact_store),
     )
     if record is not None:
+        product_scope = product_scope_for_record(
+            record,
+            canonical_root=canonical_root,
+            experiment_root=experiment_root,
+            fallback_scope=runtime_scope,
+        )
         return CandidateMemory(
             id=record.id,
             title=record.title,
@@ -339,6 +350,9 @@ def resolve_selected_record_candidate(
             trust=record.trust,
             body=record.body,
             path=record.path_hint,
+            scope=product_scope.scope,
+            durability=product_scope.durability,
+            is_canonical=product_scope.is_canonical,
         )
 
     try:
@@ -356,6 +370,9 @@ def resolve_selected_record_candidate(
         trust=note.trust,
         body=note.body,
         path=note.relative_path,
+        scope="reference",
+        durability="read_only",
+        is_canonical=False,
     )
 
 

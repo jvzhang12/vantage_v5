@@ -27,7 +27,7 @@ Filters search candidates down to the small set that is actually relevant to the
 - `build_continuity_hint()`: derives the continuity hint from the current turn, a genuinely preserved selected record, pending whiteboard state, and live workspace content.
 - `should_preserve_selected_record()`: decides when an explicitly selected record should be treated as a continuity anchor.
 - `anchor_selected_record_candidate()`: re-inserts the selected record into the vetted set when preservation is requested.
-- `resolve_selected_record_candidate()`: resolves a selected record id into a candidate memory object from graph stores or the vault.
+- `resolve_selected_record_candidate()`: resolves a selected record id into a candidate memory object from graph stores or the vault, carrying the same product scope metadata used by search candidates when roots are supplied.
 
 ## Notable Edge Cases
 

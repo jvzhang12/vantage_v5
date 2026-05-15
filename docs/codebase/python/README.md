@@ -31,6 +31,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - [src/vantage_v5/services/navigator_eval.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/navigator_eval.py.md)
 - [src/vantage_v5/services/protocol_engine.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/protocol_engine.py.md)
 - [src/vantage_v5/services/protocols.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/protocols.py.md)
+- [src/vantage_v5/services/product_scope.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/product_scope.py.md)
 - [src/vantage_v5/services/record_cards.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/record_cards.py.md)
 - [src/vantage_v5/services/response_mode.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/response_mode.py.md)
 - [src/vantage_v5/services/scenario_lab.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/scenario_lab.py.md)

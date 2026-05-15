@@ -173,6 +173,8 @@ class ChatService:
         executor: GraphActionExecutor,
         traces_dir: Path,
         runtime_scope: str = "durable",
+        canonical_root: Path | None = None,
+        experiment_root: Path | None = None,
     ) -> None:
         self.model = model
         self.concept_store = concept_store
@@ -192,6 +194,8 @@ class ChatService:
         self.executor = executor
         self.traces_dir = traces_dir
         self.runtime_scope = "experiment" if runtime_scope == "experiment" else "durable"
+        self.canonical_root = canonical_root
+        self.experiment_root = experiment_root
         self.client = create_model_client(
             model_client_config or ModelClientConfig(openai_api_key=openai_api_key)
         )
@@ -254,6 +258,9 @@ class ChatService:
             self.reference_artifact_store,
             self.vault_store,
             reason=selected_record_reason,
+            canonical_root=self.canonical_root,
+            experiment_root=self.experiment_root,
+            runtime_scope=self.runtime_scope,
         )
         preserve_selected_memory = preserve_selected_record
         if preserve_selected_memory is None:
@@ -293,6 +300,9 @@ class ChatService:
             selected_record_id=selected_memory.id if preserve_selected_memory and selected_memory else None,
             selected_record_source=selected_memory.source if preserve_selected_memory and selected_memory else None,
             limit=16,
+            canonical_root=self.canonical_root,
+            experiment_root=self.experiment_root,
+            runtime_scope=self.runtime_scope,
         )
         protocol_guidance = self.protocol_engine.build_guidance(
             protocol_kinds=[

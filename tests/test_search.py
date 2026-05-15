@@ -405,6 +405,73 @@ def test_recall_details_surface_user_facing_reason_without_debug_reason() -> Non
     assert "reason" not in payload["recall_details"][0]
 
 
+def test_search_payloads_expose_canonical_scope_from_root_containment(tmp_path: Path) -> None:
+    durable_store = ConceptStore(tmp_path / "users" / "canonical" / "concepts")
+    canonical_root = tmp_path / "canonical"
+    canonical_store = ConceptStore(canonical_root / "concepts")
+    durable_store.create_concept(
+        title="Profile Canonical Phrase",
+        card="Durable profile concept.",
+        body="A user-owned concept whose profile path contains the word canonical.",
+    )
+    canonical_record = canonical_store.create_concept(
+        title="Canonical Scope Marker",
+        card="Canonical concept.",
+        body="Canonical scope marker for recall provenance.",
+    )
+
+    service = ConceptSearchService()
+    candidates = service.search_context(
+        query="canonical scope marker",
+        memory_trace_records=[],
+        concept_records=[*durable_store.list_concepts(), *canonical_store.list_concepts()],
+        saved_note_records=[],
+        vault_records=[],
+        canonical_root=canonical_root,
+        runtime_scope="durable",
+        limit=5,
+    )
+
+    canonical_candidate = next(candidate for candidate in candidates if candidate.id == canonical_record.id)
+    payload = canonical_candidate.to_recall_dict()
+    assert payload["scope"] == "canonical"
+    assert payload["durability"] == "durable"
+    assert payload["is_canonical"] is True
+
+
+def test_search_payloads_expose_experiment_trace_scope(tmp_path: Path) -> None:
+    trace_store = MemoryTraceStore(tmp_path / "memory_trace")
+    trace = trace_store.create_turn_trace(
+        user_message="Remember the temporary launch plan.",
+        assistant_message="Temporary launch plan noted inside the experiment.",
+        working_memory=[],
+        history=[],
+        workspace_id="experiment-workspace",
+        workspace_title="Experiment Workspace",
+        workspace_content="",
+        workspace_scope="excluded",
+        learned=[],
+        response_mode={"kind": "best_guess"},
+        scope="experiment",
+    )
+
+    service = ConceptSearchService()
+    candidates = service.search_context(
+        query="temporary launch plan",
+        memory_trace_records=trace_store.list_recent_traces(),
+        concept_records=[],
+        saved_note_records=[],
+        vault_records=[],
+        runtime_scope="durable",
+        limit=5,
+    )
+
+    payload = next(candidate for candidate in candidates if candidate.id == trace.id).to_dict()
+    assert payload["scope"] == "experiment"
+    assert payload["durability"] == "temporary"
+    assert payload["is_canonical"] is False
+
+
 def test_search_uses_links_and_lineage_signals(tmp_path: Path) -> None:
     memory_store = MemoryStore(tmp_path / "memories")
     artifact_store = ArtifactStore(tmp_path / "artifacts")

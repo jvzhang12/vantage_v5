@@ -34,7 +34,7 @@ Scenario Lab service for Vantage V5. It takes a navigator decision, runs bounded
 - `ScenarioPlan`: normalized structured output from the model.
 - `ScenarioLabTurn`: structured Scenario Lab turn facts, with `to_body_parts()` for the deep assembler boundary and `to_dict()` retained for compatibility callers.
 - `ScenarioLabService`: coordinates retrieval, generation, persistence, and tracing.
-- `ScenarioLabService` receives the active runtime scope from the server and uses it for created branch, comparison-artifact, and Memory Trace payloads instead of deriving experiment/durable status from path segments.
+- `ScenarioLabService` receives the active runtime scope plus canonical/experiment roots from the server and uses them for created branch, comparison-artifact, Memory Trace, selected-record, and retrieval provenance payloads instead of deriving experiment/durable status from path segments.
 - `_openai_build_scenario()`: calls OpenAI to build the structured scenario plan, treating protocol items in vetted memory as task recipes rather than factual source claims.
 - `_scenario_chat_brief()`: turns the structured comparison plan into the short visible chat brief so users get the recommendation and tradeoffs without opening the saved artifact.
 - `_save_branches()`: renders and persists branch workspaces.

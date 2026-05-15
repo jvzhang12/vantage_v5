@@ -702,6 +702,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             executor=executor,
             traces_dir=traces_dir,
             runtime_scope=scope,
+            canonical_root=Path(canonical_scope["root"]),
+            experiment_root=session.root if session is not None else None,
         )
         scenario_lab_service = ScenarioLabService(
             model=cfg.model,
@@ -722,6 +724,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             protocol_engine=protocol_engine,
             traces_dir=traces_dir,
             runtime_scope=scope,
+            canonical_root=Path(canonical_scope["root"]),
+            experiment_root=session.root if session is not None else None,
         )
         return {
             "concept_store": concept_store,
@@ -737,6 +741,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "chat_service": chat_service,
             "scenario_lab_service": scenario_lab_service,
             "scope": scope,
+            "canonical_root": Path(canonical_scope["root"]),
+            "experiment_root": session.root if session is not None else None,
         }
 
     def _saved_note_cards(durable_scope: dict[str, Any], session: ExperimentSession | None) -> list[dict[str, Any]]:
@@ -1388,6 +1394,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             query=query,
             concepts=_concept_records(durable_scope, session),
             limit=10,
+            canonical_root=Path(durable_scope["canonical_scope"]["root"]),
+            experiment_root=session.root if session is not None else None,
+            runtime_scope="experiment" if session is not None else "durable",
         )
         return {"concepts": [candidate.to_dict() for candidate in candidates]}
 
@@ -1397,6 +1406,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             query=query,
             records=vault_store.list_notes(),
             limit=10,
+            runtime_scope="reference",
         )
         return {"vault_notes": [candidate.to_dict() for candidate in candidates]}
 
@@ -1409,6 +1419,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             saved_note_records=_saved_note_records(durable_scope, session),
             vault_records=vault_store.list_notes(),
             limit=12,
+            canonical_root=Path(durable_scope["canonical_scope"]["root"]),
+            experiment_root=session.root if session is not None else None,
+            runtime_scope="experiment" if session is not None else "durable",
         )
         saved_notes = [candidate.to_dict() for candidate in candidates if candidate.source in {"memory", "artifact"}]
         reference_notes = [candidate.to_dict() for candidate in candidates if candidate.source == "vault_note"]

@@ -15,6 +15,10 @@ import yaml
 from vantage_v5.services.calendar import LocalCalendarProvider
 from vantage_v5.services.calendar import resolve_calendar_date
 from vantage_v5.services.calendar import week_start_for
+from vantage_v5.services.product_scope import operational_product_scope
+from vantage_v5.services.product_scope import ProductScope
+from vantage_v5.services.product_scope import product_scope_for_record
+from vantage_v5.services.product_scope import transient_product_scope
 from vantage_v5.services.search import tokenize
 from vantage_v5.services.tasks import LocalTaskProvider
 from vantage_v5.services.vector_index import cosine_similarity
@@ -155,6 +159,9 @@ class AttentionResource:
     keys: tuple[str, ...]
     content: str
     source: str
+    scope: str
+    durability: str
+    is_canonical: bool
     source_status: dict[str, Any]
     timestamps: dict[str, str]
     value_ref: dict[str, Any]
@@ -171,6 +178,9 @@ class AttentionCandidate:
     title: str
     summary: str
     source: str
+    scope: str
+    durability: str
+    is_canonical: bool
     score: float
     matched_keys: tuple[str, ...]
     temporal_matches: tuple[str, ...]
@@ -188,6 +198,9 @@ class AttentionCandidate:
             "title": self.title,
             "summary": self.summary,
             "source": self.source,
+            "scope": self.scope,
+            "durability": self.durability,
+            "is_canonical": self.is_canonical,
             "score": self.score,
             "matched_keys": list(self.matched_keys),
             "temporal_matches": list(self.temporal_matches),
@@ -207,6 +220,9 @@ class SelectedAttentionResource:
     title: str
     summary: str
     source: str
+    scope: str
+    durability: str
+    is_canonical: bool
     content: str
     data: dict[str, Any]
     source_status: dict[str, Any]
@@ -223,6 +239,9 @@ class SelectedAttentionResource:
             "title": self.title,
             "summary": self.summary,
             "source": self.source,
+            "scope": self.scope,
+            "durability": self.durability,
+            "is_canonical": self.is_canonical,
             "content": self.content,
             "data": dict(self.data),
             "source_status": dict(self.source_status),
@@ -286,6 +305,9 @@ class AttentionTurn:
             title=resource.title,
             summary=resource.summary,
             source=resource.source,
+            scope=resource.scope,
+            durability=resource.durability,
+            is_canonical=resource.is_canonical,
             content=_limit_text(resource.content, RESOURCE_VALUE_LIMIT),
             data=dict(resource.data or {}),
             source_status=dict(resource.source_status),
@@ -369,6 +391,7 @@ class AttentionEngine:
             data = artifact.get("data") if isinstance(artifact.get("data"), dict) else {}
             resource_id = _resource_id("visible", _clean_text(artifact.get("id")) or f"{kind}-{index + 1}")
             timestamps = _timestamps_from_surface_data(data)
+            product_scope = transient_product_scope()
             resources.append(
                 AttentionResource(
                     id=resource_id,
@@ -379,6 +402,9 @@ class AttentionEngine:
                     keys=_resource_keys(title, summary, content, kind),
                     content=content,
                     source="visible_artifact",
+                    scope=product_scope.scope,
+                    durability=product_scope.durability,
+                    is_canonical=product_scope.is_canonical,
                     source_status={"visible": True, "read_only": True},
                     timestamps=timestamps,
                     value_ref={"kind": kind, "source": "visible_artifact", "id": artifact.get("id")},
@@ -392,7 +418,12 @@ class AttentionEngine:
         workspace_store = runtime.get("workspace_store")
         workspaces_dir = getattr(workspace_store, "workspaces_dir", None)
         resources: list[AttentionResource] = [
-            _workspace_resource(active_workspace, source="active_workspace", active=True)
+            _workspace_resource(
+                active_workspace,
+                source="active_workspace",
+                active=True,
+                runtime_scope=str(runtime.get("scope") or "durable"),
+            )
         ]
         if isinstance(workspaces_dir, Path) and workspaces_dir.exists():
             for path in sorted(workspaces_dir.glob("*.md")):
@@ -402,7 +433,14 @@ class AttentionEngine:
                     document = workspace_store.load(path.stem)
                 except Exception:
                     continue
-                resources.append(_workspace_resource(document, source="workspace_store", active=False))
+                resources.append(
+                    _workspace_resource(
+                        document,
+                        source="workspace_store",
+                        active=False,
+                        runtime_scope=str(runtime.get("scope") or "durable"),
+                    )
+                )
         return resources
 
     def _record_resources(self, *, runtime: dict[str, Any]) -> list[AttentionResource]:
@@ -427,7 +465,7 @@ class AttentionEngine:
                 continue
             for record in records:
                 if isinstance(record, MarkdownRecord):
-                    resources.append(_record_resource(record, store_key=store_key))
+                    resources.append(_record_resource(record, store_key=store_key, runtime=runtime))
         return resources
 
     def _operational_resources(self, query_frame: QueryFrame) -> list[AttentionResource]:
@@ -557,6 +595,9 @@ def selected_attention_visible_artifacts(selected: tuple[SelectedAttentionResour
                         "id": item.resource_id,
                         "title": item.title,
                         "source": item.source,
+                        "scope": item.scope,
+                        "durability": item.durability,
+                        "is_canonical": item.is_canonical,
                         "kind": item.kind,
                         "read_only": bool(item.source_status.get("read_only", True)),
                         "writable": bool(item.source_status.get("writable")),
@@ -768,9 +809,19 @@ def _is_my_day_request(message: str) -> bool:
     return bool(MY_DAY_RE.search(message))
 
 
-def _workspace_resource(document: WorkspaceDocument, *, source: str, active: bool) -> AttentionResource:
+def _workspace_resource(
+    document: WorkspaceDocument,
+    *,
+    source: str,
+    active: bool,
+    runtime_scope: str,
+) -> AttentionResource:
     timestamps = _file_timestamps(document.path)
     content = document.content or ""
+    product_scope = ProductScope(
+        scope="experiment" if runtime_scope == "experiment" else "durable",
+        durability="temporary" if runtime_scope == "experiment" else "durable",
+    )
     return AttentionResource(
         id=_resource_id("workspace", document.workspace_id),
         kind="whiteboard",
@@ -780,6 +831,9 @@ def _workspace_resource(document: WorkspaceDocument, *, source: str, active: boo
         keys=_resource_keys(document.workspace_id, document.title, content, "whiteboard"),
         content=content,
         source=source,
+        scope=product_scope.scope,
+        durability=product_scope.durability,
+        is_canonical=product_scope.is_canonical,
         source_status={"active": active, "read_only": False, "writable": True},
         timestamps=timestamps,
         value_ref={"workspace_id": document.workspace_id, "path": str(document.path)},
@@ -787,11 +841,17 @@ def _workspace_resource(document: WorkspaceDocument, *, source: str, active: boo
     )
 
 
-def _record_resource(record: MarkdownRecord, *, store_key: str) -> AttentionResource:
+def _record_resource(record: MarkdownRecord, *, store_key: str, runtime: dict[str, Any]) -> AttentionResource:
     timestamps = _record_timestamps(record)
     record_kind = "protocol" if record.type == "protocol" else record.source
     app = "protocol" if record_kind == "protocol" else ("whiteboard" if record.source == "artifact" else record.source)
     content = record.body or record.card
+    product_scope = product_scope_for_record(
+        record,
+        canonical_root=_runtime_path(runtime.get("canonical_root")),
+        experiment_root=_runtime_path(runtime.get("experiment_root")),
+        fallback_scope=str(runtime.get("scope") or "durable"),
+    )
     return AttentionResource(
         id=_resource_id(record.source, record.id),
         kind=record_kind,
@@ -801,6 +861,9 @@ def _record_resource(record: MarkdownRecord, *, store_key: str) -> AttentionReso
         keys=_resource_keys(record.id, record.title, record.type, record.card, content, " ".join(record.links_to), " ".join(record.comes_from), _metadata_text(record.metadata)),
         content=content,
         source=record.source,
+        scope=product_scope.scope,
+        durability=product_scope.durability,
+        is_canonical=product_scope.is_canonical,
         source_status={"store": store_key, "trust": record.trust, "read_only": True},
         timestamps=timestamps,
         value_ref={"record_id": record.id, "path": str(record.path), "source": record.source},
@@ -831,6 +894,7 @@ def _calendar_day_resource(calendar_day: dict[str, Any]) -> AttentionResource:
     titles = [str(event.get("title") or "Event").strip() for event in events[:5]]
     summary = _clean_text(calendar_day.get("summary")) or f"{len(events)} calendar events for {date_value}."
     content = _calendar_day_markdown(calendar_day)
+    product_scope = operational_product_scope()
     return AttentionResource(
         id=_resource_id("calendar_day", date_value),
         kind="calendar_day",
@@ -840,6 +904,9 @@ def _calendar_day_resource(calendar_day: dict[str, Any]) -> AttentionResource:
         keys=_resource_keys("calendar", "schedule", date_value, *titles, content),
         content=content,
         source="calendar",
+        scope=product_scope.scope,
+        durability=product_scope.durability,
+        is_canonical=product_scope.is_canonical,
         source_status=dict(calendar_day.get("source") if isinstance(calendar_day.get("source"), dict) else {}),
         timestamps={"scheduled_at": date_value},
         value_ref={"resource": "calendar.day", "date": date_value},
@@ -852,6 +919,7 @@ def _calendar_week_resource(calendar_week: dict[str, Any]) -> AttentionResource:
     start_date = str(calendar_week.get("start_date") or "")
     end_date = str(calendar_week.get("end_date") or "")
     content = _calendar_week_markdown(calendar_week)
+    product_scope = operational_product_scope()
     return AttentionResource(
         id=_resource_id("calendar_week", start_date),
         kind="calendar_week",
@@ -861,6 +929,9 @@ def _calendar_week_resource(calendar_week: dict[str, Any]) -> AttentionResource:
         keys=_resource_keys("calendar", "schedule", "week", start_date, end_date, content),
         content=content,
         source="calendar",
+        scope=product_scope.scope,
+        durability=product_scope.durability,
+        is_canonical=product_scope.is_canonical,
         source_status=dict(calendar_week.get("source") if isinstance(calendar_week.get("source"), dict) else {}),
         timestamps={"scheduled_at": start_date, "scheduled_end_at": end_date},
         value_ref={"resource": "calendar.week", "week_start": start_date},
@@ -872,6 +943,7 @@ def _calendar_week_resource(calendar_week: dict[str, Any]) -> AttentionResource:
 def _task_focus_resource(task_focus: dict[str, Any]) -> AttentionResource:
     date_value = str(task_focus.get("date") or "")
     content = _task_focus_markdown(task_focus)
+    product_scope = operational_product_scope()
     return AttentionResource(
         id=_resource_id("task_focus", date_value),
         kind="task_focus",
@@ -881,6 +953,9 @@ def _task_focus_resource(task_focus: dict[str, Any]) -> AttentionResource:
         keys=_resource_keys("tasks", "todo", "focus", date_value, content),
         content=content,
         source="tasks",
+        scope=product_scope.scope,
+        durability=product_scope.durability,
+        is_canonical=product_scope.is_canonical,
         source_status=dict(task_focus.get("source") if isinstance(task_focus.get("source"), dict) else {}),
         timestamps={"due_at": date_value},
         value_ref={"resource": "tasks.focus", "date": date_value},
@@ -961,6 +1036,9 @@ def _rank_resources(
                 title=resource.title,
                 summary=resource.summary,
                 source=resource.source,
+                scope=resource.scope,
+                durability=resource.durability,
+                is_canonical=resource.is_canonical,
                 score=round(score, 4),
                 matched_keys=tuple(dict.fromkeys([item for item in matched if item])),
                 temporal_matches=tuple(temporal_matches),
@@ -1215,6 +1293,15 @@ def _resource_keys(*values: Any) -> tuple[str, ...]:
 def _resource_id(prefix: str, value: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9_.:-]+", "-", str(value or "").strip()).strip("-").lower()
     return f"{prefix}:{cleaned or 'resource'}"
+
+
+def _runtime_path(value: Any) -> Path | None:
+    if value is None:
+        return None
+    try:
+        return Path(value)
+    except TypeError:
+        return None
 
 
 def _app_for_kind(kind: str) -> str:

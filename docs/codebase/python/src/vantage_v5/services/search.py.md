@@ -24,7 +24,7 @@ Implements keyword-style scoring across concepts, recent memory-trace records, s
 ## Key Classes / Functions
 
 - `SearchableRecord`: protocol describing the fields the scorer needs.
-- `CandidateMemory`: normalized search result with score, debug `reason`, user-facing `why_recalled`, source, trust, body, optional path, and optional protocol metadata. `to_dict()` preserves `why_recalled` plus canonical `recall_reason`, protocol editor metadata, and additive taxonomy fields (`kind`, `memory_role`, `recall_status`, `source_tier`) for candidate payloads, while `to_recall_dict()` emits the product-safe recalled view without the raw debug scoring string.
+- `CandidateMemory`: normalized search result with score, debug `reason`, user-facing `why_recalled`, source, product scope/provenance (`scope`, `durability`, `is_canonical`), trust, body, optional path, and optional protocol metadata. `to_dict()` preserves `why_recalled` plus canonical `recall_reason`, protocol editor metadata, and additive taxonomy fields (`kind`, `memory_role`, `recall_status`, `source_tier`) for candidate payloads, while `to_recall_dict()` emits the product-safe recalled view without the raw debug scoring string.
 - `ConceptSearchService`: search façade for concept-only, memory-only, or mixed context queries.
 - `_search_records()`: applies weighted overlap scoring, phrase boosts, and filters out zero-score items.
 - `_token_variants()`: handles simple stemming and alias expansion.
@@ -38,4 +38,5 @@ Implements keyword-style scoring across concepts, recent memory-trace records, s
 - Record body and searchable text are truncated before tokenization, which keeps scoring bounded and avoids overweighting huge documents.
 - Items with no lexical or phrase signal are dropped before source bias is applied, so low-signal records do not reach vetting just because they came from a favored bucket.
 - Memory Trace bonuses are intentionally small and metadata-driven; they tune recent-history continuity without making traces outrank stronger concept or saved-note matches by default.
+- Candidate and recalled payloads expose product scope metadata without changing scoring: canonical and experiment status come from explicit roots when supplied, Memory Trace can use its stored `trace_scope`, and vault notes remain read-only reference context.
 - `CandidateConcept` is just an alias of `CandidateMemory`, which keeps older type names compatible without duplicating logic.

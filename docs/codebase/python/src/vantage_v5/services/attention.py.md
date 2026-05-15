@@ -5,7 +5,7 @@ Implements the first-pass Attention + Navigator selection layer for Vantage.
 ## Purpose
 
 - Turn each user request into a structured `QueryFrame`.
-- Build deterministic `AttentionResource` entries for visible artifacts, workspaces, saved artifacts, memories, concepts, protocols, memory traces, calendar, and tasks.
+- Build deterministic `AttentionResource` entries for visible artifacts, workspaces, saved artifacts, memories, concepts, protocols, memory traces, calendar, and tasks, with explicit product scope/provenance metadata.
 - Rank compact `AttentionCandidate` records before the Navigator LLM chooses which resources should actually enter the workspace/context.
 - Combine deterministic key/time/app ranking with a local semantic vector similarity signal so retrieval can catch close paraphrases without giving up product control.
 - Provide a conservative deterministic fallback when the Navigator is unavailable.
@@ -17,7 +17,7 @@ Implements the first-pass Attention + Navigator selection layer for Vantage.
 - Ranking favors visible artifacts first, then exact key/entity matches, temporal matches, operational app matches, and recency.
 - Hybrid ranking adds `retrieval_scores` to each candidate, including deterministic score, temporal score, semantic vector similarity, vector bonus, and final hybrid score.
 - `AttentionTurn.select()` normalizes the Navigator's selection or chooses a small deterministic fallback set.
-- `attention_payload()` exposes `query_frame`, `attention_candidates`, `navigator_selection`, and `selected_attention_resources` for `/api/chat`, `system_state`, and the Vantage receipt.
+- `attention_payload()` exposes `query_frame`, `attention_candidates`, `navigator_selection`, and `selected_attention_resources` for `/api/chat`, `system_state`, and the Vantage receipt. Candidate and selected-resource DTOs now carry `scope`, `durability`, and `is_canonical` directly rather than requiring consumers to infer product provenance from `source_status.store`.
 - `apply_attention_surface_selection()` lets Navigator-selected operational resources foreground surfaces such as calendar day, calendar week, task focus, or whiteboard.
 
 ## Important Boundaries
@@ -26,3 +26,4 @@ Implements the first-pass Attention + Navigator selection layer for Vantage.
 - Full resource values load only after Navigator selection.
 - Selected attention resources are separate from `visible_artifacts` for response grounding, but the server may convert them into visible-artifact-shaped context for the mutation compiler.
 - No embeddings or vector database are used in this slice.
+- Scope metadata is payload-only and does not affect candidate ranking or Navigator fallback selection.

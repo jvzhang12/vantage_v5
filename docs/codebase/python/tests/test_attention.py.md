@@ -12,7 +12,7 @@ Unit tests for the Attention + Navigator selection service.
 
 - `QueryFrame` parsing for reopen intent, whiteboard domain, temporal references, and worked-on relations.
 - Ranking of saved artifacts by temporal metadata.
+- Explicit `scope`, `durability`, and `is_canonical` metadata on attention candidates and selected attention resources.
 - Priority of visible calendar/task artifacts over older saved context.
 - Operational indexing for calendar day/week and task focus resources.
 - Deterministic Navigator fallback that opens the appropriate surface when the model is unavailable.
-

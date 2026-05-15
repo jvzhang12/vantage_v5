@@ -40,7 +40,15 @@ class ContextSourceResolver:
                 record = get_overlay_record(record_id, *stores)
             except FileNotFoundError:
                 continue
-            return self._saved_record_summary(record, scope=_record_scope(record, fallback=scope))
+            return self._saved_record_summary(
+                record,
+                scope=_record_scope(
+                    record,
+                    durable_scope=durable_scope,
+                    session=session,
+                    fallback=scope,
+                ),
+            )
         try:
             note = self.vault_store.get(record_id)
         except FileNotFoundError:
@@ -258,13 +266,27 @@ def _is_scenario_comparison_record(record: Any) -> bool:
     return "## Recommendation" in body and "## Branches Compared" in body
 
 
-def _record_scope(record: Any, *, fallback: str) -> str:
+def _record_scope(
+    record: Any,
+    *,
+    durable_scope: dict[str, Any],
+    session: ExperimentSession | None,
+    fallback: str,
+) -> str:
     path = getattr(record, "path", None)
-    parts = getattr(path, "parts", ()) if path is not None else ()
-    if "canonical" in parts:
+    canonical_root = durable_scope.get("canonical_scope", {}).get("root")
+    if _path_is_relative_to(path, canonical_root):
         return "canonical"
-    if "experiments" in parts:
+    if session is not None and _path_is_relative_to(path, session.root):
         return "experiment"
-    if fallback == "reference":
-        return "durable"
-    return fallback
+    return "durable" if fallback in {"experiment", "reference"} else fallback
+
+
+def _path_is_relative_to(path: Any, root: Any) -> bool:
+    if path is None or root is None:
+        return False
+    try:
+        Path(path).resolve().relative_to(Path(root).resolve())
+        return True
+    except (OSError, RuntimeError, ValueError):
+        return False

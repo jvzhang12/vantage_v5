@@ -613,6 +613,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             model=cfg.model,
             openai_api_key=_effective_openai_api_key(durable_scope),
             model_client_config=_model_client_config(durable_scope),
+            canonical_root=Path(durable_scope["canonical_scope"]["root"]),
         )
 
     def _runtime(durable_scope: dict[str, Any], session: ExperimentSession | None) -> dict[str, Any]:
@@ -668,6 +669,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             model=cfg.model,
             openai_api_key=openai_api_key,
             model_client_config=model_client_config,
+            canonical_root=Path(canonical_scope["root"]),
         )
         executor = GraphActionExecutor(
             concept_store=concept_store,
@@ -699,6 +701,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             protocol_engine=protocol_engine,
             executor=executor,
             traces_dir=traces_dir,
+            runtime_scope=scope,
         )
         scenario_lab_service = ScenarioLabService(
             model=cfg.model,
@@ -718,6 +721,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             vetting_service=vetting_service,
             protocol_engine=protocol_engine,
             traces_dir=traces_dir,
+            runtime_scope=scope,
         )
         return {
             "concept_store": concept_store,
@@ -737,7 +741,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     def _saved_note_cards(durable_scope: dict[str, Any], session: ExperimentSession | None) -> list[dict[str, Any]]:
         return [
-            _serialize_saved_note_card(record, scope=_record_scope(record, session))
+            _serialize_saved_note_card(record, scope=_record_scope(record, durable_scope, session))
             for record in _saved_note_records(durable_scope, session)
         ]
 
@@ -754,14 +758,30 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             canonical_scope["concept_store"].list_concepts(),
         )
 
-    def _record_scope(record: Any, session: ExperimentSession | None) -> str:
-        if "canonical" in record.path.parts:
+    def _record_scope(record: Any, durable_scope: dict[str, Any], session: ExperimentSession | None) -> str:
+        path = getattr(record, "path", None)
+        if _path_is_relative_to(path, Path(durable_scope["canonical_scope"]["root"])):
             return "canonical"
-        return "experiment" if session and "experiments" in record.path.parts else "durable"
+        if session is not None and _path_is_relative_to(path, session.root):
+            return "experiment"
+        return "durable"
 
-    def _serialize_protocol_catalog_entry(entry: Any, session: ExperimentSession | None) -> dict[str, Any]:
+    def _path_is_relative_to(path: Any, root: Path | None) -> bool:
+        if path is None or root is None:
+            return False
+        try:
+            Path(path).resolve().relative_to(root.resolve())
+            return True
+        except (OSError, RuntimeError, ValueError):
+            return False
+
+    def _serialize_protocol_catalog_entry(
+        entry: Any,
+        durable_scope: dict[str, Any],
+        session: ExperimentSession | None,
+    ) -> dict[str, Any]:
         if entry.record is not None:
-            return _serialize_concept_card(entry.record, scope=_record_scope(entry.record, session))
+            return _serialize_concept_card(entry.record, scope=_record_scope(entry.record, durable_scope, session))
         if entry.built_in_kind is None:
             raise HTTPException(status_code=500, detail="Protocol catalog entry is incomplete.")
         return _serialize_built_in_protocol(entry.built_in_kind)
@@ -824,6 +844,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 model=cfg.model,
                 openai_api_key=openai_api_key,
                 model_client_config=model_client_config,
+                canonical_root=Path(durable_scope["canonical_scope"]["root"]),
             ),
             local_semantic_actions=local_semantic_actions,
             whiteboard_routing=whiteboard_routing,
@@ -1291,7 +1312,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         session = durable_scope["experiment_manager"].get_active_session()
         return {
             "concepts": [
-                _serialize_concept_card(concept, scope=_record_scope(concept, session))
+                _serialize_concept_card(concept, scope=_record_scope(concept, durable_scope, session))
                 for concept in _concept_records(durable_scope, session)
             ]
         }
@@ -1307,7 +1328,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         return {
             "protocols": [
-                _serialize_protocol_catalog_entry(entry, session)
+                _serialize_protocol_catalog_entry(entry, durable_scope, session)
                 for entry in catalog.entries
             ]
         }
@@ -1322,7 +1343,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             protocol_kind_or_id=protocol_kind_or_id,
         )
         if entry is not None:
-            return _serialize_protocol_catalog_entry(entry, session)
+            return _serialize_protocol_catalog_entry(entry, durable_scope, session)
         raise HTTPException(status_code=404, detail=f"Protocol '{protocol_kind_or_id}' was not found.")
 
     @app.put("/api/protocols/{protocol_kind}")
@@ -1437,7 +1458,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         ]:
             try:
                 note = get_overlay_record(memory_id, *stores)
-                item = _serialize_saved_note_card(note, scope=_record_scope(note, session))
+                item = _serialize_saved_note_card(note, scope=_record_scope(note, durable_scope, session))
                 item["kind"] = "saved_note"
                 return {"item": item, "kind": "saved_note"}
             except FileNotFoundError:
@@ -1463,7 +1484,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return _serialize_concept_card(concept, scope=_record_scope(concept, session))
+        return _serialize_concept_card(concept, scope=_record_scope(concept, durable_scope, session))
 
     @app.get("/api/vault-notes/{note_id}")
     def get_vault_note(note_id: str) -> dict[str, Any]:

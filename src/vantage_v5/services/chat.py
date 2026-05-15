@@ -172,6 +172,7 @@ class ChatService:
         protocol_engine: ProtocolEngine,
         executor: GraphActionExecutor,
         traces_dir: Path,
+        runtime_scope: str = "durable",
     ) -> None:
         self.model = model
         self.concept_store = concept_store
@@ -190,6 +191,7 @@ class ChatService:
         self.protocol_engine = protocol_engine
         self.executor = executor
         self.traces_dir = traces_dir
+        self.runtime_scope = "experiment" if runtime_scope == "experiment" else "durable"
         self.client = create_model_client(
             model_client_config or ModelClientConfig(openai_api_key=openai_api_key)
         )
@@ -516,7 +518,7 @@ class ChatService:
             workspace_scope=workspace_scope,
             learned=learned_records,
             response_mode=response_mode,
-            scope="experiment" if "experiments" in self.memory_trace_store.records_dir.parts else "durable",
+            scope=self.runtime_scope,
             pending_workspace_update=pending_workspace_update,
             visible_artifacts=visible_artifacts,
             turn_mode="chat",
@@ -1096,7 +1098,7 @@ class ChatService:
         )
         if record is None:
             return None
-        scope = "experiment" if "experiments" in record.path.parts else "durable"
+        scope = self.runtime_scope
         durability = "temporary" if scope == "experiment" else "durable"
         metadata = record.metadata if isinstance(getattr(record, "metadata", {}), dict) else {}
         explicit_revision_parent = str(metadata.get("revision_of", "") or "").strip() or None
@@ -1135,7 +1137,7 @@ class ChatService:
     def _memory_trace_payload(self, record: Any | None) -> dict[str, Any] | None:
         if record is None:
             return None
-        scope = "experiment" if "experiments" in record.path.parts else "durable"
+        scope = self.runtime_scope
         payload = {
             "id": record.id,
             "title": record.title,

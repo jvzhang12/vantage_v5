@@ -2153,6 +2153,116 @@ def test_canonical_protocols_are_read_through_and_user_overrides_are_private(tmp
     assert jordan_catalog_by_id["scenario-lab-protocol"]["source_label"] == "Built-in"
 
 
+def test_profile_named_canonical_keeps_private_records_durable_and_defaults_read_through(tmp_path: Path) -> None:
+    client, repo_root = _client(
+        tmp_path,
+        auth_users={
+            "canonical": "canonical-password",
+        },
+    )
+    headers = _basic_auth_header("canonical", "canonical-password")
+
+    workspace = client.get("/api/workspace", headers=headers)
+    assert workspace.status_code == 200
+    user_root = repo_root / "users" / "canonical"
+
+    private_concept = ConceptStore(user_root / "concepts").create_concept(
+        title="Canonical Profile Private Concept",
+        card="Private concept for the canonical-named profile.",
+        body="This concept belongs to the profile named canonical, not to the global canonical layer.",
+    )
+    private_protocol = ConceptStore(user_root / "concepts").upsert_protocol(
+        protocol_id="canonical-profile-private-protocol",
+        title="Canonical Profile Private Protocol",
+        card="Private protocol for the canonical-named profile.",
+        body="## Protocol\n\nUse this only for the canonical-named profile.",
+        protocol_kind="scenario_lab",
+        variables={},
+        applies_to=["canonical profile private protocol"],
+    )
+    private_memory = MemoryStore(user_root / "memories").create_memory(
+        title="Canonical Profile Private Memory",
+        card="Private memory for the canonical-named profile.",
+        body="This memory belongs to the profile named canonical.",
+    )
+    private_artifact = ArtifactStore(user_root / "artifacts").create_artifact(
+        title="Canonical Profile Private Artifact",
+        card="Private artifact for the canonical-named profile.",
+        body="This artifact belongs to the profile named canonical.",
+    )
+    canonical_memory = MemoryStore(repo_root / "canonical" / "memories").create_memory(
+        title="Shared Canonical Memory",
+        card="Canonical memory visible to every profile.",
+        body="This memory lives under the configured canonical root.",
+    )
+    canonical_artifact = ArtifactStore(repo_root / "canonical" / "artifacts").create_artifact(
+        title="Shared Canonical Artifact",
+        card="Canonical artifact visible to every profile.",
+        body="This artifact lives under the configured canonical root.",
+    )
+
+    concepts = client.get("/api/concepts", headers=headers)
+    assert concepts.status_code == 200
+    concepts_by_id = {item["id"]: item for item in concepts.json()["concepts"]}
+    assert concepts_by_id[private_concept.id]["scope"] == "durable"
+    assert concepts_by_id[private_protocol.id]["scope"] == "durable"
+    assert concepts_by_id[private_protocol.id]["protocol"]["is_canonical"] is False
+    assert concepts_by_id["email-drafting-protocol"]["scope"] == "canonical"
+
+    concept_detail = client.get(f"/api/concepts/{private_concept.id}", headers=headers)
+    assert concept_detail.status_code == 200
+    assert concept_detail.json()["scope"] == "durable"
+
+    concept_search = client.get(
+        "/api/concepts/search",
+        params={"query": "canonical profile private concept"},
+        headers=headers,
+    )
+    assert concept_search.status_code == 200
+    assert any(item["id"] == private_concept.id for item in concept_search.json()["concepts"])
+    searched_concept_detail = client.get(f"/api/concepts/{private_concept.id}", headers=headers)
+    assert searched_concept_detail.json()["scope"] == "durable"
+
+    memory = client.get("/api/memory", headers=headers)
+    assert memory.status_code == 200
+    saved_notes_by_id = {item["id"]: item for item in memory.json()["saved_notes"]}
+    assert saved_notes_by_id[private_memory.id]["scope"] == "durable"
+    assert saved_notes_by_id[private_artifact.id]["scope"] == "durable"
+    assert saved_notes_by_id[canonical_memory.id]["scope"] == "canonical"
+    assert saved_notes_by_id[canonical_artifact.id]["scope"] == "canonical"
+
+    private_memory_detail = client.get(f"/api/memory/{private_memory.id}", headers=headers)
+    assert private_memory_detail.status_code == 200
+    assert private_memory_detail.json()["item"]["scope"] == "durable"
+    private_artifact_detail = client.get(f"/api/memory/{private_artifact.id}", headers=headers)
+    assert private_artifact_detail.status_code == 200
+    assert private_artifact_detail.json()["item"]["scope"] == "durable"
+    canonical_memory_detail = client.get(f"/api/memory/{canonical_memory.id}", headers=headers)
+    assert canonical_memory_detail.status_code == 200
+    assert canonical_memory_detail.json()["item"]["scope"] == "canonical"
+
+    memory_search = client.get(
+        "/api/memory/search",
+        params={"query": "canonical profile private memory"},
+        headers=headers,
+    )
+    assert memory_search.status_code == 200
+    assert any(item["id"] == private_memory.id for item in memory_search.json()["saved_notes_results"])
+    searched_memory_detail = client.get(f"/api/memory/{private_memory.id}", headers=headers)
+    assert searched_memory_detail.json()["item"]["scope"] == "durable"
+
+    protocols = client.get("/api/protocols", headers=headers)
+    assert protocols.status_code == 200
+    protocols_by_id = {item["id"]: item for item in protocols.json()["protocols"]}
+    assert protocols_by_id["email-drafting-protocol"]["scope"] == "canonical"
+    assert protocols_by_id["email-drafting-protocol"]["protocol"]["is_canonical"] is True
+    assert protocols_by_id[private_protocol.id]["scope"] == "durable"
+    assert protocols_by_id[private_protocol.id]["protocol"]["is_canonical"] is False
+    assert not (user_root / "concepts" / "email-drafting-protocol.md").exists()
+    assert not (user_root / "memories" / f"{canonical_memory.id}.md").exists()
+    assert not (user_root / "artifacts" / f"{canonical_artifact.id}.md").exists()
+
+
 def test_protocol_edit_in_experiment_writes_to_experiment_concepts(tmp_path: Path) -> None:
     client, repo_root = _client(tmp_path)
 

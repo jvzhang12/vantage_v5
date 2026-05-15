@@ -15,6 +15,7 @@ Context-source resolver for pinned context, whiteboard provenance summaries, and
 ## Notable Behavior
 
 - Looks in active runtime stores first, then ordered reference stores, which can include durable user records plus lower-priority canonical defaults.
+- Labels saved-record summaries by comparing paths to the configured canonical root and active experiment root, so similarly named user/profile path segments do not affect scope.
 - Falls back to vault-note summaries for pinned reference notes.
 - Reconstructs a short continuity frame from the latest Memory Trace, unique reopenable recalled records, the current whiteboard, and up to three recent whiteboards.
 - Marks protocol records as non-reopenable in whiteboard continuity, because protocols are instructional guidance objects rather than work products to draft from.

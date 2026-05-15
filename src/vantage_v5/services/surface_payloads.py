@@ -55,8 +55,6 @@ class SurfacePayloadBuilder:
         calendar_day = self.calendar_provider.day(target_date) if SURFACE_CALENDAR_DAY in requested_kinds else None
         task_focus = self.task_provider.focus(target_date) if SURFACE_TASK_FOCUS in requested_kinds else None
         surfaces: list[dict[str, Any]] = []
-        if calendar_week is not None:
-            surfaces.append(build_calendar_week_surface(target_date=target_date, calendar_week=calendar_week.to_dict()))
         if calendar_day is not None and task_focus is not None and _should_build_today_briefing(invocation):
             surfaces.append(
                 build_today_briefing_surface(
@@ -66,10 +64,13 @@ class SurfacePayloadBuilder:
                 )
             )
         else:
-            if calendar_day is not None:
-                surfaces.append(build_calendar_surface(target_date=target_date, calendar_day=calendar_day.to_dict()))
-            if task_focus is not None:
-                surfaces.append(build_task_surface(target_date=target_date, task_focus=task_focus.to_dict()))
+            for kind in requested_kinds:
+                if kind == SURFACE_CALENDAR_WEEK and calendar_week is not None:
+                    surfaces.append(build_calendar_week_surface(target_date=target_date, calendar_week=calendar_week.to_dict()))
+                elif kind == SURFACE_CALENDAR_DAY and calendar_day is not None:
+                    surfaces.append(build_calendar_surface(target_date=target_date, calendar_day=calendar_day.to_dict()))
+                elif kind == SURFACE_TASK_FOCUS and task_focus is not None:
+                    surfaces.append(build_task_surface(target_date=target_date, task_focus=task_focus.to_dict()))
         return SurfacePayloadResult(
             surface_payloads=surfaces,
             active_surface_id=surfaces[0]["id"] if surfaces else None,
@@ -203,13 +204,18 @@ def resolve_surface_date(message: str) -> date:
 
 
 def _requested_surface_kinds(invocation: dict[str, Any]) -> list[str]:
+    primary = str(invocation.get("primary_surface") or "").strip().lower()
+    if primary and primary not in OPERATIONAL_SURFACES and primary != SURFACE_TODAY_BRIEFING:
+        return []
     kinds = [
-        str(invocation.get("primary_surface") or "").strip().lower(),
+        primary,
         *[
             str(kind or "").strip().lower()
             for kind in invocation.get("supporting_surfaces") or []
         ],
     ]
+    if primary == SURFACE_TODAY_BRIEFING:
+        kinds.extend([SURFACE_CALENDAR_DAY, SURFACE_TASK_FOCUS])
     return [
         kind
         for kind in dict.fromkeys(kinds)
@@ -220,7 +226,15 @@ def _requested_surface_kinds(invocation: dict[str, Any]) -> list[str]:
 def _should_build_today_briefing(invocation: dict[str, Any]) -> bool:
     intent = str(invocation.get("intent") or "").strip().lower()
     primary = str(invocation.get("primary_surface") or "").strip().lower()
-    return primary == SURFACE_CALENDAR_DAY and intent in {"schedule_lookup", "schedule_planning"}
+    supporting = {
+        str(kind or "").strip().lower()
+        for kind in invocation.get("supporting_surfaces") or []
+    }
+    return primary == SURFACE_TODAY_BRIEFING or (
+        primary == SURFACE_CALENDAR_DAY
+        and SURFACE_TASK_FOCUS in supporting
+        and intent in {"schedule_lookup", "schedule_planning", "attention_selected_context"}
+    )
 
 
 def _suggestable_tasks(task_focus: dict[str, Any]) -> list[dict[str, Any]]:
@@ -334,36 +348,27 @@ def _source_refs(
 ) -> list[dict[str, Any]]:
     refs: list[dict[str, Any]] = []
     if calendar_day is not None:
-        refs.append(
-            {
-                "kind": "calendar_day",
-                "label": calendar_day.get("source", {}).get("label") or "Calendar",
-                "configured": bool(calendar_day.get("source", {}).get("configured")),
-                "read_only": True,
-                "count": int(calendar_day.get("summary", {}).get("event_count") or 0),
-            }
-        )
+        refs.append(_source_ref(kind="calendar_day", resource_id="calendar.day", source=calendar_day.get("source"), count=int(calendar_day.get("summary", {}).get("event_count") or 0)))
     if calendar_week is not None:
-        refs.append(
-            {
-                "kind": "calendar_week",
-                "label": calendar_week.get("source", {}).get("label") or "Calendar",
-                "configured": bool(calendar_week.get("source", {}).get("configured")),
-                "read_only": True,
-                "count": int(calendar_week.get("summary", {}).get("event_count") or 0),
-            }
-        )
+        refs.append(_source_ref(kind="calendar_week", resource_id="calendar.week", source=calendar_week.get("source"), count=int(calendar_week.get("summary", {}).get("event_count") or 0)))
     if task_focus is not None:
-        refs.append(
-            {
-                "kind": "task_focus",
-                "label": task_focus.get("source", {}).get("label") or "Tasks",
-                "configured": bool(task_focus.get("source", {}).get("configured")),
-                "read_only": True,
-                "count": int(task_focus.get("summary", {}).get("task_count") or 0),
-            }
-        )
+        refs.append(_source_ref(kind="task_focus", resource_id="tasks.focus", source=task_focus.get("source"), count=int(task_focus.get("summary", {}).get("task_count") or 0)))
     return refs
+
+
+def _source_ref(*, kind: str, resource_id: str, source: Any, count: int) -> dict[str, Any]:
+    source_payload = source if isinstance(source, dict) else {}
+    writable = bool(source_payload.get("writable"))
+    return {
+        "kind": kind,
+        "resource_id": resource_id,
+        "capability_ref": resource_id,
+        "label": source_payload.get("label") or ("Tasks" if kind == "task_focus" else "Calendar"),
+        "configured": bool(source_payload.get("configured")),
+        "read_only": bool(source_payload.get("read_only", not writable)),
+        "writable": writable,
+        "count": count,
+    }
 
 
 def _suggestion_reason(*, index: int, duration: int) -> str:

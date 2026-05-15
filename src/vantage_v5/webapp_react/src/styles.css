@@ -60,13 +60,12 @@
     @apply flex w-full items-center gap-2 rounded-[10px] px-3 py-2 text-left text-sm text-ivory-muted hover:bg-white/[0.05] hover:text-ivory;
   }
 
-  .vantage-glyph {
-    @apply grid h-20 w-20 shrink-0 place-items-center rounded-full border border-cyan/35 bg-cyan/[0.06] text-3xl font-semibold text-ivory shadow-vantage;
-    clip-path: polygon(50% 0%, 63% 12%, 81% 9%, 91% 25%, 100% 50%, 91% 75%, 81% 91%, 63% 88%, 50% 100%, 37% 88%, 19% 91%, 9% 75%, 0% 50%, 9% 25%, 19% 9%, 37% 12%);
+  .vantage-mark {
+    @apply block shrink-0 text-cyan;
   }
 
-  .vantage-glyph--compact {
-    @apply h-8 w-8 text-sm;
+  .vantage-glyph {
+    color: #BDF7FC;
   }
 
   .app-main {
@@ -92,10 +91,6 @@
 
   .greeting-block {
     @apply mb-14 flex max-w-[620px] flex-col items-center text-center;
-  }
-
-  .greeting-orbit {
-    @apply mb-8 flex items-center gap-10 text-cyan;
   }
 
   .greeting-block h1 {
@@ -388,6 +383,10 @@
 
   .draft-notice {
     @apply flex items-center gap-3;
+  }
+
+  .artifact-action-stack {
+    @apply flex w-full max-w-[760px] flex-col gap-3;
   }
 
   .artifact-action-card {
@@ -816,11 +815,6 @@
 
   .greeting-block {
     margin-bottom: 24px;
-  }
-
-  .greeting-orbit {
-    margin-bottom: 24px;
-    gap: 26px;
   }
 
   .greeting-block h1 {

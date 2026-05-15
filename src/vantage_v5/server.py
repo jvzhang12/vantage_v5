@@ -26,8 +26,11 @@ from vantage_v5.services.artifact_actions import ArtifactActionPlanner
 from vantage_v5.services.artifact_actions import ArtifactActionStore
 from vantage_v5.services.artifact_actions import execute_artifact_action
 from vantage_v5.services.artifact_actions import reject_artifact_action
+from vantage_v5.services.artifact_mutation_compiler import ArtifactMutationCompiler
+from vantage_v5.services.attention import AttentionEngine
 from vantage_v5.services.calendar import LocalCalendarProvider
 from vantage_v5.services.calendar import resolve_calendar_date
+from vantage_v5.services.capabilities import build_app_capability_manifest
 from vantage_v5.services.chat import ChatService
 from vantage_v5.services.context_engine import ChatTurnRequestContext
 from vantage_v5.services.context_engine import ContextEngine
@@ -60,9 +63,11 @@ from vantage_v5.services.search import ConceptSearchService
 from vantage_v5.services.surface_payloads import SurfacePayloadBuilder
 from vantage_v5.services.surface_payloads import surface_assistant_message
 from vantage_v5.services.tasks import LocalTaskProvider
+from vantage_v5.services.turn_payloads import attach_safe_turn_state
 from vantage_v5.services.turn_orchestrator import TurnOrchestrator
 from vantage_v5.services.turn_orchestrator import TurnOrchestratorHooks
 from vantage_v5.services.vetting import ConceptVettingService
+from vantage_v5.services.vector_index import SQLiteVectorIndex
 from vantage_v5.services.whiteboard_routing import WhiteboardRoutingEngine
 from vantage_v5.storage.artifacts import ArtifactStore
 from vantage_v5.storage.concepts import ConceptStore
@@ -452,7 +457,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             tasks_path = configured_tasks_path
         else:
             tasks_path = Path(durable_scope["root"]) / "state" / "tasks" / "tasks.json"
-        return LocalTaskProvider(tasks_path=tasks_path)
+        writable = bool(durable_scope.get("user_id")) and not cfg.tasks_path
+        return LocalTaskProvider(tasks_path=tasks_path, writable=writable)
 
     def _surface_payload_builder_for_scope(durable_scope: dict[str, Any]) -> SurfacePayloadBuilder:
         return SurfacePayloadBuilder(
@@ -469,7 +475,31 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def _artifact_action_planner_for_scope(durable_scope: dict[str, Any]) -> ArtifactActionPlanner:
         return ArtifactActionPlanner(
             calendar_provider=_calendar_provider_for_scope(durable_scope),
+            task_provider=_task_provider_for_scope(durable_scope),
             action_store=_artifact_action_store_for_scope(durable_scope),
+        )
+
+    def _artifact_mutation_compiler_for_scope(
+        durable_scope: dict[str, Any],
+        *,
+        app_capabilities: dict[str, Any],
+    ) -> ArtifactMutationCompiler:
+        return ArtifactMutationCompiler(
+            planner=_artifact_action_planner_for_scope(durable_scope),
+            app_capabilities=app_capabilities,
+            model=cfg.model,
+            model_client_config=_model_client_config(durable_scope),
+        )
+
+    def _app_capability_manifest_for_scope(
+        durable_scope: dict[str, Any],
+        *,
+        workspace_payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return build_app_capability_manifest(
+            calendar_source=_calendar_provider_for_scope(durable_scope).source_status(),
+            task_source=_task_provider_for_scope(durable_scope).source_status(),
+            workspace=workspace_payload,
         )
 
     def _session_info(session: ExperimentSession | None) -> dict[str, Any]:
@@ -782,7 +812,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             hooks=TurnOrchestratorHooks(
                 should_enter_scenario_lab=_should_enter_scenario_lab,
             ),
+            attention_engine=AttentionEngine(
+                calendar_provider=_calendar_provider_for_scope(durable_scope),
+                task_provider=_task_provider_for_scope(durable_scope),
+                vector_index=SQLiteVectorIndex(Path(durable_scope["root"]) / "state" / "vector_index.sqlite3"),
+            ),
         )
+        app_capabilities = _app_capability_manifest_for_scope(durable_scope)
         payload = turn_orchestrator.run(
             ChatTurnRequestContext(
                 durable_scope=durable_scope,
@@ -798,29 +834,72 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 visible_artifacts=visible_artifacts,
                 navigation=navigation,
                 force_pending_workspace_update=force_pending_workspace_update,
+                app_capabilities=app_capabilities,
             )
         )
+        action_visible_artifacts = [
+            *(visible_artifacts or []),
+            *_visible_artifacts_from_selected_attention(payload.get("selected_attention_resources")),
+        ]
+        action_plan = _artifact_mutation_compiler_for_scope(
+            durable_scope,
+            app_capabilities=app_capabilities,
+        ).compile_for_turn(
+            user_message=message,
+            semantic_action=str(payload.get("assistant_message") or ""),
+            visible_artifacts=action_visible_artifacts,
+        )
+        payload["artifact_actions"] = action_plan.artifact_actions
+        if action_plan.artifact_actions:
+            payload["surface_invocation"] = _artifact_action_surface_invocation_payload(
+                action_plan.artifact_actions[0],
+                existing=payload.get("surface_invocation"),
+            )
         surface_result = _surface_payload_builder_for_scope(durable_scope).build_for_turn(
             message=message,
             surface_invocation=payload.get("surface_invocation"),
         )
         payload.update(surface_result.to_dict())
         surface_message = surface_assistant_message(surface_result.surface_payloads)
-        if surface_message and not isinstance(payload.get("workspace_update"), dict):
+        if surface_message and not isinstance(payload.get("workspace_update"), dict) and not action_plan.assistant_message:
             payload["assistant_message"] = surface_message
-        action_plan = _artifact_action_planner_for_scope(durable_scope).plan_for_turn(
-            message=message,
-            visible_artifacts=visible_artifacts,
-        )
-        payload["artifact_actions"] = action_plan.artifact_actions
         if action_plan.assistant_message:
             payload["assistant_message"] = action_plan.assistant_message
-        if action_plan.artifact_actions:
-            payload["surface_invocation"] = _artifact_action_surface_invocation_payload(
-                action_plan.artifact_actions[0],
-                existing=payload.get("surface_invocation"),
+        payload["app_capabilities"] = _app_capability_manifest_for_scope(
+            durable_scope,
+            workspace_payload=payload.get("workspace") if isinstance(payload.get("workspace"), dict) else None,
+        )
+        return attach_safe_turn_state(payload)
+
+    def _visible_artifacts_from_selected_attention(value: Any) -> list[dict[str, Any]]:
+        artifacts: list[dict[str, Any]] = []
+        if not isinstance(value, list):
+            return artifacts
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("suggested_surface") or item.get("kind") or "").strip()
+            if kind not in {"today_briefing", "calendar_day", "calendar_week", "task_focus", "whiteboard"}:
+                continue
+            artifacts.append(
+                {
+                    "id": item.get("resource_id") or item.get("id"),
+                    "kind": kind,
+                    "title": item.get("title"),
+                    "summary": item.get("summary"),
+                    "content": item.get("content"),
+                    "data": item.get("data") if isinstance(item.get("data"), dict) else {},
+                    "source_refs": [
+                        {
+                            "id": item.get("resource_id") or item.get("id"),
+                            "title": item.get("title"),
+                            "source": item.get("source"),
+                            "kind": item.get("kind"),
+                        }
+                    ],
+                }
             )
-        return payload
+        return artifacts
 
     def _artifact_action_surface_invocation_payload(
         action: dict[str, Any],
@@ -828,29 +907,44 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         existing: Any,
     ) -> dict[str, Any]:
         context = action_surface_context(action)
-        context_kind = str(context.get("kind") or "calendar_day")
-        primary_surface = "calendar_week" if context_kind == "calendar_week" else "calendar_day"
+        artifact_kind = str(action.get("artifact_kind") or "artifact")
+        context_kind = str(context.get("kind") or ("task_focus" if artifact_kind == "task" else "calendar_day"))
+        if context_kind == "calendar_week":
+            primary_surface = "calendar_week"
+        elif context_kind == "task_focus" or artifact_kind == "task":
+            primary_surface = "task_focus"
+        else:
+            primary_surface = "calendar_day"
         existing_payload = existing if isinstance(existing, dict) else {}
+        payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+        capture = payload.get("capture") if isinstance(payload.get("capture"), dict) else {}
+        capture_reason = str(capture.get("reason") or "").strip()
+        action_reason = capture_reason or (
+            "The user asked to change a visible calendar artifact."
+            if artifact_kind == "calendar"
+            else "The user stated a concrete task or artifact update."
+        )
         return {
             **existing_payload,
             "policy_version": "artifact-action-v1",
-            "intent": "calendar_mutation",
+            "intent": f"{artifact_kind}_mutation" if not capture else f"{artifact_kind}_capture",
             "primary_surface": primary_surface,
             "supporting_surfaces": [],
             "surfaces": [
                 {
-                    "kind": context_kind if context_kind in {"today_briefing", "calendar_week", "calendar_day"} else primary_surface,
+                    "kind": context_kind if context_kind in {"today_briefing", "calendar_week", "calendar_day", "task_focus"} else primary_surface,
                     "role": "target",
-                    "reason": "The user asked to change a visible calendar artifact.",
+                    "reason": action_reason,
                     "status": "already_open" if context.get("id") else "selected",
                 }
             ],
             "write_behavior": "proposal_only",
-            "reason": "Calendar edits require confirmation before Vantage mutates the user-scoped local calendar.",
-            "confidence": 0.9,
-            "data_sources": ["visible_artifact", "calendar"],
+            "reason": f"{artifact_kind.title()} edits require confirmation before Vantage mutates the user-scoped local store.",
+            "confidence": float(capture.get("confidence") or 0.9),
+            "data_sources": [source for source in ["visible_artifact" if context.get("id") else "", artifact_kind] if source],
             "trigger": "artifact_action_policy",
             "requires_confirmation": True,
+            "capability_refs": [f"{artifact_kind}.{str(action.get('operation') or 'update')}"],
         }
 
     def _pwa_asset_path(relative_path: str) -> Path:
@@ -868,19 +962,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         action: dict[str, Any],
     ) -> dict[str, Any]:
         context = action_surface_context(action)
-        context_kind = str(context.get("kind") or "calendar_day")
+        artifact_kind = str(action.get("artifact_kind") or "calendar")
+        context_kind = str(context.get("kind") or ("task_focus" if artifact_kind == "task" else "calendar_day"))
         date_value = str(context.get("date") or "").strip() or str(
             (action.get("payload") if isinstance(action.get("payload"), dict) else {}).get("date") or "today"
         )
-        primary_surface = "calendar_week" if context_kind == "calendar_week" else "calendar_day"
+        if context_kind == "calendar_week":
+            primary_surface = "calendar_week"
+        elif context_kind == "task_focus" or artifact_kind == "task":
+            primary_surface = "task_focus"
+        else:
+            primary_surface = "calendar_day"
         supporting_surfaces = ["task_focus"] if context_kind == "today_briefing" else []
         surface_invocation = {
-            "intent": "schedule_lookup",
+            "intent": "task_focus" if primary_surface == "task_focus" else "schedule_lookup",
             "primary_surface": primary_surface,
             "supporting_surfaces": supporting_surfaces,
         }
         return _surface_payload_builder_for_scope(durable_scope).build_for_turn(
-            message=f"calendar {date_value}",
+            message=f"{primary_surface} {date_value}",
             surface_invocation=surface_invocation,
         ).to_dict()
 
@@ -889,6 +989,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         user_id = str(getattr(request.state, "user_id", "") or "")
         openai_key_status = _openai_key_status_for_request(request)
         model_auth_status = _model_auth_status_for_request(request)
+        app_capabilities: dict[str, Any] | None = None
         if user_scoped_storage:
             workspace_id = None
             experiment = {"active": False, "session_id": None, "saved_note_count": 0}
@@ -898,12 +999,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 runtime = _runtime(durable_scope, session)
                 workspace_id = runtime["state_store"].get_active_workspace_id(default_workspace_id=cfg.active_workspace)
                 experiment = _session_info(session)
+                app_capabilities = _app_capability_manifest_for_scope(durable_scope)
         else:
             durable_scope = _durable_scope()
             session = durable_scope["experiment_manager"].get_active_session()
             runtime = _runtime(durable_scope, session)
             workspace_id = runtime["state_store"].get_active_workspace_id(default_workspace_id=cfg.active_workspace)
             experiment = _session_info(session)
+            app_capabilities = _app_capability_manifest_for_scope(durable_scope)
         return {
             "status": "ok",
             "mode": model_auth_status["mode"],
@@ -920,6 +1023,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "account_creation_enabled": account_creation_enabled,
             "account_creation_code_required": account_creation_code_required,
             "user": {"id": user_id} if user_id else None,
+            "app_capabilities": app_capabilities,
         }
 
     @app.post("/api/login")
@@ -1003,15 +1107,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             accepted = execute_artifact_action(
                 action=action,
                 calendar_provider=_calendar_provider_for_scope(durable_scope),
+                task_provider=_task_provider_for_scope(durable_scope),
             )
             store.update(accepted)
             surface_payload = _surface_payloads_for_artifact_action(durable_scope=durable_scope, action=accepted)
             return {
                 "artifact_action": accepted,
                 "artifact_actions": [accepted],
-                "assistant_message": f"Done. {accepted.get('summary') or 'Calendar updated.'}",
+                "assistant_message": f"Done. {accepted.get('summary') or 'Artifact updated.'}",
                 "graph_action": action_graph_payload(accepted),
                 "surface_invocation": _artifact_action_surface_invocation_payload(accepted, existing=None),
+                "app_capabilities": _app_capability_manifest_for_scope(durable_scope),
                 **surface_payload,
             }
         except FileNotFoundError as exc:
@@ -1037,8 +1143,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             return {
                 "artifact_action": rejected,
                 "artifact_actions": [rejected],
-                "assistant_message": "Okay, I left the calendar unchanged.",
+                "assistant_message": f"Okay, I left the {str(rejected.get('artifact_kind') or 'artifact')} unchanged.",
                 "surface_invocation": _artifact_action_surface_invocation_payload(rejected, existing=None),
+                "app_capabilities": _app_capability_manifest_for_scope(durable_scope),
             }
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc

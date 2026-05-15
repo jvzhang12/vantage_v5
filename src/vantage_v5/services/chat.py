@@ -109,6 +109,7 @@ class ChatTurn:
     turn_stage: dict | None = None
     stage_progress: list[dict] | None = None
     stage_audit: dict | None = None
+    selected_attention_resources: list[dict] | None = None
 
     def to_body_parts(self) -> ChatTurnBodyParts:
         return ChatTurnBodyParts(
@@ -141,6 +142,7 @@ class ChatTurn:
             turn_stage=self.turn_stage,
             stage_progress=self.stage_progress,
             stage_audit=self.stage_audit,
+            selected_attention_resources=self.selected_attention_resources or [],
         )
 
     def to_dict(self) -> dict:
@@ -207,10 +209,13 @@ class ChatService:
         workspace_is_transient: bool = False,
         workspace_scope: str = "excluded",
         visible_artifacts: list[dict[str, Any]] | None = None,
+        selected_attention_resources: list[dict[str, Any]] | None = None,
+        app_capabilities: dict[str, Any] | None = None,
         applied_protocol_kinds: list[str] | None = None,
         turn_stage: TurnStage | None = None,
     ) -> ChatTurn:
         visible_artifacts = normalize_visible_artifacts(visible_artifacts)
+        selected_attention_resources = _normalize_selected_attention_resources(selected_attention_resources)
         memory_mode = _normalize_memory_mode(memory_intent)
         whiteboard_mode = _normalize_whiteboard_mode(whiteboard_mode)
         concepts = _merge_records(
@@ -339,6 +344,8 @@ class ChatService:
                     whiteboard_mode=whiteboard_mode,
                     pending_workspace_update=pending_workspace_update,
                     visible_artifacts=visible_artifacts,
+                    selected_attention_resources=selected_attention_resources,
+                    app_capabilities=app_capabilities,
                     turn_stage=turn_stage,
                 )
                 stage_progress.extend(model_stage_progress)
@@ -552,6 +559,7 @@ class ChatService:
             turn_stage=turn_stage.to_dict() if turn_stage is not None else None,
             stage_progress=stage_progress,
             stage_audit=stage_audit.to_dict() if stage_audit is not None else None,
+            selected_attention_resources=selected_attention_resources,
         )
         self._trace_turn(
             turn,
@@ -580,6 +588,8 @@ class ChatService:
         whiteboard_mode: str,
         pending_workspace_update: dict[str, Any] | None,
         visible_artifacts: list[dict[str, Any]] | None,
+        selected_attention_resources: list[dict[str, Any]] | None,
+        app_capabilities: dict[str, Any] | None,
         turn_stage: TurnStage | None,
     ) -> tuple[str, WorkspaceDraft | None, WorkspaceOffer | None, list[dict[str, Any]], StageAuditResult]:
         max_attempts = turn_stage.max_attempts if turn_stage is not None else 1
@@ -598,6 +608,8 @@ class ChatService:
                     whiteboard_mode=whiteboard_mode,
                     pending_workspace_update=pending_workspace_update,
                     visible_artifacts=visible_artifacts,
+                    selected_attention_resources=selected_attention_resources,
+                    app_capabilities=app_capabilities,
                     turn_stage=turn_stage,
                     stage_retry_instruction=retry_instruction or None,
                 )
@@ -680,6 +692,8 @@ class ChatService:
         whiteboard_mode: str,
         pending_workspace_update: dict[str, Any] | None,
         visible_artifacts: list[dict[str, Any]] | None,
+        selected_attention_resources: list[dict[str, Any]] | None,
+        app_capabilities: dict[str, Any] | None = None,
         turn_stage: TurnStage | None = None,
         stage_retry_instruction: str | None = None,
     ) -> str:
@@ -703,6 +717,8 @@ class ChatService:
             "selected_memory": selected_memory_payload,
             "pending_workspace_update": pending_workspace_update,
             "visible_artifacts": visible_artifacts_prompt_payload(visible_artifacts),
+            "selected_attention_resources": selected_attention_resources or [],
+            "app_capabilities": app_capabilities_prompt_payload(app_capabilities),
             "user_message": message,
             "whiteboard_mode": whiteboard_mode,
             "turn_stage": turn_stage.to_dict() if turn_stage is not None else None,
@@ -721,6 +737,9 @@ class ChatService:
             "Treat Nexus vault notes as read-only reference material rather than guaranteed truth. "
             "The payload may include visible_artifacts, which are the artifacts or operational surfaces currently visible to the user. "
             "Treat visible_artifacts as current-view ground truth for the turn. If the user refers to this view, the current calendar, the current plan, or what they are looking at, answer from visible_artifacts before older memory or assumptions. "
+            "The payload may include selected_attention_resources. These are resources selected from a deterministic shortlist by the Navigator before this response. Use them as the focused context for the answer; do not mention unselected candidates unless the user asks why something was excluded. "
+            "The payload may include app_capabilities, a safe manifest of Vantage applications, resources, tools, surfaces, invocation policy, and write behavior. "
+            "Use app_capabilities to understand which operational surfaces Vantage can summon and which writes are proposal-only. Do not emit tool JSON or mutation JSON in this main response. If an artifact edit is needed, explain the semantic change in normal language; a separate compiler step handles JSON mutation contracts after your response. Do not claim a write was committed unless the system returned an accepted action. "
             "You may reference and improve the workspace, but do not claim to have saved memory or modified files unless explicitly told so by the system. "
             "The request payload includes whiteboard_mode, which can be auto, offer, draft, or chat. "
             "If whiteboard_mode is chat, answer normally in chat with the full requested response, including complete simple email, message, memo, letter, or subject-line drafts. Do not offer the whiteboard and do not use any WHITEBOARD_* special format. "
@@ -1433,6 +1452,95 @@ def _correction_affordance(record: Any) -> dict[str, str]:
     }
 
 
+def app_capabilities_prompt_payload(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "policy_version": value.get("policy_version"),
+        "apps": [
+            {
+                "id": app.get("id"),
+                "label": app.get("label"),
+                "summary": app.get("summary"),
+                "invocation_policy": app.get("invocation_policy") if isinstance(app.get("invocation_policy"), dict) else {},
+                "write_behavior": app.get("write_behavior") if isinstance(app.get("write_behavior"), dict) else {},
+            }
+            for app in value.get("apps", [])
+            if isinstance(app, dict)
+        ],
+        "resources": [
+            {
+                "id": resource.get("id"),
+                "app_id": resource.get("app_id"),
+                "kind": resource.get("kind"),
+                "label": resource.get("label"),
+                "description": resource.get("description"),
+                "writable": bool(resource.get("writable")),
+                "read_only": bool(resource.get("read_only", not bool(resource.get("writable")))),
+                "visible_context": resource.get("visible_context"),
+            }
+            for resource in value.get("resources", [])
+            if isinstance(resource, dict)
+        ],
+        "tools": [
+            {
+                "name": tool.get("name"),
+                "app_id": tool.get("app_id"),
+                "operation": tool.get("operation"),
+                "label": tool.get("label"),
+                "description": tool.get("description"),
+                "write": bool(tool.get("write")),
+                "requires_confirmation": bool(tool.get("requires_confirmation")),
+                "destructive": bool(tool.get("destructive")),
+                "status": tool.get("status"),
+            }
+            for tool in value.get("tools", [])
+            if isinstance(tool, dict)
+        ],
+        "surfaces": [
+            {
+                "kind": surface.get("kind"),
+                "app_id": surface.get("app_id"),
+                "label": surface.get("label"),
+                "description": surface.get("description"),
+                "resource_ids": surface.get("resource_ids") if isinstance(surface.get("resource_ids"), list) else [],
+            }
+            for surface in value.get("surfaces", [])
+            if isinstance(surface, dict)
+        ],
+    }
+
+
+def _normalize_selected_attention_resources(value: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    resources: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        resource_id = str(item.get("resource_id") or item.get("id") or "").strip()
+        title = str(item.get("title") or resource_id or "Selected context").strip()
+        if not resource_id and not title:
+            continue
+        resources.append(
+            {
+                "id": str(item.get("id") or resource_id).strip(),
+                "resource_id": resource_id,
+                "kind": str(item.get("kind") or "resource").strip(),
+                "app": str(item.get("app") or "").strip(),
+                "title": title,
+                "summary": str(item.get("summary") or "").strip(),
+                "source": str(item.get("source") or "").strip(),
+                "content": str(item.get("content") or "")[:2800],
+                "data": item.get("data") if isinstance(item.get("data"), dict) else {},
+                "timestamps": item.get("timestamps") if isinstance(item.get("timestamps"), dict) else {},
+                "suggested_surface": str(item.get("suggested_surface") or "").strip() or None,
+                "why_selected": str(item.get("why_selected") or "").strip(),
+            }
+        )
+    return resources[:6]
+
+
 def _normalize_memory_mode(memory_intent: str | None) -> str:
     if memory_intent == "remember":
         return "remember"
@@ -1551,6 +1659,15 @@ def _extract_workspace_signal(
     text = response_text.strip()
     if not text:
         return "", None, None
+    artifact_signal = _parse_artifact_update_json(text)
+    if artifact_signal is not None:
+        parsed = _workspace_signal_from_artifact_update(
+            artifact_signal,
+            fallback_text=text,
+            whiteboard_mode=whiteboard_mode,
+        )
+        if parsed is not None:
+            return parsed
     parsed_signal = _parse_workspace_labels(text)
     if parsed_signal is None:
         return text, None, None
@@ -1582,6 +1699,79 @@ def _extract_workspace_signal(
             offer_summary = "Whiteboard available for collaborative drafting."
         return chat_response, None, WorkspaceOffer(summary=offer_summary)
     return chat_response or text, None, None
+
+
+def _parse_artifact_update_json(text: str) -> dict[str, Any] | None:
+    candidates: list[str] = []
+    label_match = re.search(r"\bARTIFACT_UPDATE_JSON\s*:\s*(?P<body>.+)$", text, re.IGNORECASE | re.DOTALL)
+    if label_match is not None:
+        candidates.append(label_match.group("body"))
+    candidates.append(text)
+    for candidate in candidates:
+        stripped = _strip_json_code_fence(candidate.strip())
+        if not stripped.startswith("{"):
+            continue
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if _artifact_update_from_payload(payload) is not None:
+            return payload
+    return None
+
+
+def _workspace_signal_from_artifact_update(
+    payload: dict[str, Any],
+    *,
+    fallback_text: str,
+    whiteboard_mode: str,
+) -> tuple[str, WorkspaceDraft | None, WorkspaceOffer | None] | None:
+    update = _artifact_update_from_payload(payload)
+    if update is None:
+        return None
+    artifact_kind = str(update.get("artifact_kind") or update.get("artifactKind") or update.get("kind") or "").strip().lower()
+    assistant_message = str(payload.get("assistant_message") or payload.get("assistantMessage") or "").strip()
+    if not assistant_message:
+        assistant_message = "I updated the artifact and brought it into the workspace."
+    if artifact_kind not in {"whiteboard", "draft", "document", "code_artifact"}:
+        return assistant_message or fallback_text.strip(), None, None
+    if whiteboard_mode == "chat":
+        return assistant_message, None, None
+    summary = " ".join(str(update.get("summary") or "").strip().split())
+    if whiteboard_mode == "offer":
+        return assistant_message, None, WorkspaceOffer(
+            summary=summary or "Whiteboard ready for collaboratively updating this artifact.",
+        )
+    content = _normalize_workspace_draft_content(
+        str(update.get("content_markdown") or update.get("contentMarkdown") or update.get("markdown") or update.get("content") or "")
+    )
+    if not content:
+        return assistant_message, None, None
+    return assistant_message, WorkspaceDraft(
+        content=content,
+        summary=summary or "Updated the artifact through the JSON artifact interface.",
+    ), None
+
+
+def _artifact_update_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    direct = payload.get("artifact_update") or payload.get("artifactUpdate") or payload.get("artifact")
+    if isinstance(direct, dict):
+        return direct
+    updates = payload.get("artifact_updates") or payload.get("artifactUpdates")
+    if isinstance(updates, list):
+        for item in updates:
+            if isinstance(item, dict):
+                return item
+    return None
+
+
+def _strip_json_code_fence(text: str) -> str:
+    fence_match = re.match(r"^```(?:json)?\s*(?P<body>.*?)\s*```$", text, re.DOTALL)
+    if fence_match is not None:
+        return fence_match.group("body").strip()
+    return text
 
 
 def _parse_workspace_labels(text: str) -> tuple[str, str | None, str] | None:

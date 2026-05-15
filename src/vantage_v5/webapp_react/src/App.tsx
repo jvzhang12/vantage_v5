@@ -23,6 +23,7 @@ import {
   NoticeRail,
   TopBar,
 } from "./components/Core";
+import { artifactKindLabel } from "./capabilities";
 import { DraftSurfaceNotice, SurfaceHost, WorkspaceDecision } from "./components/Surfaces";
 import { normalizeSurfacePayloads } from "./normalizers";
 import { buildVisibleArtifacts } from "./visibleArtifacts";
@@ -58,7 +59,7 @@ function calendarWeekSurfaceFromPayload(payload: Record<string, unknown>, date: 
 export function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const currentSurface = activeSurface(state);
-  const proposedArtifactAction = state.latestTurn?.artifactActions.find((action) => action.status === "proposed") || null;
+  const proposedArtifactActions = state.latestTurn?.artifactActions.filter((action) => action.status === "proposed") || [];
   const showLatestAnswer = Boolean(state.latestTurn && (state.view === "chat" || state.view === "artifact"));
 
   useEffect(() => {
@@ -221,11 +222,12 @@ export function App() {
     dispatch({ type: "CHAT_START" });
     try {
       const result = await acceptArtifactAction(actionId);
+      const artifactLabel = artifactKindLabel(result.artifactActions[0]?.artifactKind);
       dispatch({ type: "ARTIFACT_ACTION_RESULT", result });
       dispatch({
         type: "SET_NOTICE",
-        title: "Calendar updated",
-        message: result.assistantMessage || "The calendar change was applied.",
+        title: `${artifactLabel} updated`,
+        message: result.assistantMessage || "The proposed update was applied.",
         tone: "success",
       });
     } catch (error) {
@@ -237,10 +239,11 @@ export function App() {
     dispatch({ type: "CHAT_START" });
     try {
       const result = await rejectArtifactAction(actionId);
+      const artifactLabel = artifactKindLabel(result.artifactActions[0]?.artifactKind);
       dispatch({ type: "ARTIFACT_ACTION_RESULT", result });
       dispatch({
         type: "SET_NOTICE",
-        title: "Calendar unchanged",
+        title: `${artifactLabel} unchanged`,
         message: "I left the proposed change unapplied.",
         tone: "info",
       });
@@ -303,7 +306,7 @@ export function App() {
           {state.view !== "vantage" ? <DraftSurfaceNotice turn={state.latestTurn} /> : null}
           {state.view !== "vantage" ? (
             <ArtifactActionNotice
-              action={proposedArtifactAction}
+              actions={proposedArtifactActions}
               busy={state.busy}
               onApply={handleArtifactActionApply}
               onDismiss={handleArtifactActionDismiss}

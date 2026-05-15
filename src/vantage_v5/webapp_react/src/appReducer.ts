@@ -56,6 +56,7 @@ type Action =
         assistantMessage: string;
         graphAction: Record<string, unknown> | null;
         surfaceInvocation: SurfaceInvocation | null;
+        appCapabilities: NormalizedTurn["appCapabilities"];
       };
     }
   | { type: "LOGOUT" };
@@ -237,6 +238,7 @@ export function appReducer(state: AppState, action: Action): AppState {
             activeSurfaceId,
             graphAction: action.result.graphAction || state.latestTurn.graphAction,
             surfaceInvocation: action.result.surfaceInvocation || state.latestTurn.surfaceInvocation,
+            appCapabilities: action.result.appCapabilities || state.latestTurn.appCapabilities,
           }
         : state.latestTurn;
       return {

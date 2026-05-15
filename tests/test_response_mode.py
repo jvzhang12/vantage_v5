@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from vantage_v5.services.response_mode import BEST_GUESS_PREFACE
+from vantage_v5.services.response_mode import build_response_mode_payload
 from vantage_v5.services.response_mode import finalize_assistant_message
 
 
@@ -42,3 +43,16 @@ def test_finalize_grounded_answer_without_preface_is_unchanged() -> None:
         )
         == "The recalled launch note points toward a quiet cyan treatment."
     )
+
+
+def test_response_mode_can_mark_navigator_selected_context() -> None:
+    payload = build_response_mode_payload(
+        [],
+        workspace_has_context=False,
+        history_has_context=False,
+        attention_has_context=True,
+    )
+
+    assert payload["kind"] == "grounded"
+    assert payload["grounding_mode"] == "attention"
+    assert payload["context_sources"] == ["attention"]

@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Eye,
   FileText,
+  ListTodo,
   Lock,
   LogOut,
   Save,
@@ -13,14 +14,18 @@ import {
   X,
 } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
+import { artifactActionLabel } from "../capabilities";
 import type { AppState, ArtifactAction, NormalizedTurn, Notice } from "../types";
+import { VantageMark } from "./VantageMark";
 
-export function VantageGlyph({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className={compact ? "vantage-glyph vantage-glyph--compact" : "vantage-glyph"} aria-hidden="true">
-      <span>V</span>
-    </div>
-  );
+export function VantageGlyph({
+  compact = false,
+  size,
+}: {
+  compact?: boolean;
+  size?: number | string;
+}) {
+  return <VantageMark className="vantage-glyph" size={size || (compact ? 18 : 32)} />;
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -77,11 +82,6 @@ export function TopBar({
 export function GreetingState() {
   return (
     <section className="greeting-block" aria-label="Vantage greeting">
-      <div className="greeting-orbit">
-        <Sparkles size={16} />
-        <VantageGlyph />
-        <Sparkles size={16} />
-      </div>
       <h1>
         Hi, I&apos;m <span>Vantage.</span>
       </h1>
@@ -114,7 +114,7 @@ export function CommandComposer({
     <form className="composer-wrap" onSubmit={handleSubmit}>
       <div className="composer-shell">
         <div className="composer-icon">
-          <CalendarDays size={18} />
+          <VantageGlyph size={32} />
         </div>
         <input
           aria-label="Ask Vantage"
@@ -210,40 +210,45 @@ export function ConfirmDialog({
 }
 
 export function ArtifactActionNotice({
-  action,
+  actions,
   busy,
   onApply,
   onDismiss,
 }: {
-  action: ArtifactAction | null;
+  actions: ArtifactAction[];
   busy: boolean;
   onApply: (actionId: string) => void;
   onDismiss: (actionId: string) => void;
 }) {
-  if (!action || action.status !== "proposed") {
+  const proposedActions = actions.filter((action) => action.status === "proposed");
+  if (!proposedActions.length) {
     return null;
   }
   return (
-    <section className="artifact-action-card" aria-label="Proposed artifact action">
-      <div className="artifact-action-card__icon">
-        <CalendarDays size={17} />
-      </div>
-      <div>
-        <span>Proposed calendar change</span>
-        <p>{action.summary}</p>
-        {action.warnings.length ? <small>{action.warnings.join(" ")}</small> : null}
-      </div>
-      <div className="artifact-action-card__actions">
-        <button disabled={busy} onClick={() => onDismiss(action.id)} type="button">
-          <X size={14} />
-          Dismiss
-        </button>
-        <button disabled={busy} onClick={() => onApply(action.id)} type="button">
-          <Check size={14} />
-          Apply
-        </button>
-      </div>
-    </section>
+    <div className="artifact-action-stack" aria-label="Proposed artifact actions">
+      {proposedActions.map((action) => (
+        <section className="artifact-action-card" key={action.id}>
+          <div className="artifact-action-card__icon">
+            {action.artifactKind === "task" ? <ListTodo size={17} /> : <CalendarDays size={17} />}
+          </div>
+          <div>
+            <span>{artifactActionLabel(action)}</span>
+            <p>{action.summary}</p>
+            {action.warnings.length ? <small>{action.warnings.join(" ")}</small> : null}
+          </div>
+          <div className="artifact-action-card__actions">
+            <button disabled={busy} onClick={() => onDismiss(action.id)} type="button">
+              <X size={14} />
+              Dismiss
+            </button>
+            <button disabled={busy} onClick={() => onApply(action.id)} type="button">
+              <Check size={14} />
+              Apply
+            </button>
+          </div>
+        </section>
+      ))}
+    </div>
   );
 }
 

@@ -1,4 +1,5 @@
 import { asArray, asRecord, text } from "./normalizers";
+import { surfaceLabel } from "./capabilities";
 import type { ContextBudgetRow, NormalizedTurn, SurfacePayload } from "./types";
 
 export interface SummaryColumnModel {
@@ -58,18 +59,6 @@ export interface InspectionReceipt {
   decisionPath: DecisionPathStepModel[];
   writes: MemoryActionsWritesModel;
 }
-
-const SURFACE_LABELS: Record<string, string> = {
-  today_briefing: "Today Briefing",
-  calendar_day: "Calendar",
-  calendar_week: "Calendar Week",
-  task_focus: "Task Focus",
-  whiteboard: "Whiteboard",
-  draft: "Draft",
-  scenario_lab: "Scenario Lab",
-  code_artifact: "Code Artifact",
-  chat: "Chat",
-};
 
 const CONTEXT_LABELS: Record<string, { type: string; title: string; why: string }> = {
   recall: { type: "Memory", title: "Recall", why: "The context budget marked recalled records as included." },
@@ -171,6 +160,17 @@ function contextItems(turn: NormalizedTurn, surfaces: SurfacePayload[]): Context
     });
   }
 
+  for (const item of turn.selectedAttentionResources) {
+    add({
+      id: `attention-${item.resourceId}`,
+      type: contextTypeFromRecord(item.kind || item.source || item.app),
+      title: item.title || item.resourceId,
+      description: firstNonEmpty(item.summary, firstSentence(item.content), "Navigator-selected context."),
+      why: item.whySelected || turn.navigatorSelection?.reason || "Navigator selected this item from the deterministic attention shortlist.",
+      status: "Selected",
+    });
+  }
+
   for (const artifact of turn.visibleArtifacts) {
     const title = text(artifact.title || artifact.label || artifact.id || "Visible artifact");
     add({
@@ -185,6 +185,21 @@ function contextItems(turn: NormalizedTurn, surfaces: SurfacePayload[]): Context
 
   for (const surface of surfaces) {
     addSurfaceContext(surface, add);
+  }
+
+  for (const action of turn.artifactActions) {
+    const capture = action.capture || asRecord(action.payload.capture);
+    if (!Object.keys(capture).length) {
+      continue;
+    }
+    add({
+      id: `capture-${action.id}`,
+      type: action.artifactKind === "task" ? "Tasks" : action.artifactKind === "calendar" ? "Calendar" : "Artifact action",
+      title: action.summary || humanize(action.operation),
+      description: text(asRecord(capture.parsed_fields).title || action.operation || "Captured operational item."),
+      why: text(capture.reason || "The capture layer identified a durable operational item in the latest message."),
+      status: humanize(action.status),
+    });
   }
 
   if (!items.length) {
@@ -280,7 +295,7 @@ function surfaceDecisions(turn: NormalizedTurn, surfaces: SurfacePayload[]): Sur
     });
   }
 
-  for (const kind of notOpenedCandidates(invocation, surfaces)) {
+  for (const kind of notOpenedCandidates(turn, surfaces)) {
     add({
       id: `not-opened-${kind}`,
       name: surfaceLabel(kind),
@@ -312,6 +327,10 @@ function decisionPath(
   basics: { request: string; intent: string; summary: string },
 ): DecisionPathStepModel[] {
   const selectedContext = turn.contextBudget?.summary || turn.answerBasis.summary || "Current request was prepared as context.";
+  const attentionContext = turn.navigatorSelection?.reason
+    || (turn.selectedAttentionResources.length
+      ? `Selected ${turn.selectedAttentionResources.length} attention resource${turn.selectedAttentionResources.length === 1 ? "" : "s"}.`
+      : "");
   const selectedSurfaceNames = surfaces.map((surface) => surfaceLabel(surface.kind));
   const surfaceCopy = selectedSurfaceNames.length
     ? `Opened ${selectedSurfaceNames.join(" + ")}`
@@ -321,7 +340,8 @@ function decisionPath(
   return [
     { id: "request", label: "Request", value: basics.request },
     { id: "intent", label: "Intent", value: basics.intent, detail: confidenceLabel(turn.surfaceInvocation?.confidence ?? turn.semanticFrame?.confidence) },
-    { id: "context", label: "Context selection", value: selectedContext },
+    { id: "query", label: "Query keys", value: queryKeySummary(turn) },
+    { id: "context", label: "Context selection", value: attentionContext || selectedContext, detail: attentionSelectionDetail(turn) },
     { id: "surface", label: "Surface decision", value: surfaceCopy, detail: turn.surfaceInvocation?.reason || "No separate surface was required." },
     { id: "answer", label: "Answer", value: basics.summary },
     { id: "after-turn", label: "After-turn changes", value: writes.summary },
@@ -368,12 +388,21 @@ function buildWrites(turn: NormalizedTurn, surfaces: SurfacePayload[]): MemoryAc
   }
   for (const action of turn.artifactActions) {
     const summary = `${humanize(action.status)}: ${action.summary || action.operation}`;
+    const capture = action.capture || asRecord(action.payload.capture);
     if (action.artifactKind === "calendar") {
       editedCalendar.push(summary);
     } else if (/task|todo/i.test(action.artifactKind)) {
       updatedTasks.push(summary);
     } else {
       createdArtifacts.push(summary);
+    }
+    if (Object.keys(capture).length) {
+      const fields = asRecord(capture.parsed_fields);
+      const parsedTitle = text(fields.title);
+      assumptions.push(text(capture.reason || "Capture layer produced this proposed action."));
+      if (parsedTitle) {
+        assumptions.push(`Parsed captured item: ${parsedTitle}.`);
+      }
     }
     for (const warning of action.warnings) {
       assumptions.push(warning);
@@ -446,6 +475,7 @@ function groundingTypes(turn: NormalizedTurn, surfaces: SurfacePayload[]): strin
     ...turn.answerBasis.sources,
     ...turn.responseMode.contextSources,
     ...(turn.contextBudget?.contextSources || []),
+    ...turn.selectedAttentionResources.map((item) => item.app || item.kind || "attention"),
     ...surfaces.flatMap((surface) => {
       if (surface.kind === "today_briefing") {
         return ["calendar", "tasks", "current_date"];
@@ -462,14 +492,16 @@ function groundingTypes(turn: NormalizedTurn, surfaces: SurfacePayload[]): strin
   return [...new Set(values)].slice(0, 5);
 }
 
-function notOpenedCandidates(invocation: NormalizedTurn["surfaceInvocation"], surfaces: SurfacePayload[]): string[] {
+function notOpenedCandidates(turn: NormalizedTurn, surfaces: SurfacePayload[]): string[] {
+  const invocation = turn.surfaceInvocation;
   const selected = new Set([
     invocation?.primarySurface,
     ...(invocation?.supportingSurfaces || []),
     ...(invocation?.surfaces || []).map((surface) => surface.kind),
     ...surfaces.map((surface) => surface.kind),
   ].filter(Boolean));
-  const candidates = ["whiteboard", "draft", "scenario_lab", "calendar_day", "task_focus"];
+  const capabilitySurfaces = turn.appCapabilities?.surfaces.map((surface) => surface.kind) || [];
+  const candidates = [...capabilitySurfaces, "whiteboard", "draft", "scenario_lab", "calendar_day", "task_focus"];
   return candidates.filter((kind) => !selected.has(kind)).slice(0, surfaces.length ? 3 : 2);
 }
 
@@ -490,6 +522,45 @@ function notOpenedReason(kind: string, invocation: NormalizedTurn["surfaceInvoca
     return invocation?.reason || "The request did not require task prioritization.";
   }
   return "This surface was not selected for the latest answer.";
+}
+
+function queryKeySummary(turn: NormalizedTurn): string {
+  const frame = turn.queryFrame;
+  if (!frame) {
+    return "No query frame was recorded.";
+  }
+  const parts = [
+    frame.domains.length ? `Domains: ${frame.domains.map(humanize).join(", ")}` : "",
+    frame.operations.length ? `Operations: ${frame.operations.map(humanize).join(", ")}` : "",
+    frame.entities.length ? `Entities: ${frame.entities.join(", ")}` : "",
+    frame.temporalReferences.length
+      ? `Time: ${frame.temporalReferences.map((item) => `${item.rawText} (${item.relation})`).join(", ")}`
+      : "",
+  ].filter(Boolean);
+  return parts.join(" · ") || "Current request only.";
+}
+
+function attentionSelectionDetail(turn: NormalizedTurn): string {
+  const selection = turn.navigatorSelection;
+  if (!selection) {
+    return turn.attentionCandidates.length
+      ? `${turn.attentionCandidates.length} candidates ranked; none selected.`
+      : "No attention candidates were needed.";
+  }
+  const selected = selection.selectedIds.length;
+  const rejected = selection.rejectedCandidateIds.length;
+  const fallback = selection.fallback ? " Deterministic fallback was used." : "";
+  const vectorHits = turn.attentionCandidates.filter((candidate) => attentionVectorScore(candidate) >= 0.16).length;
+  const vectorCopy = vectorHits
+    ? ` ${vectorHits} semantic vector match${vectorHits === 1 ? "" : "es"} contributed.`
+    : "";
+  return `${selected} selected, ${rejected} rejected.${fallback}${vectorCopy}`.trim();
+}
+
+function attentionVectorScore(candidate: { retrievalScores?: Record<string, number> }): number {
+  return candidate.retrievalScores?.vector_similarity
+    ?? candidate.retrievalScores?.vectorSimilarity
+    ?? 0;
 }
 
 function taskSummaryFromSurface(surface: SurfacePayload): string {
@@ -514,6 +585,12 @@ function contextTypeFromRecord(value: string): string {
   if (normalized.includes("protocol")) {
     return "Protocol";
   }
+  if (normalized.includes("calendar")) {
+    return "Calendar";
+  }
+  if (normalized.includes("task")) {
+    return "Tasks";
+  }
   if (normalized.includes("trace")) {
     return "Memory Trace";
   }
@@ -521,10 +598,6 @@ function contextTypeFromRecord(value: string): string {
     return "Visible artifact";
   }
   return "Memory";
-}
-
-function surfaceLabel(kind: string): string {
-  return SURFACE_LABELS[kind] || humanize(kind);
 }
 
 function readableMode(value: string): string {

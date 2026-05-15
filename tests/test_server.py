@@ -160,6 +160,35 @@ def _today_calendar_artifact() -> dict[str, object]:
     }
 
 
+def _task_focus_artifact() -> dict[str, object]:
+    return {
+        "id": "tasks-2026-05-14",
+        "kind": "task_focus",
+        "title": "Today Focus",
+        "summary": "1 open task.",
+        "content": "# Today Focus\n- Finish Homework 2",
+        "data": {
+            "date": "2026-05-14",
+            "tasks": {
+                "date": "2026-05-14",
+                "groups": {
+                    "must_do_today": [
+                        {
+                            "id": "homework-2",
+                            "title": "Finish Homework 2",
+                            "due_date": "2026-05-14",
+                            "status": "open",
+                        }
+                    ],
+                    "good_next": [],
+                    "can_defer": [],
+                    "unscheduled": [],
+                },
+            },
+        },
+    }
+
+
 def _fake_jwt(exp: int) -> str:
     def encode(payload: dict[str, object]) -> str:
         raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -817,6 +846,55 @@ def test_chat_attaches_calendar_week_surface_for_week_prompt(tmp_path: Path) -> 
     assert "Algorithms lab" in payload["assistant_message"]
 
 
+def test_chat_payload_exposes_app_capability_manifest(tmp_path: Path) -> None:
+    client, _ = _client(tmp_path, auth_users={"eden": "eden-password"})
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={"message": "what is on my calendar today?", "history": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    manifest = payload["app_capabilities"]
+    assert manifest["policy_version"] == "app-capability-v1"
+    assert [app["id"] for app in manifest["apps"]] == ["calendar", "tasks", "whiteboard"]
+    assert next(tool for tool in manifest["tools"] if tool["name"] == "calendar.create_event")["status"] == "available"
+    assert payload["system_state"]["app_capabilities"]["policy_version"] == "app-capability-v1"
+    assert "calendar.create_event" in payload["system_state"]["available_tools"]
+
+
+def test_chat_payload_exposes_attention_selection_for_calendar_context(tmp_path: Path) -> None:
+    calendar_events_path = _write_calendar_events(
+        tmp_path / "calendar" / "events.json",
+        events=[
+            {
+                "id": "midterm",
+                "calendar_id": "school",
+                "title": "Data Structures Midterm",
+                "start": "2026-05-13T10:00:00",
+                "end": "2026-05-13T11:30:00",
+            }
+        ],
+    )
+    client, _ = _client(tmp_path, calendar_events_path=calendar_events_path)
+
+    response = client.post(
+        "/api/chat",
+        json={"message": "What is on my calendar today on 2026-05-13?", "history": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "calendar" in payload["query_frame"]["domains"]
+    assert any(candidate["kind"] == "calendar_day" for candidate in payload["attention_candidates"])
+    assert payload["navigator_selection"]["selected_ids"]
+    assert payload["selected_attention_resources"][0]["kind"] == "calendar_day"
+    assert "Data Structures Midterm" in payload["selected_attention_resources"][0]["content"]
+    assert payload["system_state"]["navigator_selection"]["fallback"] is True
+
+
 def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: Path, monkeypatch) -> None:
     client, _ = _client(tmp_path, openai_api_key="test-key")
     visible_artifacts = [
@@ -838,6 +916,7 @@ def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: 
 
     def _route(self, **kwargs):
         captured["navigator_visible"] = kwargs["visible_artifacts"]
+        captured["navigator_attention"] = kwargs["attention_candidates"]
         return NavigationDecision(
             mode="chat",
             confidence=0.93,
@@ -859,6 +938,8 @@ def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: 
 
     def _reply(self, **kwargs):
         captured["reply_visible"] = kwargs["visible_artifacts"]
+        captured["reply_selected_attention"] = kwargs["selected_attention_resources"]
+        captured["reply_app_capabilities"] = kwargs["app_capabilities"]
         return "I see the current week calendar with Algorithms lab."
 
     def _decide(self, **kwargs):
@@ -886,9 +967,57 @@ def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: 
     assert payload["assistant_message"] == "I see the current week calendar with Algorithms lab."
     assert payload["visible_artifacts"][0]["id"] == "calendar-week-2026-05-11"
     assert "Algorithms lab" in payload["visible_artifacts"][0]["content"]
+    assert payload["attention_candidates"]
+    assert payload["navigator_selection"]["fallback"] is True
+    assert payload["selected_attention_resources"][0]["resource_id"] == "visible:calendar-week-2026-05-11"
+    assert captured["navigator_attention"][0]["resource_id"] == "visible:calendar-week-2026-05-11"
+    assert captured["reply_selected_attention"][0]["resource_id"] == "visible:calendar-week-2026-05-11"
     for key in ["navigator_visible", "protocol_visible", "vetting_visible", "reply_visible", "meta_visible"]:
         assert captured[key][0]["id"] == "calendar-week-2026-05-11"
         assert "Algorithms lab" in captured[key][0]["content"]
+    assert captured["reply_app_capabilities"]["policy_version"] == "app-capability-v1"
+    assert "calendar.read_week" in {tool["name"] for tool in captured["reply_app_capabilities"]["tools"]}
+
+
+def test_chat_uses_attention_selection_as_primary_surface_authority(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path)
+
+    def _route(self, **kwargs):
+        assert any(
+            candidate["resource_id"] == "task_focus:2026-05-14"
+            for candidate in kwargs["attention_candidates"]
+        )
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.91,
+            reason="Navigator selected task focus from the attention shortlist.",
+            whiteboard_mode="chat",
+            attention_selection={
+                "selected_ids": ["task_focus:2026-05-14"],
+                "primary_resource_id": "task_focus:2026-05-14",
+                "supporting_resource_ids": [],
+                "rejected_candidate_ids": ["calendar_day:2026-05-14"],
+                "surface_to_open": "task_focus",
+                "reason": "The user is asking what to focus on, so task focus is the primary working surface.",
+                "confidence": 0.91,
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+
+    response = client.post(
+        "/api/chat",
+        json={"message": "Plan my day around homework on 2026-05-14.", "history": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_invocation"]["trigger"] == "attention_navigator"
+    assert payload["surface_invocation"]["selection_authority"] == "attention_navigator"
+    assert payload["surface_invocation"]["primary_surface"] == "task_focus"
+    assert payload["active_surface_id"] == "tasks-2026-05-14"
+    assert [surface["kind"] for surface in payload["surface_payloads"]] == ["task_focus"]
+    assert payload["selected_attention_resources"][0]["resource_id"] == "task_focus:2026-05-14"
 
 
 def test_chat_returns_proposed_calendar_action_without_mutating_user_file(tmp_path: Path) -> None:
@@ -921,7 +1050,10 @@ def test_chat_returns_proposed_calendar_action_without_mutating_user_file(tmp_pa
     assert payload["artifact_actions"][0]["status"] == "proposed"
     assert payload["artifact_actions"][0]["operation"] == "replace_event"
     assert payload["artifact_actions"][0]["payload"]["updates"] == {"title": "Grocery shopping"}
+    assert payload["artifact_actions"][0]["compiler"]["pipeline"] == "semantic_then_json_contract"
+    assert "calendar.json_interface" in payload["artifact_actions"][0]["compiler"]["contract_refs"]
     assert payload["surface_invocation"]["write_behavior"] == "proposal_only"
+    assert payload["assistant_message"].startswith("Understood. I will")
     assert "after you confirm" in payload["assistant_message"]
     assert json.loads(calendar_events_path.read_text(encoding="utf-8"))["events"][0]["title"] == "Advisor check-in"
 
@@ -1035,6 +1167,166 @@ def test_calendar_artifact_action_rejects_global_configured_calendar_writes(tmp_
     assert payload["artifact_actions"] == []
     assert "read-only" in payload["assistant_message"]
     assert json.loads(global_calendar.read_text(encoding="utf-8"))["events"][0]["title"] == "Advisor check-in"
+
+
+def test_chat_capture_calendar_statement_proposes_event_and_opens_calendar(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
+    calendar_events_path = repo_root / "users" / "eden" / "state" / "calendar" / "events.json"
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={
+            "message": "I have grocery shopping at 11 2026-05-14",
+            "history": [],
+            "visible_artifacts": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["artifact_actions"][0]["artifact_kind"] == "calendar"
+    assert payload["artifact_actions"][0]["operation"] == "create_event"
+    assert payload["artifact_actions"][0]["payload"]["title"] == "grocery shopping"
+    assert payload["surface_invocation"]["intent"] == "calendar_capture"
+    assert payload["active_surface_id"] == "calendar-2026-05-14"
+    assert payload["surface_payloads"][0]["kind"] == "calendar_day"
+    assert "after you confirm" in payload["assistant_message"]
+    assert not calendar_events_path.exists()
+
+
+def test_accept_calendar_capture_creates_user_event_and_refreshes_calendar(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
+    headers = _basic_auth_header("eden", "eden-password")
+    proposed = client.post(
+        "/api/chat",
+        headers=headers,
+        json={
+            "message": "I have grocery shopping at 11 2026-05-14",
+            "history": [],
+            "visible_artifacts": [],
+        },
+    ).json()["artifact_actions"][0]
+
+    response = client.post(f"/api/artifact-actions/{proposed['id']}/accept", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    events_path = repo_root / "users" / "eden" / "state" / "calendar" / "events.json"
+    assert payload["artifact_actions"][0]["status"] == "accepted"
+    assert payload["surface_payloads"][0]["kind"] == "calendar_day"
+    assert payload["surface_payloads"][0]["data"]["calendar"]["events"][0]["title"] == "grocery shopping"
+    assert json.loads(events_path.read_text(encoding="utf-8"))["events"][0]["title"] == "grocery shopping"
+
+
+def test_chat_capture_task_statement_proposes_task_and_opens_task_focus(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
+    tasks_path = repo_root / "users" / "eden" / "state" / "tasks" / "tasks.json"
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={
+            "message": "I need to finish homework 2 by 2026-05-14",
+            "history": [],
+            "visible_artifacts": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["artifact_actions"][0]["artifact_kind"] == "task"
+    assert payload["artifact_actions"][0]["operation"] == "create_task"
+    assert payload["artifact_actions"][0]["payload"]["title"] == "finish homework 2"
+    assert payload["surface_invocation"]["intent"] == "task_capture"
+    assert payload["active_surface_id"] == "tasks-2026-05-14"
+    assert payload["surface_payloads"][0]["kind"] == "task_focus"
+    assert not tasks_path.exists()
+
+
+def test_accept_task_capture_creates_user_task_and_refreshes_task_focus(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password", "sam": "sam-password"})
+    headers = _basic_auth_header("eden", "eden-password")
+    proposed = client.post(
+        "/api/chat",
+        headers=headers,
+        json={
+            "message": "I need to finish homework 2 by 2026-05-14",
+            "history": [],
+            "visible_artifacts": [],
+        },
+    ).json()["artifact_actions"][0]
+
+    response = client.post(f"/api/artifact-actions/{proposed['id']}/accept", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    eden_tasks = repo_root / "users" / "eden" / "state" / "tasks" / "tasks.json"
+    sam_tasks = repo_root / "users" / "sam" / "state" / "tasks" / "tasks.json"
+    assert payload["artifact_actions"][0]["status"] == "accepted"
+    assert payload["graph_action"]["type"] == "task_create_task"
+    assert payload["surface_payloads"][0]["kind"] == "task_focus"
+    assert payload["surface_payloads"][0]["data"]["tasks"]["groups"]["must_do_today"][0]["title"] == "finish homework 2"
+    assert json.loads(eden_tasks.read_text(encoding="utf-8"))["tasks"][0]["title"] == "finish homework 2"
+    assert not sam_tasks.exists()
+
+
+def test_accept_visible_task_complete_action_mutates_user_task_and_refreshes_focus(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
+    tasks_path = _write_tasks(
+        repo_root / "users" / "eden" / "state" / "tasks" / "tasks.json",
+        tasks=[
+            {
+                "id": "homework-2",
+                "title": "Finish Homework 2",
+                "due_date": "2026-05-14",
+                "status": "open",
+            }
+        ],
+    )
+    headers = _basic_auth_header("eden", "eden-password")
+    proposed = client.post(
+        "/api/chat",
+        headers=headers,
+        json={
+            "message": "mark Homework 2 done",
+            "history": [],
+            "visible_artifacts": [_task_focus_artifact()],
+        },
+    ).json()["artifact_actions"][0]
+
+    assert proposed["operation"] == "complete_task"
+    assert json.loads(tasks_path.read_text(encoding="utf-8"))["tasks"][0]["status"] == "open"
+
+    response = client.post(f"/api/artifact-actions/{proposed['id']}/accept", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["artifact_actions"][0]["status"] == "accepted"
+    assert payload["graph_action"]["type"] == "task_complete_task"
+    assert payload["surface_payloads"][0]["kind"] == "task_focus"
+    assert json.loads(tasks_path.read_text(encoding="utf-8"))["tasks"][0]["status"] == "completed"
+
+
+def test_task_capture_rejects_global_configured_task_writes(tmp_path: Path) -> None:
+    global_tasks = _write_tasks(tmp_path / "global-tasks" / "tasks.json", tasks=[])
+    client, _ = _client(tmp_path, auth_users={"eden": "eden-password"}, tasks_path=global_tasks)
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={
+            "message": "I need to finish homework 2 by 2026-05-14",
+            "history": [],
+            "visible_artifacts": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["artifact_actions"] == []
+    assert "read-only" in payload["assistant_message"]
+    assert json.loads(global_tasks.read_text(encoding="utf-8"))["tasks"] == []
 
 
 def test_plain_why_question_stays_direct_chat(tmp_path: Path) -> None:

@@ -1,5 +1,5 @@
-import { normalizeArtifactActions, normalizeSurfaceInvocation, normalizeSurfacePayloads, normalizeTurnPayload, text, asRecord } from "./normalizers";
-import type { ArtifactAction, ChatHistoryItem, HealthPayload, NormalizedTurn, SurfaceInvocation, SurfacePayload, WorkspacePayload } from "./types";
+import { normalizeAppCapabilityManifest, normalizeArtifactActions, normalizeSurfaceInvocation, normalizeSurfacePayloads, normalizeTurnPayload, text, asRecord } from "./normalizers";
+import type { AppCapabilityManifest, ArtifactAction, ChatHistoryItem, HealthPayload, NormalizedTurn, SurfaceInvocation, SurfacePayload, WorkspacePayload } from "./types";
 
 export class ApiError extends Error {
   status: number;
@@ -86,6 +86,7 @@ export interface ArtifactActionResult {
   assistantMessage: string;
   graphAction: Record<string, unknown> | null;
   surfaceInvocation: SurfaceInvocation | null;
+  appCapabilities: AppCapabilityManifest | null;
 }
 
 function normalizeArtifactActionResult(payload: unknown): ArtifactActionResult {
@@ -97,6 +98,7 @@ function normalizeArtifactActionResult(payload: unknown): ArtifactActionResult {
     assistantMessage: text(record.assistant_message || record.assistantMessage),
     graphAction: Object.keys(asRecord(record.graph_action || record.graphAction)).length ? asRecord(record.graph_action || record.graphAction) : null,
     surfaceInvocation: normalizeSurfaceInvocation(record.surface_invocation || record.surfaceInvocation),
+    appCapabilities: normalizeAppCapabilityManifest(record.app_capabilities || record.appCapabilities),
   };
 }
 

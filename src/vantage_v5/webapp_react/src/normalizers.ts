@@ -2,16 +2,26 @@ import type {
   ActivityPayload,
   ActivityStep,
   AnswerBasis,
+  AttentionCandidate,
+  AppCapability,
+  AppCapabilityManifest,
+  AppCapabilityResource,
+  AppCapabilitySource,
+  AppCapabilitySurface,
+  AppCapabilityTool,
   ArtifactAction,
   ContextBudget,
   ContextBudgetRow,
   JsonRecord,
+  NavigatorSelection,
   NormalizedTurn,
+  QueryFrame,
   RecallItem,
   ResponseMode,
   SemanticFrame,
   SemanticPolicy,
   SourceRef,
+  SelectedAttentionResource,
   SurfaceInvocation,
   SurfaceInvocationSurface,
   SurfacePayload,
@@ -64,9 +74,120 @@ export function normalizeSourceRefs(value: unknown): SourceRef[] {
         source: text(record.source),
         kind: text(record.kind || record.type),
         label: text(record.label || title),
+        resourceId: text(record.resource_id || record.resourceId),
+        capabilityRef: text(record.capability_ref || record.capabilityRef),
+        writable: Boolean(record.writable),
+        readOnly: Boolean(record.read_only ?? record.readOnly),
       };
     })
     .filter((item): item is SourceRef => item !== null);
+}
+
+export function normalizeAppCapabilityManifest(value: unknown): AppCapabilityManifest | null {
+  const record = asRecord(value);
+  if (!Object.keys(record).length) {
+    return null;
+  }
+  return {
+    policyVersion: text(record.policy_version || record.policyVersion),
+    apps: asArray(record.apps).map(normalizeAppCapability).filter((item): item is AppCapability => item !== null),
+    resources: asArray(record.resources).map(normalizeAppCapabilityResource).filter((item): item is AppCapabilityResource => item !== null),
+    tools: asArray(record.tools).map(normalizeAppCapabilityTool).filter((item): item is AppCapabilityTool => item !== null),
+    surfaces: asArray(record.surfaces).map(normalizeAppCapabilitySurface).filter((item): item is AppCapabilitySurface => item !== null),
+    receiptEvents: asArray(record.receipt_events || record.receiptEvents).map(asRecord).filter((item) => Object.keys(item).length),
+  };
+}
+
+function normalizeAppCapability(value: unknown): AppCapability | null {
+  const record = asRecord(value);
+  const id = text(record.id);
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    label: text(record.label || id),
+    summary: text(record.summary),
+    invocationPolicy: asRecord(record.invocation_policy || record.invocationPolicy),
+    writeBehavior: asRecord(record.write_behavior || record.writeBehavior),
+    jsonInterface: asRecord(record.json_interface || record.jsonInterface),
+  };
+}
+
+function normalizeAppCapabilityResource(value: unknown): AppCapabilityResource | null {
+  const record = asRecord(value);
+  const id = text(record.id);
+  if (!id) {
+    return null;
+  }
+  const source = normalizeAppCapabilitySource(record.source);
+  return {
+    id,
+    appId: text(record.app_id || record.appId),
+    kind: text(record.kind),
+    label: text(record.label || id),
+    description: text(record.description),
+    uri: text(record.uri),
+    readable: Boolean(record.readable ?? true),
+    writable: Boolean(record.writable),
+    readOnly: Boolean(record.read_only ?? record.readOnly),
+    visibleContext: text(record.visible_context || record.visibleContext || "markdown"),
+    source,
+  };
+}
+
+function normalizeAppCapabilitySource(value: unknown): AppCapabilitySource {
+  const record = asRecord(value);
+  const counts = countMap({
+    event_count: record.event_count,
+    task_count: record.task_count,
+  });
+  return {
+    kind: text(record.kind),
+    label: text(record.label),
+    configured: Boolean(record.configured),
+    readOnly: Boolean(record.read_only ?? record.readOnly),
+    writable: Boolean(record.writable),
+    counts,
+    meta: record,
+  };
+}
+
+function normalizeAppCapabilityTool(value: unknown): AppCapabilityTool | null {
+  const record = asRecord(value);
+  const name = text(record.name);
+  if (!name) {
+    return null;
+  }
+  return {
+    name,
+    appId: text(record.app_id || record.appId),
+    operation: text(record.operation),
+    label: text(record.label || name),
+    description: text(record.description),
+    resourceIds: stringList(record.resource_ids || record.resourceIds),
+    write: Boolean(record.write),
+    requiresConfirmation: Boolean(record.requires_confirmation ?? record.requiresConfirmation),
+    destructive: Boolean(record.destructive),
+    status: text(record.status || "available"),
+  };
+}
+
+function normalizeAppCapabilitySurface(value: unknown): AppCapabilitySurface | null {
+  const record = asRecord(value);
+  const kind = text(record.kind);
+  if (!kind) {
+    return null;
+  }
+  return {
+    kind,
+    appId: text(record.app_id || record.appId),
+    label: text(record.label || kind),
+    description: text(record.description),
+    renderer: text(record.renderer),
+    resourceIds: stringList(record.resource_ids || record.resourceIds),
+    visibleContext: text(record.visible_context || record.visibleContext || "markdown"),
+  };
 }
 
 export function normalizeSurfacePayloads(value: unknown): SurfacePayload[] {
@@ -98,6 +219,8 @@ export function normalizeArtifactActions(value: unknown): ArtifactAction[] {
       if (!id) {
         return null;
       }
+      const payload = asRecord(record.payload);
+      const capture = asRecord(record.capture || payload.capture);
       return {
         id,
         artifactKind: text(record.artifact_kind || record.artifactKind),
@@ -105,11 +228,12 @@ export function normalizeArtifactActions(value: unknown): ArtifactAction[] {
         status: text(record.status || "proposed"),
         summary: text(record.summary),
         targetRefs: normalizeSourceRefs(record.target_refs || record.targetRefs),
-        payload: asRecord(record.payload),
+        payload,
         preview: asRecord(record.preview),
         warnings: stringList(record.warnings),
         requiresConfirmation: Boolean(record.requires_confirmation ?? record.requiresConfirmation),
         sourceRefs: normalizeSourceRefs(record.source_refs || record.sourceRefs),
+        capture: Object.keys(capture).length ? capture : null,
       };
     })
     .filter((item): item is ArtifactAction => item !== null);
@@ -129,6 +253,7 @@ export function normalizeSurfaceInvocation(value: unknown): SurfaceInvocation | 
     reason: text(record.reason),
     confidence: numberOrNull(record.confidence),
     dataSources: stringList(record.data_sources || record.dataSources || record.sources),
+    capabilityRefs: stringList(record.capability_refs || record.capabilityRefs),
     trigger: text(record.trigger),
     policyVersion: text(record.policy_version || record.policyVersion),
   };
@@ -341,6 +466,121 @@ function normalizeRecordArray(value: unknown): JsonRecord[] {
     .filter((record) => Object.keys(record).length);
 }
 
+function normalizeTemporalReferences(value: unknown) {
+  return asArray(value)
+    .map((item) => {
+      const record = asRecord(item);
+      const rawText = text(record.raw_text || record.rawText);
+      if (!rawText) {
+        return null;
+      }
+      return {
+        rawText,
+        relation: text(record.relation),
+        start: text(record.start),
+        end: text(record.end),
+        grain: text(record.grain),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+}
+
+function normalizeQueryFrame(value: unknown): QueryFrame | null {
+  const record = asRecord(value);
+  if (!Object.keys(record).length) {
+    return null;
+  }
+  return {
+    rawText: text(record.raw_text || record.rawText),
+    normalizedText: text(record.normalized_text || record.normalizedText),
+    tokens: stringList(record.tokens),
+    domains: stringList(record.domains),
+    operations: stringList(record.operations),
+    entities: stringList(record.entities),
+    artifactKinds: stringList(record.artifact_kinds || record.artifactKinds),
+    temporalReferences: normalizeTemporalReferences(record.temporal_references || record.temporalReferences),
+  };
+}
+
+function normalizeAttentionCandidates(value: unknown): AttentionCandidate[] {
+  return asArray(value)
+    .map((item): AttentionCandidate | null => {
+      const record = asRecord(item);
+      const resourceId = text(record.resource_id || record.resourceId || record.id);
+      if (!resourceId) {
+        return null;
+      }
+      return {
+        id: text(record.id || `candidate-${resourceId}`),
+        resourceId,
+        kind: text(record.kind),
+        app: text(record.app),
+        title: text(record.title || resourceId),
+        summary: text(record.summary),
+        source: text(record.source),
+        score: numberOrNull(record.score) ?? 0,
+        matchedKeys: stringList(record.matched_keys || record.matchedKeys),
+        temporalMatches: stringList(record.temporal_matches || record.temporalMatches),
+        suggestedSurface: text(record.suggested_surface || record.suggestedSurface),
+        whyCandidate: text(record.why_candidate || record.whyCandidate),
+        retrievalScores: normalizeNumericRecord(record.retrieval_scores || record.retrievalScores),
+      };
+    })
+    .filter((item): item is AttentionCandidate => item !== null);
+}
+
+function normalizeNumericRecord(value: unknown): Record<string, number> {
+  const record = asRecord(value);
+  return Object.fromEntries(
+    Object.entries(record)
+      .map(([key, item]) => [key, numberOrNull(item)] as const)
+      .filter((entry): entry is readonly [string, number] => entry[1] !== null),
+  );
+}
+
+function normalizeNavigatorSelection(value: unknown): NavigatorSelection | null {
+  const record = asRecord(value);
+  if (!Object.keys(record).length) {
+    return null;
+  }
+  return {
+    selectedIds: stringList(record.selected_ids || record.selectedIds),
+    primaryResourceId: text(record.primary_resource_id || record.primaryResourceId),
+    supportingResourceIds: stringList(record.supporting_resource_ids || record.supportingResourceIds),
+    rejectedCandidateIds: stringList(record.rejected_candidate_ids || record.rejectedCandidateIds),
+    surfaceToOpen: text(record.surface_to_open || record.surfaceToOpen),
+    reason: text(record.reason),
+    confidence: numberOrNull(record.confidence) ?? 0,
+    fallback: Boolean(record.fallback),
+  };
+}
+
+function normalizeSelectedAttentionResources(value: unknown): SelectedAttentionResource[] {
+  return asArray(value)
+    .map((item): SelectedAttentionResource | null => {
+      const record = asRecord(item);
+      const resourceId = text(record.resource_id || record.resourceId || record.id);
+      if (!resourceId) {
+        return null;
+      }
+      return {
+        id: text(record.id || `selected-${resourceId}`),
+        resourceId,
+        kind: text(record.kind),
+        app: text(record.app),
+        title: text(record.title || resourceId),
+        summary: text(record.summary),
+        source: text(record.source),
+        content: text(record.content),
+        data: asRecord(record.data),
+        timestamps: asRecord(record.timestamps),
+        suggestedSurface: text(record.suggested_surface || record.suggestedSurface),
+        whySelected: text(record.why_selected || record.whySelected),
+      };
+    })
+    .filter((item): item is SelectedAttentionResource => item !== null);
+}
+
 function firstTimestamp(record: JsonRecord): string {
   const direct = text(
     record.created_at
@@ -382,6 +622,7 @@ export function normalizeTurnPayload(payload: unknown): NormalizedTurn {
     surfacePayloads: normalizeSurfacePayloads(record.surface_payloads || record.surfacePayloads),
     activeSurfaceId: text(record.active_surface_id || record.activeSurfaceId) || null,
     artifactActions: normalizeArtifactActions(record.artifact_actions || record.artifactActions),
+    appCapabilities: normalizeAppCapabilityManifest(record.app_capabilities || record.appCapabilities),
     workspaceUpdate: normalizeWorkspaceUpdate(record.workspace_update || record.workspaceUpdate),
     contextBudget: normalizeContextBudget(record.context_budget || record.contextBudget),
     activity: normalizeActivity(record.activity || record.activities || record.events),
@@ -395,6 +636,10 @@ export function normalizeTurnPayload(payload: unknown): NormalizedTurn {
     stageProgress: asArray(record.stage_progress || record.stageProgress)
       .map(normalizeActivityStep)
       .filter((item): item is ActivityStep => item !== null),
+    queryFrame: normalizeQueryFrame(record.query_frame || record.queryFrame),
+    attentionCandidates: normalizeAttentionCandidates(record.attention_candidates || record.attentionCandidates),
+    navigatorSelection: normalizeNavigatorSelection(record.navigator_selection || record.navigatorSelection),
+    selectedAttentionResources: normalizeSelectedAttentionResources(record.selected_attention_resources || record.selectedAttentionResources),
     raw: record,
   };
 }

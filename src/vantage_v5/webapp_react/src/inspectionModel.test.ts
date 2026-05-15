@@ -65,12 +65,14 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
       reason: "The user asked about calendar, agenda, availability, or what is planned for a day.",
       confidence: 0.88,
       dataSources: [],
+      capabilityRefs: [],
       trigger: "deterministic_policy",
       policyVersion: "surface-invocation-v1",
     },
     surfacePayloads: [todaySurface],
     activeSurfaceId: todaySurface.id,
     artifactActions: [],
+    appCapabilities: null,
     workspaceUpdate: null,
     contextBudget: {
       label: "Context Budget",
@@ -103,6 +105,10 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
     graphAction: null,
     createdRecord: null,
     stageProgress: [],
+    queryFrame: null,
+    attentionCandidates: [],
+    navigatorSelection: null,
+    selectedAttentionResources: [],
     raw: {},
     ...overrides,
   };
@@ -126,6 +132,7 @@ describe("inspection model", () => {
     expect(receipt?.decisionPath.map((step) => step.label)).toEqual([
       "Request",
       "Intent",
+      "Query keys",
       "Context selection",
       "Surface decision",
       "Answer",
@@ -154,5 +161,68 @@ describe("inspection model", () => {
     expect(receipt?.contextItems).toHaveLength(1);
     expect(receipt?.contextItems[0].type).toBe("Current request");
     expect(receipt?.surfaceDecisions.some((decision) => !decision.opened)).toBe(true);
+  });
+
+  it("shows attention query keys and selected resources", () => {
+    const receipt = buildInspectionReceipt(turn({
+      queryFrame: {
+        rawText: "Go back to the draft from last Tuesday.",
+        normalizedText: "go back to the draft from last tuesday.",
+        tokens: ["back", "draft", "last", "tuesday"],
+        domains: ["whiteboard"],
+        operations: ["reopen"],
+        entities: [],
+        artifactKinds: ["whiteboard"],
+        temporalReferences: [{ rawText: "last Tuesday", relation: "worked_on", start: "2026-05-12", end: "2026-05-12", grain: "day" }],
+      },
+      attentionCandidates: [
+        {
+          id: "candidate-artifact",
+          resourceId: "artifact:tuesday-draft",
+          kind: "artifact",
+          app: "whiteboard",
+          title: "Tuesday Draft",
+          summary: "Draft from Tuesday.",
+          source: "artifact",
+          score: 9.4,
+          matchedKeys: ["draft"],
+          temporalMatches: ["worked_on:last Tuesday"],
+          suggestedSurface: "whiteboard",
+          whyCandidate: "matched time",
+          retrievalScores: { deterministic: 4.2, temporal: 5, vector_similarity: 0.31, vector_bonus: 1.12, hybrid: 10.32 },
+        },
+      ],
+      navigatorSelection: {
+        selectedIds: ["artifact:tuesday-draft"],
+        primaryResourceId: "artifact:tuesday-draft",
+        supportingResourceIds: [],
+        rejectedCandidateIds: [],
+        surfaceToOpen: "whiteboard",
+        reason: "The user asked to reopen the Tuesday draft.",
+        confidence: 0.9,
+        fallback: false,
+      },
+      selectedAttentionResources: [
+        {
+          id: "selected-artifact:tuesday-draft",
+          resourceId: "artifact:tuesday-draft",
+          kind: "artifact",
+          app: "whiteboard",
+          title: "Tuesday Draft",
+          summary: "Draft from Tuesday.",
+          source: "artifact",
+          content: "# Tuesday Draft",
+          data: {},
+          timestamps: { last_edited_at: "2026-05-12" },
+          suggestedSurface: "whiteboard",
+          whySelected: "The user asked to reopen the Tuesday draft.",
+        },
+      ],
+    }), null);
+
+    expect(receipt?.contextItems.some((item) => item.title === "Tuesday Draft" && item.status === "Selected")).toBe(true);
+    expect(receipt?.decisionPath.some((step) => step.label === "Query keys" && step.value.includes("last Tuesday"))).toBe(true);
+    expect(receipt?.decisionPath.some((step) => step.label === "Context selection" && step.value.includes("Tuesday draft"))).toBe(true);
+    expect(receipt?.decisionPath.some((step) => step.label === "Context selection" && step.detail?.includes("semantic vector match"))).toBe(true);
   });
 });

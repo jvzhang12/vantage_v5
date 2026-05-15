@@ -157,6 +157,7 @@ class ChatTurnBodyParts:
     stage_progress: StageProgressEvent | dict[str, Any] | list[dict[str, Any]] | None = None
     stage_audit: StageAuditResult | dict[str, Any] | None = None
     visible_artifacts: list[dict[str, Any]] | None = None
+    selected_attention_resources: list[dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,7 +208,7 @@ def assemble_turn_interpretation_payload(parts: TurnInterpretationParts) -> dict
     pinned_context_reason = parts.navigation.pinned_context_reason
     if pinned_context_reason is None:
         pinned_context_reason = parts.navigation.selected_record_reason
-    return {
+    payload = {
         "mode": parts.navigation.mode,
         "confidence": parts.navigation.confidence,
         "reason": parts.navigation.reason,
@@ -227,6 +228,9 @@ def assemble_turn_interpretation_payload(parts: TurnInterpretationParts) -> dict
         "selected_record_reason": pinned_context_reason,
         "control_panel": parts.navigation.control_panel or {},
     }
+    if parts.navigation.attention_selection is not None:
+        payload["attention_selection"] = parts.navigation.attention_selection
+    return payload
 
 
 def _turn_interpretation_payload(value: TurnInterpretationParts | dict[str, Any] | None) -> dict[str, Any] | None:
@@ -376,6 +380,7 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
         },
         "workspace_update": parts.workspace_update,
         "visible_artifacts": parts.visible_artifacts or [],
+        "selected_attention_resources": parts.selected_attention_resources or [],
         "memory": selected_memory,
         "selected_memory": selected_memory,
         "candidate_memory": candidate_memory,
@@ -638,18 +643,10 @@ def attach_safe_turn_state(payload: dict[str, Any]) -> dict[str, Any]:
 
 def safe_system_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
     workspace = payload.get("workspace") if isinstance(payload.get("workspace"), dict) else {}
+    app_capabilities = _safe_app_capabilities_reference(payload.get("app_capabilities"))
     return {
         "mode": payload.get("mode"),
-        "available_surfaces": [
-            "chat",
-            "draft",
-            "inspect",
-            "scenario_lab",
-            "calendar_day",
-            "calendar_week",
-            "task_focus",
-            "code_artifact",
-        ],
+        "available_surfaces": _available_surfaces_from_capabilities(app_capabilities),
         "available_controls": [
             "respond",
             "recall",
@@ -663,6 +660,9 @@ def safe_system_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "manage_experiment",
             "ask_clarification",
         ],
+        "available_tools": _available_tools_from_capabilities(app_capabilities),
+        "available_resources": _available_resources_from_capabilities(app_capabilities),
+        "app_capabilities": app_capabilities,
         "user": {"id": payload.get("user_id")} if payload.get("user_id") else None,
         "experiment": payload.get("experiment"),
         "workspace": {
@@ -678,7 +678,54 @@ def safe_system_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "selected_record": _safe_context_reference(payload.get("selected_record")),
         "pending_workspace_update": _safe_pending_workspace_reference(payload.get("workspace_update")),
         "surface_invocation": _safe_surface_invocation_reference(payload.get("surface_invocation")),
+        "query_frame": _safe_query_frame_reference(payload.get("query_frame")),
+        "attention_candidates": _safe_attention_candidates_reference(payload.get("attention_candidates")),
+        "navigator_selection": _safe_navigator_selection_reference(payload.get("navigator_selection")),
+        "selected_attention_resources": _safe_selected_attention_resources_reference(payload.get("selected_attention_resources")),
     }
+
+
+def _available_surfaces_from_capabilities(app_capabilities: dict[str, Any] | None) -> list[str]:
+    fallback = [
+        "chat",
+        "draft",
+        "inspect",
+        "scenario_lab",
+        "today_briefing",
+        "calendar_day",
+        "calendar_week",
+        "task_focus",
+        "whiteboard",
+        "code_artifact",
+    ]
+    if not app_capabilities:
+        return fallback
+    surfaces = [
+        str(surface.get("kind") or "").strip()
+        for surface in app_capabilities.get("surfaces", [])
+        if isinstance(surface, dict)
+    ]
+    return list(dict.fromkeys([*fallback, *[surface for surface in surfaces if surface]]))
+
+
+def _available_tools_from_capabilities(app_capabilities: dict[str, Any] | None) -> list[str]:
+    if not app_capabilities:
+        return []
+    return [
+        str(tool.get("name") or "").strip()
+        for tool in app_capabilities.get("tools", [])
+        if isinstance(tool, dict) and str(tool.get("name") or "").strip()
+    ]
+
+
+def _available_resources_from_capabilities(app_capabilities: dict[str, Any] | None) -> list[str]:
+    if not app_capabilities:
+        return []
+    return [
+        str(resource.get("id") or "").strip()
+        for resource in app_capabilities.get("resources", [])
+        if isinstance(resource, dict) and str(resource.get("id") or "").strip()
+    ]
 
 
 def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -688,6 +735,7 @@ def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
     response_mode = payload.get("response_mode") if isinstance(payload.get("response_mode"), dict) else {}
     answer_basis = payload.get("answer_basis") if isinstance(payload.get("answer_basis"), dict) else {}
     surface_invocation = payload.get("surface_invocation") if isinstance(payload.get("surface_invocation"), dict) else {}
+    navigator_selection = payload.get("navigator_selection") if isinstance(payload.get("navigator_selection"), dict) else {}
     mode = _activity_kind(payload)
     summary = _first_safe_activity_summary(
         [
@@ -732,6 +780,19 @@ def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "summary": context_summary,
         },
     ]
+    if navigator_selection:
+        steps.insert(
+            2,
+            {
+                "id": "attention",
+                "label": "Selected context",
+                "status": "completed",
+                "summary": _safe_activity_summary(
+                    navigator_selection.get("reason"),
+                    "Navigator selected focused context from ranked candidates.",
+                ),
+            },
+        )
     if mode == "scenario_lab":
         steps.append(
             {
@@ -891,6 +952,89 @@ def _safe_context_reference(value: Any) -> dict[str, Any] | None:
     }
 
 
+def _safe_query_frame_reference(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "normalized_text": value.get("normalized_text"),
+        "domains": value.get("domains") if isinstance(value.get("domains"), list) else [],
+        "operations": value.get("operations") if isinstance(value.get("operations"), list) else [],
+        "entities": value.get("entities") if isinstance(value.get("entities"), list) else [],
+        "artifact_kinds": value.get("artifact_kinds") if isinstance(value.get("artifact_kinds"), list) else [],
+        "temporal_references": [
+            {
+                "raw_text": item.get("raw_text"),
+                "relation": item.get("relation"),
+                "start": item.get("start"),
+                "end": item.get("end"),
+                "grain": item.get("grain"),
+            }
+            for item in value.get("temporal_references", [])
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def _safe_attention_candidates_reference(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [
+        {
+            "resource_id": item.get("resource_id"),
+            "kind": item.get("kind"),
+            "app": item.get("app"),
+            "title": item.get("title"),
+            "summary": item.get("summary"),
+            "source": item.get("source"),
+            "score": item.get("score"),
+            "matched_keys": item.get("matched_keys") if isinstance(item.get("matched_keys"), list) else [],
+            "temporal_matches": item.get("temporal_matches") if isinstance(item.get("temporal_matches"), list) else [],
+            "suggested_surface": item.get("suggested_surface"),
+            "why_candidate": item.get("why_candidate"),
+        }
+        for item in value[:8]
+        if isinstance(item, dict)
+    ]
+
+
+def _safe_navigator_selection_reference(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "selected_ids": value.get("selected_ids") if isinstance(value.get("selected_ids"), list) else [],
+        "primary_resource_id": value.get("primary_resource_id"),
+        "supporting_resource_ids": value.get("supporting_resource_ids") if isinstance(value.get("supporting_resource_ids"), list) else [],
+        "rejected_candidate_ids": value.get("rejected_candidate_ids") if isinstance(value.get("rejected_candidate_ids"), list) else [],
+        "surface_to_open": value.get("surface_to_open"),
+        "reason": value.get("reason"),
+        "confidence": value.get("confidence"),
+        "fallback": bool(value.get("fallback")),
+    }
+
+
+def _safe_selected_attention_resources_reference(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    resources: list[dict[str, Any]] = []
+    for item in value[:6]:
+        if not isinstance(item, dict):
+            continue
+        resources.append(
+            {
+                "resource_id": item.get("resource_id"),
+                "kind": item.get("kind"),
+                "app": item.get("app"),
+                "title": item.get("title"),
+                "summary": item.get("summary"),
+                "source": item.get("source"),
+                "suggested_surface": item.get("suggested_surface"),
+                "timestamps": item.get("timestamps") if isinstance(item.get("timestamps"), dict) else {},
+                "why_selected": item.get("why_selected"),
+            }
+        )
+    return resources
+
+
 def _safe_pending_workspace_reference(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
@@ -915,6 +1059,96 @@ def _safe_surface_invocation_reference(value: Any) -> dict[str, Any] | None:
         "confidence": value.get("confidence"),
         "whiteboard_mode": value.get("whiteboard_mode"),
         "resolved_whiteboard_mode": value.get("resolved_whiteboard_mode"),
+        "capability_refs": value.get("capability_refs") if isinstance(value.get("capability_refs"), list) else [],
+    }
+
+
+def _safe_app_capabilities_reference(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "policy_version": value.get("policy_version"),
+        "apps": [_safe_capability_app(app) for app in value.get("apps", []) if isinstance(app, dict)],
+        "resources": [_safe_capability_resource(item) for item in value.get("resources", []) if isinstance(item, dict)],
+        "tools": [_safe_capability_tool(item) for item in value.get("tools", []) if isinstance(item, dict)],
+        "surfaces": [_safe_capability_surface(item) for item in value.get("surfaces", []) if isinstance(item, dict)],
+        "receipt_events": [
+            _safe_capability_event(item)
+            for item in value.get("receipt_events", [])
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def _safe_capability_app(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": value.get("id"),
+        "label": value.get("label"),
+        "summary": value.get("summary"),
+        "invocation_policy": value.get("invocation_policy") if isinstance(value.get("invocation_policy"), dict) else {},
+        "write_behavior": value.get("write_behavior") if isinstance(value.get("write_behavior"), dict) else {},
+        "json_interface": value.get("json_interface") if isinstance(value.get("json_interface"), dict) else {},
+    }
+
+
+def _safe_capability_resource(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": value.get("id"),
+        "app_id": value.get("app_id"),
+        "kind": value.get("kind"),
+        "label": value.get("label"),
+        "description": value.get("description"),
+        "uri": value.get("uri"),
+        "readable": bool(value.get("readable", True)),
+        "writable": bool(value.get("writable")),
+        "read_only": bool(value.get("read_only", not bool(value.get("writable")))),
+        "visible_context": value.get("visible_context"),
+        "source": _safe_capability_source(value.get("source")),
+    }
+
+
+def _safe_capability_tool(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": value.get("name"),
+        "app_id": value.get("app_id"),
+        "operation": value.get("operation"),
+        "label": value.get("label"),
+        "description": value.get("description"),
+        "resource_ids": value.get("resource_ids") if isinstance(value.get("resource_ids"), list) else [],
+        "write": bool(value.get("write")),
+        "requires_confirmation": bool(value.get("requires_confirmation")),
+        "destructive": bool(value.get("destructive")),
+        "status": value.get("status"),
+    }
+
+
+def _safe_capability_surface(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": value.get("kind"),
+        "app_id": value.get("app_id"),
+        "label": value.get("label"),
+        "description": value.get("description"),
+        "renderer": value.get("renderer"),
+        "resource_ids": value.get("resource_ids") if isinstance(value.get("resource_ids"), list) else [],
+        "visible_context": value.get("visible_context"),
+    }
+
+
+def _safe_capability_event(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": value.get("type"),
+        "app_id": value.get("app_id"),
+        "label": value.get("label"),
+        "summary": value.get("summary"),
+    }
+
+
+def _safe_capability_source(value: Any) -> dict[str, Any]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        key: source.get(key)
+        for key in ("kind", "label", "configured", "read_only", "writable", "event_count", "task_count", "has_visible_content", "scope")
+        if key in source
     }
 
 

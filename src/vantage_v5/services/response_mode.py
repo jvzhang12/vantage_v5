@@ -28,6 +28,11 @@ def build_answer_basis_payload(payload: dict[str, Any]) -> dict[str, Any]:
         for source in response_context_sources
         if source in {"whiteboard", "pending_whiteboard"}
     ]
+    attention_sources = [
+        source
+        for source in response_context_sources
+        if source == "attention"
+    ]
     has_recent_chat = "recent_chat" in response_context_sources
 
     source_buckets: list[str] = []
@@ -35,6 +40,8 @@ def build_answer_basis_payload(payload: dict[str, Any]) -> dict[str, Any]:
         source_buckets.append("memory")
     if protocol_items:
         source_buckets.append("protocol")
+    if attention_sources:
+        source_buckets.append("attention")
     if whiteboard_sources:
         source_buckets.append("whiteboard")
     if has_recent_chat:
@@ -43,15 +50,18 @@ def build_answer_basis_payload(payload: dict[str, Any]) -> dict[str, Any]:
     context_sources = _answer_context_sources(
         memory_items=memory_items,
         protocol_items=protocol_items,
+        attention_sources=attention_sources,
         whiteboard_sources=whiteboard_sources,
         has_recent_chat=has_recent_chat,
     )
     evidence_sources = _answer_evidence_sources(
         memory_items=memory_items,
+        attention_sources=attention_sources,
         whiteboard_sources=whiteboard_sources,
         has_recent_chat=has_recent_chat,
     )
     guidance_sources = ["protocol"] if protocol_items else []
+    attention_count = len(payload.get("selected_attention_resources") or []) if isinstance(payload.get("selected_attention_resources"), list) else len(attention_sources)
     counts = {
         "memory": len(memory_items),
         "protocol": len(protocol_items),
@@ -59,18 +69,22 @@ def build_answer_basis_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "conversation": 1 if has_recent_chat else 0,
         "recalled_items": len(memory_items) + len(protocol_items),
     }
+    if attention_count:
+        counts["attention"] = attention_count
     kind, label = _answer_basis_kind_and_label(
         source_buckets=source_buckets,
         memory_count=len(memory_items),
         protocol_count=len(protocol_items),
+        attention_count=len(attention_sources),
         whiteboard_count=len(whiteboard_sources),
         has_recent_chat=has_recent_chat,
     )
-    has_factual_grounding = bool(memory_items or whiteboard_sources or has_recent_chat)
+    has_factual_grounding = bool(memory_items or attention_sources or whiteboard_sources or has_recent_chat)
     summary = _answer_basis_summary(
         kind,
         memory_count=len(memory_items),
         protocol_count=len(protocol_items),
+        attention_count=len(attention_sources),
         whiteboard_sources=whiteboard_sources,
         has_recent_chat=has_recent_chat,
         has_factual_grounding=has_factual_grounding,
@@ -95,12 +109,14 @@ def build_response_mode_payload(
     workspace_has_context: bool,
     history_has_context: bool,
     pending_workspace_has_context: bool = False,
+    attention_has_context: bool = False,
 ) -> dict[str, Any]:
     context_sources = _context_sources(
         vetted_memory,
         workspace_has_context=workspace_has_context,
         history_has_context=history_has_context,
         pending_workspace_has_context=pending_workspace_has_context,
+        attention_has_context=attention_has_context,
     )
     legacy_context_sources = [_legacy_context_source(source) for source in context_sources]
     grounding_mode = _grounding_mode(
@@ -108,6 +124,7 @@ def build_response_mode_payload(
         workspace_has_context=workspace_has_context,
         history_has_context=history_has_context,
         pending_workspace_has_context=pending_workspace_has_context,
+        attention_has_context=attention_has_context,
     )
     legacy_grounding_mode = _legacy_grounding_mode(grounding_mode)
     count = len(vetted_memory)
@@ -159,17 +176,20 @@ def _grounding_mode(
     workspace_has_context: bool,
     history_has_context: bool,
     pending_workspace_has_context: bool = False,
+    attention_has_context: bool = False,
 ) -> str:
     if vetted_memory:
-        if workspace_has_context or history_has_context or pending_workspace_has_context:
+        if workspace_has_context or history_has_context or pending_workspace_has_context or attention_has_context:
             return "mixed_context"
         return "recall"
 
     active_contexts = sum(
-        1 for flag in (workspace_has_context, history_has_context, pending_workspace_has_context) if flag
+        1 for flag in (workspace_has_context, history_has_context, pending_workspace_has_context, attention_has_context) if flag
     )
     if active_contexts >= 2:
         return "mixed_context"
+    if attention_has_context:
+        return "attention"
     if workspace_has_context:
         return "whiteboard"
     if history_has_context:
@@ -185,10 +205,13 @@ def _context_sources(
     workspace_has_context: bool,
     history_has_context: bool,
     pending_workspace_has_context: bool = False,
+    attention_has_context: bool = False,
 ) -> list[str]:
     context_sources: list[str] = []
     if vetted_memory:
         context_sources.append("recall")
+    if attention_has_context:
+        context_sources.append("attention")
     if workspace_has_context:
         context_sources.append("whiteboard")
     if history_has_context:
@@ -215,6 +238,8 @@ def _response_mode_label(grounding_mode: str, context_sources: list[str], recall
         return "Recall"
     if grounding_mode == "whiteboard":
         return "Whiteboard"
+    if grounding_mode == "attention":
+        return "Selected Context"
     if grounding_mode == "recent_chat":
         return "Recent Chat"
     if grounding_mode == "pending_whiteboard":
@@ -236,6 +261,8 @@ def _response_mode_note(grounding_mode: str, context_sources: list[str], recall_
         )
     if grounding_mode == "whiteboard":
         return "Supported by the active whiteboard."
+    if grounding_mode == "attention":
+        return "Supported by Navigator-selected Vantage context."
     if grounding_mode == "recent_chat":
         return "Supported by the recent conversation."
     if grounding_mode == "pending_whiteboard":
@@ -250,6 +277,7 @@ def _describe_context_sources(context_sources: list[str], *, style: str = "note"
     label_map = {
         "recall": "Recall",
         "working_memory": "Recall",
+        "attention": "Selected Context",
         "whiteboard": "Whiteboard",
         "recent_chat": "Recent Chat",
         "pending_whiteboard": "Prior Whiteboard",
@@ -257,6 +285,7 @@ def _describe_context_sources(context_sources: list[str], *, style: str = "note"
     note_map = {
         "recall": "Recall",
         "working_memory": "Recall",
+        "attention": "Navigator-selected context",
         "whiteboard": "the active whiteboard",
         "recent_chat": "the recent conversation",
         "pending_whiteboard": "the prior whiteboard",
@@ -336,7 +365,7 @@ def _response_context_sources(payload: dict[str, Any]) -> list[str]:
 
     if not context_sources:
         grounding_mode = _normalized_context_source(response_mode.get("grounding_mode"))
-        if grounding_mode in {"whiteboard", "recent_chat", "pending_whiteboard"}:
+        if grounding_mode in {"whiteboard", "recent_chat", "pending_whiteboard", "attention"}:
             context_sources.append(grounding_mode)
     return context_sources
 
@@ -345,7 +374,7 @@ def _normalized_context_source(value: Any) -> str:
     normalized = str(value or "").strip().lower()
     if normalized == "working_memory":
         return "recall"
-    if normalized in {"recall", "whiteboard", "recent_chat", "pending_whiteboard"}:
+    if normalized in {"recall", "attention", "whiteboard", "recent_chat", "pending_whiteboard"}:
         return normalized
     return ""
 
@@ -354,6 +383,7 @@ def _answer_context_sources(
     *,
     memory_items: list[dict[str, Any]],
     protocol_items: list[dict[str, Any]],
+    attention_sources: list[str],
     whiteboard_sources: list[str],
     has_recent_chat: bool,
 ) -> list[str]:
@@ -362,6 +392,9 @@ def _answer_context_sources(
         sources.append("memory")
     if protocol_items:
         sources.append("protocol")
+    for source in attention_sources:
+        if source not in sources:
+            sources.append(source)
     for source in whiteboard_sources:
         if source not in sources:
             sources.append(source)
@@ -373,12 +406,16 @@ def _answer_context_sources(
 def _answer_evidence_sources(
     *,
     memory_items: list[dict[str, Any]],
+    attention_sources: list[str],
     whiteboard_sources: list[str],
     has_recent_chat: bool,
 ) -> list[str]:
     sources: list[str] = []
     if memory_items:
         sources.append("memory")
+    for source in attention_sources:
+        if source not in sources:
+            sources.append(source)
     for source in whiteboard_sources:
         if source not in sources:
             sources.append(source)
@@ -392,6 +429,7 @@ def _answer_basis_kind_and_label(
     source_buckets: list[str],
     memory_count: int,
     protocol_count: int,
+    attention_count: int,
     whiteboard_count: int,
     has_recent_chat: bool,
 ) -> tuple[str, str]:
@@ -401,6 +439,8 @@ def _answer_basis_kind_and_label(
         return "memory_backed", "Memory-Backed"
     if protocol_count > 0:
         return "protocol_guided", "Protocol-Guided"
+    if attention_count > 0:
+        return "attention_grounded", "Selected Context"
     if whiteboard_count > 0:
         return "whiteboard_grounded", "Whiteboard-Grounded"
     if has_recent_chat:
@@ -413,6 +453,7 @@ def _answer_basis_summary(
     *,
     memory_count: int,
     protocol_count: int,
+    attention_count: int,
     whiteboard_sources: list[str],
     has_recent_chat: bool,
     has_factual_grounding: bool,
@@ -423,6 +464,8 @@ def _answer_basis_summary(
         return f"Supported by {_plural(memory_count, 'recalled memory item')}."
     if kind == "protocol_guided":
         return f"Guided by {_plural(protocol_count, 'protocol item')}; protocols are guidance, not factual evidence."
+    if kind == "attention_grounded":
+        return f"Supported by {_plural(attention_count, 'Navigator-selected context item')}."
     if kind == "whiteboard_grounded":
         if whiteboard_sources == ["pending_whiteboard"]:
             return "Supported by prior whiteboard context."

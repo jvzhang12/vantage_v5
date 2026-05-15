@@ -5,6 +5,9 @@ from dataclasses import replace
 import logging
 from typing import Any, Callable
 
+from vantage_v5.services.attention import apply_attention_surface_selection
+from vantage_v5.services.attention import attention_payload
+from vantage_v5.services.attention import AttentionEngine
 from vantage_v5.services.context_engine import ChatTurnRequestContext
 from vantage_v5.services.context_engine import ContextEngine
 from vantage_v5.services.local_semantic_actions import LocalSemanticActionEngine
@@ -46,6 +49,7 @@ class TurnOrchestrator:
         local_semantic_actions: LocalSemanticActionEngine,
         whiteboard_routing: WhiteboardRoutingEngine,
         hooks: TurnOrchestratorHooks,
+        attention_engine: AttentionEngine | None = None,
     ) -> None:
         self.navigator_service = navigator_service
         self.context_engine = context_engine
@@ -53,9 +57,21 @@ class TurnOrchestrator:
         self.local_semantic_actions = local_semantic_actions
         self.whiteboard_routing = whiteboard_routing
         self.hooks = hooks
+        self.attention_engine = attention_engine
 
     def run(self, request: ChatTurnRequestContext) -> dict[str, Any]:
         context = self.context_engine.prepare_turn_context(request)
+        attention_turn = (
+            self.attention_engine.prepare_turn(
+                message=request.message,
+                runtime=context.runtime,
+                workspace=context.workspace,
+                visible_artifacts=context.visible_artifacts,
+            )
+            if self.attention_engine is not None
+            else None
+        )
+        attention_candidates = attention_turn.compact_candidates() if attention_turn is not None else []
         navigation = request.navigation
         if navigation is None:
             navigation = self.navigator_service.route_turn(
@@ -70,12 +86,21 @@ class TurnOrchestrator:
                 pending_workspace_update=context.pending_workspace_update,
                 continuity_context=context.continuity_context,
                 visible_artifacts=context.visible_artifacts,
+                attention_candidates=attention_candidates,
             )
+        attention_selection = None
+        selected_attention_resources = ()
+        if attention_turn is not None:
+            attention_selection, selected_attention_resources = attention_turn.select(
+                navigation.attention_selection,
+            )
+        selected_attention_payload = [resource.to_dict() for resource in selected_attention_resources]
+        model_visible_artifacts = context.visible_artifacts
         surface_invocation = build_surface_invocation(
             user_message=request.message,
             requested_whiteboard_mode=request.whiteboard_mode,
             navigation=navigation,
-            visible_artifacts=context.visible_artifacts,
+            visible_artifacts=model_visible_artifacts,
         )
         routed_whiteboard_mode = self.whiteboard_routing.resolve_whiteboard_mode(
             request.whiteboard_mode,
@@ -87,9 +112,18 @@ class TurnOrchestrator:
             requested_mode=request.whiteboard_mode,
             current_mode=routed_whiteboard_mode,
         )
-        surface_invocation_payload = surface_invocation.to_dict()
+        surface_invocation_payload = apply_attention_surface_selection(
+            surface_invocation.to_dict(),
+            attention_selection,
+            selected_resources=selected_attention_resources,
+        )
         surface_invocation_payload["resolved_whiteboard_mode"] = (
             resolved_whiteboard_mode if navigation.mode == "chat" else None
+        )
+        attention_state_payload = attention_payload(
+            turn=attention_turn,
+            selection=attention_selection,
+            selected_resources=selected_attention_resources,
         )
         resolved_protocols = self.protocol_engine.resolve_for_turn(
             navigation=navigation,
@@ -155,13 +189,15 @@ class TurnOrchestrator:
             )
         )
         if local_semantic_parts is not None:
-            return assemble_local_turn_payload(
+            payload = assemble_local_turn_payload(
                 replace(
                     local_semantic_parts,
                     turn_interpretation=turn_interpretation_parts,
                     surface_invocation=surface_invocation_payload,
                 )
             )
+            payload.update(attention_state_payload)
+            return payload
 
         if self.hooks.should_enter_scenario_lab(navigation):
             try:
@@ -172,7 +208,7 @@ class TurnOrchestrator:
                     navigation=navigation,
                     selected_record_id=request.pinned_context_id,
                     pending_workspace_update=context.pending_workspace_update,
-                    visible_artifacts=context.visible_artifacts,
+                    visible_artifacts=model_visible_artifacts,
                     applied_protocol_kinds=applied_protocol_kinds,
                 )
             except Exception as exc:
@@ -194,6 +230,7 @@ class TurnOrchestrator:
                     turn_interpretation=turn_interpretation_parts,
                     surface_invocation=surface_invocation_payload,
                     error=exc,
+                    attention_state_payload=attention_state_payload,
                 )
             turn.turn_stage = turn_stage.to_dict()
             turn.stage_progress = [
@@ -222,12 +259,14 @@ class TurnOrchestrator:
                 pending_workspace_update=context.pending_workspace_update,
                 workspace_is_transient=context.transient_workspace,
                 workspace_scope=context.normalized_workspace_scope,
-                visible_artifacts=context.visible_artifacts,
+                visible_artifacts=model_visible_artifacts,
+                selected_attention_resources=selected_attention_payload,
+                app_capabilities=context.app_capabilities,
                 applied_protocol_kinds=applied_protocol_kinds,
                 turn_stage=turn_stage,
             )
 
-        return assemble_service_turn_payload(
+        payload = assemble_service_turn_payload(
             ServiceTurnPayloadParts(
                 turn_body=turn.to_body_parts(),
                 pinned_context_id=request.pinned_context_id,
@@ -243,6 +282,8 @@ class TurnOrchestrator:
                 surface_invocation=surface_invocation_payload,
             )
         )
+        payload.update(attention_state_payload)
+        return payload
 
     def _scenario_lab_fallback_payload(
         self,
@@ -263,6 +304,7 @@ class TurnOrchestrator:
         turn_interpretation: TurnInterpretationParts,
         surface_invocation: dict[str, Any],
         error: Exception,
+        attention_state_payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         turn = runtime["chat_service"].reply(
             message=request.message,
@@ -281,6 +323,11 @@ class TurnOrchestrator:
             workspace_is_transient=transient_workspace,
             workspace_scope=normalized_workspace_scope,
             visible_artifacts=request.visible_artifacts,
+            selected_attention_resources=(
+                attention_state_payload.get("selected_attention_resources")
+                if isinstance(attention_state_payload, dict)
+                else []
+            ),
             applied_protocol_kinds=applied_protocol_kinds,
             turn_stage=build_turn_stage(
                 navigation_mode="chat",
@@ -288,7 +335,7 @@ class TurnOrchestrator:
                 public_summary="Scenario Lab fell back to a chat response.",
             ),
         )
-        return assemble_scenario_lab_fallback_payload(
+        payload = assemble_scenario_lab_fallback_payload(
             ScenarioLabFallbackParts(
                 turn_body=turn.to_body_parts(),
                 navigation=navigation.to_dict(),
@@ -309,6 +356,9 @@ class TurnOrchestrator:
                 surface_invocation=surface_invocation,
             )
         )
+        if attention_state_payload:
+            payload.update(attention_state_payload)
+        return payload
 
 
 def _safe_scenario_lab_error_message(error: Exception) -> str:

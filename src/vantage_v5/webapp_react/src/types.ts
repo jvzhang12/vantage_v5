@@ -26,6 +26,8 @@ export interface HealthPayload {
   model_auth?: Record<string, unknown>;
   openai_key?: Record<string, unknown>;
   experiment?: Record<string, unknown>;
+  app_capabilities?: unknown;
+  appCapabilities?: unknown;
 }
 
 export interface WorkspacePayload {
@@ -49,6 +51,75 @@ export interface SourceRef {
   source?: string;
   kind?: string;
   label?: string;
+  resourceId?: string;
+  capabilityRef?: string;
+  writable?: boolean;
+  readOnly?: boolean;
+}
+
+export interface AppCapabilitySource {
+  kind: string;
+  label: string;
+  configured: boolean;
+  readOnly: boolean;
+  writable: boolean;
+  counts: Record<string, number>;
+  meta: Record<string, unknown>;
+}
+
+export interface AppCapabilityResource {
+  id: string;
+  appId: string;
+  kind: string;
+  label: string;
+  description: string;
+  uri: string;
+  readable: boolean;
+  writable: boolean;
+  readOnly: boolean;
+  visibleContext: string;
+  source: AppCapabilitySource;
+}
+
+export interface AppCapabilityTool {
+  name: string;
+  appId: string;
+  operation: string;
+  label: string;
+  description: string;
+  resourceIds: string[];
+  write: boolean;
+  requiresConfirmation: boolean;
+  destructive: boolean;
+  status: string;
+}
+
+export interface AppCapabilitySurface {
+  kind: string;
+  appId: string;
+  label: string;
+  description: string;
+  renderer: string;
+  resourceIds: string[];
+  visibleContext: string;
+}
+
+export interface AppCapability {
+  id: string;
+  label: string;
+  summary: string;
+  invocationPolicy: Record<string, unknown>;
+  writeBehavior: Record<string, unknown>;
+  jsonInterface: Record<string, unknown>;
+}
+
+export interface AppCapabilityManifest {
+  policyVersion: string;
+  apps: AppCapability[];
+  resources: AppCapabilityResource[];
+  tools: AppCapabilityTool[];
+  surfaces: AppCapabilitySurface[];
+  receiptEvents: Record<string, unknown>[];
 }
 
 export interface SurfacePayload {
@@ -76,6 +147,7 @@ export interface SurfaceInvocation {
   reason: string;
   confidence: number | null;
   dataSources: string[];
+  capabilityRefs: string[];
   trigger: string;
   policyVersion: string;
 }
@@ -130,6 +202,7 @@ export interface ArtifactAction {
   warnings: string[];
   requiresConfirmation: boolean;
   sourceRefs: SourceRef[];
+  capture: Record<string, unknown> | null;
 }
 
 export interface ContextBudgetRow {
@@ -172,6 +245,67 @@ export interface ActivityPayload {
   workspaceUpdateStatus: string;
 }
 
+export interface TemporalReference {
+  rawText: string;
+  relation: string;
+  start: string;
+  end: string;
+  grain: string;
+}
+
+export interface QueryFrame {
+  rawText: string;
+  normalizedText: string;
+  tokens: string[];
+  domains: string[];
+  operations: string[];
+  entities: string[];
+  artifactKinds: string[];
+  temporalReferences: TemporalReference[];
+}
+
+export interface AttentionCandidate {
+  id: string;
+  resourceId: string;
+  kind: string;
+  app: string;
+  title: string;
+  summary: string;
+  source: string;
+  score: number;
+  matchedKeys: string[];
+  temporalMatches: string[];
+  suggestedSurface: string;
+  whyCandidate: string;
+  retrievalScores: Record<string, number>;
+}
+
+export interface NavigatorSelection {
+  selectedIds: string[];
+  primaryResourceId: string;
+  supportingResourceIds: string[];
+  rejectedCandidateIds: string[];
+  surfaceToOpen: string;
+  reason: string;
+  confidence: number;
+  fallback: boolean;
+}
+
+export interface SelectedAttentionResource {
+  id: string;
+  resourceId: string;
+  kind: string;
+  app: string;
+  title: string;
+  summary: string;
+  source: string;
+  content: string;
+  data: Record<string, unknown>;
+  timestamps: Record<string, unknown>;
+  suggestedSurface: string;
+  whySelected: string;
+}
+
 export interface SemanticFrame {
   userGoal: string;
   taskType: string;
@@ -210,6 +344,7 @@ export interface NormalizedTurn {
   surfacePayloads: SurfacePayload[];
   activeSurfaceId: string | null;
   artifactActions: ArtifactAction[];
+  appCapabilities: AppCapabilityManifest | null;
   workspaceUpdate: WorkspaceUpdate | null;
   contextBudget: ContextBudget | null;
   activity: ActivityPayload | null;
@@ -221,6 +356,10 @@ export interface NormalizedTurn {
   graphAction: Record<string, unknown> | null;
   createdRecord: Record<string, unknown> | null;
   stageProgress: ActivityStep[];
+  queryFrame: QueryFrame | null;
+  attentionCandidates: AttentionCandidate[];
+  navigatorSelection: NavigatorSelection | null;
+  selectedAttentionResources: SelectedAttentionResource[];
   raw: Record<string, unknown>;
 }
 

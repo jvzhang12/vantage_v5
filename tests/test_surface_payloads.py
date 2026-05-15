@@ -74,6 +74,70 @@ def test_surface_payload_builder_creates_today_briefing_for_calendar_plus_tasks(
     assert result["surface_payloads"][0]["kind"] == "today_briefing"
 
 
+def test_surface_payload_builder_creates_today_briefing_from_attention_primary() -> None:
+    builder = SurfacePayloadBuilder(
+        calendar_provider=LocalCalendarProvider(events_path=None),
+        task_provider=LocalTaskProvider(tasks_path=None),
+    )
+
+    result = builder.build_for_turn(
+        message="What should I do today on 2026-05-13?",
+        surface_invocation={
+            "intent": "attention_selected_context",
+            "primary_surface": "today_briefing",
+            "supporting_surfaces": ["calendar_day", "task_focus"],
+            "trigger": "attention_navigator",
+        },
+    ).to_dict()
+
+    assert result["active_surface_id"] == "today-2026-05-13"
+    assert result["surface_payloads"][0]["kind"] == "today_briefing"
+
+
+def test_surface_payload_builder_keeps_attention_primary_surface_first() -> None:
+    builder = SurfacePayloadBuilder(
+        calendar_provider=LocalCalendarProvider(events_path=None),
+        task_provider=LocalTaskProvider(tasks_path=None),
+    )
+
+    result = builder.build_for_turn(
+        message="Show what to focus on today on 2026-05-13.",
+        surface_invocation={
+            "intent": "attention_selected_context",
+            "primary_surface": "task_focus",
+            "supporting_surfaces": ["calendar_day"],
+            "trigger": "attention_navigator",
+        },
+    ).to_dict()
+
+    assert result["active_surface_id"] == "tasks-2026-05-13"
+    assert [surface["kind"] for surface in result["surface_payloads"]] == ["task_focus", "calendar_day"]
+
+
+def test_surface_payload_source_refs_reflect_provider_write_capability(tmp_path) -> None:
+    builder = SurfacePayloadBuilder(
+        calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),
+        task_provider=LocalTaskProvider(tasks_path=tmp_path / "tasks.json", writable=True),
+    )
+
+    result = builder.build_for_turn(
+        message="Tell me about today on 2026-05-13.",
+        surface_invocation={
+            "intent": "schedule_lookup",
+            "primary_surface": "calendar_day",
+            "supporting_surfaces": ["task_focus"],
+        },
+    ).to_dict()
+
+    refs = {ref["kind"]: ref for ref in result["surface_payloads"][0]["source_refs"]}
+    assert refs["calendar_day"]["writable"] is True
+    assert refs["calendar_day"]["read_only"] is False
+    assert refs["calendar_day"]["capability_ref"] == "calendar.day"
+    assert refs["task_focus"]["writable"] is True
+    assert refs["task_focus"]["read_only"] is False
+    assert refs["task_focus"]["capability_ref"] == "tasks.focus"
+
+
 def test_surface_payload_builder_creates_calendar_week_payload() -> None:
     builder = SurfacePayloadBuilder(
         calendar_provider=LocalCalendarProvider(events_path=None),
@@ -132,6 +196,24 @@ def test_surface_payload_builder_skips_non_operational_surfaces() -> None:
     result = builder.build_for_turn(
         message="Write an email.",
         surface_invocation={"intent": "durable_artifact", "primary_surface": "whiteboard"},
+    ).to_dict()
+
+    assert result == {"surface_payloads": [], "active_surface_id": None}
+
+
+def test_surface_payload_builder_does_not_render_supporting_operational_surface_for_whiteboard_primary() -> None:
+    builder = SurfacePayloadBuilder(
+        calendar_provider=LocalCalendarProvider(events_path=None),
+        task_provider=LocalTaskProvider(tasks_path=None),
+    )
+
+    result = builder.build_for_turn(
+        message="Find my midterm study material.",
+        surface_invocation={
+            "intent": "attention_selected_context",
+            "primary_surface": "whiteboard",
+            "supporting_surfaces": ["task_focus"],
+        },
     ).to_dict()
 
     assert result == {"surface_payloads": [], "active_surface_id": None}

@@ -19,6 +19,7 @@ The goal is the same as the Python summaries: let future agents understand the s
 - `src/vantage_v5/webapp_react/src/App.tsx.md`
 - `src/vantage_v5/webapp_react/src/api.ts.md`
 - `src/vantage_v5/webapp_react/src/appReducer.ts.md`
+- `src/vantage_v5/webapp_react/src/components/VantageMark.tsx.md`
 - `src/vantage_v5/webapp_react/src/components/Core.tsx.md`
 - `src/vantage_v5/webapp_react/src/components/Surfaces.tsx.md`
 - `src/vantage_v5/webapp_react/src/main.tsx.md`

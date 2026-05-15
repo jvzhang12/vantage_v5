@@ -1,0 +1,18 @@
+# `tests/test_attention.py`
+
+Unit tests for the Attention + Navigator selection service.
+
+## Purpose
+
+- Lock in query-frame parsing, deterministic resource indexing, ranking, selection fallback, and surface selection behavior.
+- Prove that temporal phrases such as "last Tuesday" can retrieve the right work product.
+- Prove that visible artifacts take priority as the user's current working view.
+
+## Coverage
+
+- `QueryFrame` parsing for reopen intent, whiteboard domain, temporal references, and worked-on relations.
+- Ranking of saved artifacts by temporal metadata.
+- Priority of visible calendar/task artifacts over older saved context.
+- Operational indexing for calendar day/week and task focus resources.
+- Deterministic Navigator fallback that opens the appropriate surface when the model is unavailable.
+

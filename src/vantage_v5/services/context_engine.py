@@ -24,6 +24,7 @@ class ChatTurnRequestContext:
     visible_artifacts: list[dict[str, Any]] | None = None
     navigation: Any | None = None
     force_pending_workspace_update: bool = False
+    app_capabilities: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -39,6 +40,7 @@ class PreparedTurnContext:
     pending_workspace_update: dict[str, Any] | None
     whiteboard_entry_mode: str | None
     continuity_context: dict[str, Any]
+    app_capabilities: dict[str, Any] | None = None
     visible_artifacts: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -147,5 +149,6 @@ class ContextEngine:
             pending_workspace_update=pending_workspace_update,
             whiteboard_entry_mode=whiteboard_entry_mode,
             continuity_context=continuity_context,
+            app_capabilities=request.app_capabilities,
             visible_artifacts=visible_artifacts,
         )

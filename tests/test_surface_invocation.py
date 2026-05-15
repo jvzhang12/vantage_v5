@@ -35,6 +35,17 @@ def test_surface_invocation_calendar_for_today_lookup() -> None:
     assert invocation.whiteboard_mode is None
 
 
+def test_surface_invocation_chat_mode_does_not_block_operational_surfaces() -> None:
+    invocation = build_surface_invocation(
+        user_message="What does my day look like?",
+        requested_whiteboard_mode="chat",
+    )
+
+    assert invocation.intent == "schedule_lookup"
+    assert invocation.primary_surface == "calendar_day"
+    assert invocation.resolved_whiteboard_mode(requested_mode="chat", current_mode="chat") == "chat"
+
+
 def test_surface_invocation_calendar_week_for_week_lookup() -> None:
     invocation = build_surface_invocation(user_message="Show me my calendar for this week.")
 

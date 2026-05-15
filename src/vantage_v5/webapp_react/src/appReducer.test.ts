@@ -31,6 +31,7 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
     surfacePayloads: [],
     activeSurfaceId: null,
     artifactActions: [],
+    appCapabilities: null,
     workspaceUpdate: null,
     contextBudget: null,
     activity: null,
@@ -42,6 +43,10 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
     graphAction: null,
     createdRecord: null,
     stageProgress: [],
+    queryFrame: null,
+    attentionCandidates: [],
+    navigatorSelection: null,
+    selectedAttentionResources: [],
     raw: {},
     ...overrides,
   };
@@ -172,6 +177,7 @@ describe("appReducer", () => {
       warnings: [],
       requiresConfirmation: true,
       sourceRefs: [],
+      capture: null,
     };
     const acceptedAction = { ...proposedAction, status: "accepted", summary: "Updated calendar event 'Advisor check-in'." };
     const surface = {
@@ -197,6 +203,7 @@ describe("appReducer", () => {
         assistantMessage: "Done. Updated calendar event.",
         graphAction: { type: "calendar_replace_event", status: "accepted" },
         surfaceInvocation: null,
+        appCapabilities: null,
       },
     });
     const updatedFromBusy = appReducer(applyingState, {
@@ -208,6 +215,7 @@ describe("appReducer", () => {
         assistantMessage: "Done. Updated calendar event.",
         graphAction: { type: "calendar_replace_event", status: "accepted" },
         surfaceInvocation: null,
+        appCapabilities: null,
       },
     });
 

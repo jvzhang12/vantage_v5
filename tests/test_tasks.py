@@ -59,3 +59,37 @@ def test_local_task_provider_treats_missing_file_as_empty(tmp_path: Path) -> Non
 
     assert focus["source"]["configured"] is False
     assert focus["summary"]["task_count"] == 0
+
+
+def test_local_task_provider_creates_task_when_user_scoped_store_is_writable(tmp_path: Path) -> None:
+    tasks_path = tmp_path / "tasks.json"
+    tasks_path.write_text(
+        json.dumps(
+            {
+                "meta": {"owner": "eden"},
+                "tasks": [{"id": "existing", "title": "Existing task", "custom": "keep"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    provider = LocalTaskProvider(tasks_path=tasks_path, writable=True)
+
+    result = provider.create_task(title="Finish homework 2", due_date=date(2026, 5, 14), priority="high")
+
+    payload = json.loads(tasks_path.read_text(encoding="utf-8"))
+    assert result["summary"] == "Created task 'Finish homework 2'."
+    assert payload["meta"] == {"owner": "eden"}
+    assert payload["tasks"][0]["custom"] == "keep"
+    assert payload["tasks"][1]["title"] == "Finish homework 2"
+    assert payload["tasks"][1]["due_date"] == "2026-05-14"
+
+
+def test_local_task_provider_blocks_writes_when_read_only(tmp_path: Path) -> None:
+    provider = LocalTaskProvider(tasks_path=tmp_path / "tasks.json", writable=False)
+
+    try:
+        provider.create_task(title="Blocked")
+    except PermissionError as exc:
+        assert "read-only" in str(exc)
+    else:
+        raise AssertionError("Expected read-only task provider to reject writes.")

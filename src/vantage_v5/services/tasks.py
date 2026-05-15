@@ -5,6 +5,7 @@ from datetime import date
 from datetime import timedelta
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 
@@ -68,8 +69,9 @@ class TaskFocus:
 
 
 class LocalTaskProvider:
-    def __init__(self, *, tasks_path: Path | None) -> None:
+    def __init__(self, *, tasks_path: Path | None, writable: bool = False) -> None:
         self.tasks_path = tasks_path
+        self.writable = writable
 
     def focus(self, target_date: date) -> TaskFocus:
         tasks = [
@@ -86,13 +88,85 @@ class LocalTaskProvider:
 
     def source_status(self, *, task_count: int | None = None) -> dict[str, Any]:
         configured = bool(self.tasks_path and self.tasks_path.exists())
-        return {
+        writable = bool(self.writable and self.tasks_path)
+        status = {
             "kind": "local_json",
             "label": "Local tasks",
             "configured": configured,
-            "read_only": True,
+            "read_only": not writable,
             "task_count": task_count,
         }
+        if writable:
+            status["writable"] = True
+        return status
+
+    def create_task(
+        self,
+        *,
+        title: str,
+        due_date: date | None = None,
+        status: str = "open",
+        priority: str = "normal",
+        project: str = "",
+        notes: str = "",
+        duration_minutes: int | None = None,
+    ) -> dict[str, Any]:
+        self._ensure_writable()
+        payload = self._read_payload()
+        tasks = _raw_task_records(payload)
+        raw_task: dict[str, Any] = {
+            "id": _next_task_id(tasks, title=title),
+            "title": title.strip() or "Untitled task",
+            "status": _normalize_status(status) or "open",
+            "priority": _normalize_priority(priority) or "normal",
+        }
+        if due_date:
+            raw_task["due_date"] = due_date.isoformat()
+        if project:
+            raw_task["project"] = project
+        if notes:
+            raw_task["notes"] = notes
+        if duration_minutes and duration_minutes > 0:
+            raw_task["duration_minutes"] = int(duration_minutes)
+        tasks.append(raw_task)
+        self._write_payload(payload)
+        return {
+            "before": None,
+            "after": raw_task,
+            "task_id": raw_task["id"],
+            "summary": f"Created task '{raw_task['title']}'.",
+        }
+
+    def update_task(self, task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+        self._ensure_writable()
+        payload = self._read_payload()
+        task = _find_raw_task(payload, task_id)
+        before = dict(task)
+        for key in ["title", "status", "priority", "project", "notes", "duration_minutes", "durationMinutes"]:
+            if key in updates:
+                task[key] = updates[key]
+        if "due_date" in updates:
+            task["due_date"] = updates["due_date"]
+        if "dueDate" in updates:
+            task["dueDate"] = updates["dueDate"]
+        if "due" in updates:
+            task["due"] = updates["due"]
+        self._write_payload(payload)
+        before_title = _text(before.get("title") or task_id)
+        after_title = _text(task.get("title") or task_id)
+        if before_title != after_title:
+            summary = f"Updated task '{before_title}' to '{after_title}'."
+        else:
+            summary = f"Updated task '{after_title}'."
+        return {
+            "before": before,
+            "after": dict(task),
+            "task_id": task_id,
+            "summary": summary,
+        }
+
+    def complete_task(self, task_id: str) -> dict[str, Any]:
+        return self.update_task(task_id, {"status": "completed"})
 
     def _read_tasks(self) -> list[TaskItem]:
         if not self.tasks_path or not self.tasks_path.exists():
@@ -110,6 +184,33 @@ class LocalTaskProvider:
             if task is not None:
                 tasks.append(task)
         return tasks
+
+    def _ensure_writable(self) -> None:
+        if not self.writable or not self.tasks_path:
+            raise PermissionError("Task source is read-only.")
+
+    def _read_payload(self) -> dict[str, Any]:
+        if not self.tasks_path or not self.tasks_path.exists():
+            return {"tasks": []}
+        try:
+            payload = json.loads(self.tasks_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError("Tasks file is not valid JSON.") from exc
+        if isinstance(payload, list):
+            return {"tasks": payload}
+        if not isinstance(payload, dict):
+            raise ValueError("Tasks file must contain a JSON object or list.")
+        if not isinstance(payload.get("tasks"), list):
+            payload["tasks"] = []
+        return payload
+
+    def _write_payload(self, payload: dict[str, Any]) -> None:
+        self._ensure_writable()
+        assert self.tasks_path is not None
+        self.tasks_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.tasks_path.with_suffix(f"{self.tasks_path.suffix}.tmp")
+        tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp_path.replace(self.tasks_path)
 
 
 def group_tasks_for_focus(
@@ -202,6 +303,49 @@ def _normalize_status(value: Any) -> str:
 
 def _normalize_priority(value: Any) -> str:
     return _text(value).lower().replace("-", "_").replace(" ", "_")
+
+
+def _raw_task_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_tasks = payload.setdefault("tasks", [])
+    if not isinstance(raw_tasks, list):
+        raw_tasks = []
+        payload["tasks"] = raw_tasks
+    return raw_tasks
+
+
+def _find_raw_task(payload: dict[str, Any], task_id: str) -> dict[str, Any]:
+    target_id = _text(task_id)
+    if not target_id:
+        raise ValueError("Task id is required.")
+    for task in _raw_task_records(payload):
+        if not isinstance(task, dict):
+            continue
+        if _raw_task_id(task) == target_id:
+            return task
+    raise FileNotFoundError(f"Task '{target_id}' was not found.")
+
+
+def _raw_task_id(raw_task: dict[str, Any]) -> str:
+    return _text(raw_task.get("id") or raw_task.get("task_id") or raw_task.get("taskId"))
+
+
+def _next_task_id(tasks: list[dict[str, Any]], *, title: str) -> str:
+    base = _slug(title) or "task"
+    used_ids = {_raw_task_id(task) for task in tasks if isinstance(task, dict)}
+    if base not in used_ids:
+        return base
+    index = 2
+    while f"{base}-{index}" in used_ids:
+        index += 1
+    return f"{base}-{index}"
+
+
+def _slug(value: str) -> str:
+    return "-".join(
+        part
+        for part in re.split(r"[^a-z0-9]+", str(value or "").lower())
+        if part
+    )[:80].strip("-")
 
 
 def _text(value: Any) -> str:

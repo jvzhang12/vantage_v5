@@ -66,7 +66,7 @@ LIGHTWEIGHT_CHAT_RE = re.compile(
 )
 CURRENT_ARTIFACT_FOLLOWUP_RE = re.compile(
     r"\b(?:what should i do next|what should i focus on next|what next|what's next|what is next|"
-    r"now what|based on (?:this|the current view)|using (?:this|the current view)|"
+    r"now what|what am i looking at|what is this|what's this|based on (?:this|the current view)|using (?:this|the current view)|"
     r"how should i use (?:this|the current view))\b",
     re.IGNORECASE,
 )
@@ -306,7 +306,7 @@ def _task_support(message: str) -> tuple[str, ...]:
 
 
 def _is_chat_only(message: str, *, requested_mode: str) -> bool:
-    return requested_mode == "chat" or bool(CHAT_ONLY_RE.search(message))
+    return bool(CHAT_ONLY_RE.search(message))
 
 
 def _is_schedule_lookup(message: str) -> bool:

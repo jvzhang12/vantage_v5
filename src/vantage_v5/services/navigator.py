@@ -87,6 +87,7 @@ class NavigationDecision:
     preserve_selected_record: bool | None = None
     selected_record_reason: str | None = None
     control_panel: dict[str, object] = field(default_factory=dict)
+    attention_selection: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
         preserve_pinned_context = self.preserve_pinned_context
@@ -108,6 +109,7 @@ class NavigationDecision:
             "preserve_selected_record": preserve_pinned_context,
             "selected_record_reason": pinned_context_reason,
             "control_panel": _normalize_control_panel(self.control_panel),
+            "attention_selection": _normalize_attention_selection(self.attention_selection),
         }
 
 
@@ -138,6 +140,7 @@ class NavigatorService:
         pending_workspace_update: dict[str, object] | None = None,
         continuity_context: dict[str, object] | None = None,
         visible_artifacts: list[dict[str, object]] | None = None,
+        attention_candidates: list[dict[str, object]] | None = None,
     ) -> NavigationDecision:
         if not self.client:
             return self._fallback_decision("The model provider is unavailable, so the turn stays in normal chat.")
@@ -154,6 +157,7 @@ class NavigatorService:
                 pending_workspace_update=pending_workspace_update,
                 continuity_context=continuity_context,
                 visible_artifacts=visible_artifacts,
+                attention_candidates=attention_candidates,
             )
         except Exception:
             return self._fallback_decision("Navigator routing fell back to normal chat after an unavailable or invalid model response.")
@@ -172,6 +176,7 @@ class NavigatorService:
         pending_workspace_update: dict[str, object] | None,
         continuity_context: dict[str, object] | None,
         visible_artifacts: list[dict[str, object]] | None,
+        attention_candidates: list[dict[str, object]] | None,
     ) -> NavigationDecision:
         payload = {
             "user_message": user_message,
@@ -189,6 +194,7 @@ class NavigatorService:
             "pending_workspace_update": pending_workspace_update,
             "continuity_context": continuity_context,
             "visible_artifacts": visible_artifacts_prompt_payload(visible_artifacts),
+            "attention_candidates": attention_candidates or [],
             "allowed_modes": ["chat", "scenario_lab"],
             "allowed_whiteboard_modes": ["chat", "offer", "draft", "auto"],
             "available_control_panel_actions": [
@@ -214,6 +220,10 @@ class NavigatorService:
                 "Decide whether the turn should stay in normal chat or enter Scenario Lab, whether the pinned context should be preserved as continuity context for this turn, and whether normal chat should stay in chat, invite whiteboard collaboration, or draft directly into the whiteboard. "
                 "Also return a control_panel object that describes the product controls you would press. "
                 "Think of the control panel as the canonical plan: actions are button presses, working_memory_queries are context you want the system to retrieve or keep active, and response_call describes whether another LLM response should be generated after context is assembled. "
+                "The payload may include attention_candidates from deterministic query-key ranking; treat this shortlist as the primary context/resource selection layer for normal turns. "
+                "Select only the few candidates that should actually enter the workspace/model context for this answer. "
+                "Do not select candidates just because they are available; reject noisy or merely adjacent candidates. "
+                "When a selected resource implies a visible app, set attention_selection.surface_to_open to the appropriate surface kind; this choice should be the primary surface authority unless the user explicitly asked for chat-only or the turn enters Scenario Lab. "
                 "Only choose actions from available_control_panel_actions. "
                 "For every control_panel action, include protocol_kind as null unless the action type is apply_protocol. "
                 "When action type is apply_protocol, protocol_kind is required and must be one of email, research_paper, or scenario_lab. "
@@ -306,6 +316,47 @@ class NavigatorService:
                                     },
                                 },
                             },
+                            "attention_selection": {
+                                "type": ["object", "null"],
+                                "additionalProperties": False,
+                                "properties": {
+                                    "selected_ids": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "primary_resource_id": {"type": ["string", "null"]},
+                                    "supporting_resource_ids": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "rejected_candidate_ids": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "surface_to_open": {
+                                        "type": ["string", "null"],
+                                        "enum": [
+                                            "today_briefing",
+                                            "calendar_day",
+                                            "calendar_week",
+                                            "task_focus",
+                                            "whiteboard",
+                                            None,
+                                        ],
+                                    },
+                                    "reason": {"type": "string"},
+                                    "confidence": {"type": "number"},
+                                },
+                                "required": [
+                                    "selected_ids",
+                                    "primary_resource_id",
+                                    "supporting_resource_ids",
+                                    "rejected_candidate_ids",
+                                    "surface_to_open",
+                                    "reason",
+                                    "confidence",
+                                ],
+                            },
                         },
                         "required": [
                             "mode",
@@ -320,6 +371,7 @@ class NavigatorService:
                             "preserve_pinned_context",
                             "pinned_context_reason",
                             "control_panel",
+                            "attention_selection",
                         ],
                     },
                 }
@@ -347,6 +399,7 @@ class NavigatorService:
             preserve_selected_record=preserve_pinned_context,
             selected_record_reason=pinned_context_reason,
             control_panel=_normalize_control_panel(result.get("control_panel")),
+            attention_selection=_normalize_attention_selection(result.get("attention_selection")),
         )
         return _stabilize_decision(
             decision,
@@ -370,6 +423,7 @@ class NavigatorService:
             pinned_context_reason=None,
             preserve_selected_record=None,
             selected_record_reason=None,
+            attention_selection=None,
             control_panel={
                 "actions": [
                     {
@@ -460,6 +514,47 @@ def _normalize_control_panel(value: object) -> dict[str, object]:
     }
 
 
+def _normalize_attention_selection(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    raw_selected = value.get("selected_ids")
+    selected_ids = [
+        " ".join(str(item).strip().split())
+        for item in (raw_selected if isinstance(raw_selected, list) else [])
+        if str(item).strip()
+    ]
+    raw_supporting = value.get("supporting_resource_ids")
+    supporting_resource_ids = [
+        " ".join(str(item).strip().split())
+        for item in (raw_supporting if isinstance(raw_supporting, list) else [])
+        if str(item).strip()
+    ]
+    raw_rejected = value.get("rejected_candidate_ids")
+    rejected_candidate_ids = [
+        " ".join(str(item).strip().split())
+        for item in (raw_rejected if isinstance(raw_rejected, list) else [])
+        if str(item).strip()
+    ]
+    primary_resource_id = _normalize_reason(value.get("primary_resource_id"))
+    surface_to_open = _normalize_reason(value.get("surface_to_open"))
+    if surface_to_open not in {"today_briefing", "calendar_day", "calendar_week", "task_focus", "whiteboard"}:
+        surface_to_open = None
+    confidence_value = value.get("confidence")
+    try:
+        confidence = max(0.0, min(1.0, float(confidence_value)))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return {
+        "selected_ids": selected_ids,
+        "primary_resource_id": primary_resource_id,
+        "supporting_resource_ids": supporting_resource_ids,
+        "rejected_candidate_ids": rejected_candidate_ids,
+        "surface_to_open": surface_to_open,
+        "reason": _normalize_reason(value.get("reason")) or "",
+        "confidence": confidence,
+    }
+
+
 def _stabilize_decision(
     decision: NavigationDecision,
     *,
@@ -539,6 +634,7 @@ def _stabilize_decision(
         preserve_selected_record=decision.preserve_selected_record,
         selected_record_reason=decision.selected_record_reason,
         control_panel=control_panel,
+        attention_selection=decision.attention_selection,
     )
 
 

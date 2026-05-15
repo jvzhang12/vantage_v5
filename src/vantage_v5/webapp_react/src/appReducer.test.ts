@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activeSurface, appReducer, initialState } from "./appReducer";
+import { buildVisibleArtifacts } from "./visibleArtifacts";
 import type { NormalizedTurn } from "./types";
 
 function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
@@ -141,6 +142,60 @@ describe("appReducer", () => {
 
     expect(updated.view).toBe("artifact");
     expect(activeSurface(updated)?.id).toBe(taskSurface.id);
+  });
+
+  it("opens a navigator-selected artifact into the whiteboard without creating a persisted surface", () => {
+    const selectedArtifact = {
+      id: "selected-artifact-midterm-study-plan",
+      resourceId: "artifact:midterm-study-plan",
+      kind: "artifact",
+      app: "whiteboard",
+      title: "Midterm Study Plan",
+      summary: "Exam preparation material about graphs and study priorities.",
+      source: "artifact",
+      content: "# Midterm Study Plan\n\nPrioritize graph traversals and proof review.",
+      data: {},
+      timestamps: {},
+      suggestedSurface: "whiteboard",
+      whySelected: "The user asked for exam preparation material about graphs and study priorities.",
+    };
+    const state = appReducer(initialState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "Can you find my exam preparation material about graphs and study priorities",
+        selectedAttentionResources: [selectedArtifact],
+        navigatorSelection: {
+          selectedIds: [selectedArtifact.resourceId],
+          primaryResourceId: selectedArtifact.resourceId,
+          supportingResourceIds: [],
+          rejectedCandidateIds: [],
+          surfaceToOpen: "whiteboard",
+          reason: "Open the matching saved artifact in the whiteboard.",
+          confidence: 0.9,
+          fallback: false,
+        },
+      }),
+    });
+    const visibleArtifacts = buildVisibleArtifacts({
+      activeSurface: activeSurface(state),
+      workspace: state.workspace,
+      view: state.view,
+    });
+
+    expect(state.view).toBe("whiteboard");
+    expect(state.workspace.id).toBe("midterm-study-plan");
+    expect(state.workspace.title).toBe("Midterm Study Plan");
+    expect(state.workspace.content).toContain("graph traversals");
+    expect(state.workspace.dirty).toBe(false);
+    expect(state.surfacePayloads).toHaveLength(0);
+    expect(activeSurface(state)).toBeNull();
+    expect(visibleArtifacts).toHaveLength(1);
+    expect(visibleArtifacts[0]).toMatchObject({
+      id: "midterm-study-plan",
+      kind: "whiteboard",
+      title: "Midterm Study Plan",
+    });
+    expect(String(visibleArtifacts[0].content)).toContain("Prioritize graph traversals");
   });
 
   it("removes the active artifact without treating cached surfaces as visible", () => {

@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from vantage_v5.services.product_scope import ProductScope
+from vantage_v5.services.product_scope import product_scope_for_record
 from vantage_v5.services.record_cards import lineage_payload
 from vantage_v5.services.record_cards import saved_record_scenario_metadata
 from vantage_v5.services.record_cards import scenario_payload
@@ -42,7 +44,7 @@ class ContextSourceResolver:
                 continue
             return self._saved_record_summary(
                 record,
-                scope=_record_scope(
+                product_scope=_record_product_scope(
                     record,
                     durable_scope=durable_scope,
                     session=session,
@@ -61,6 +63,9 @@ class ContextSourceResolver:
             "scenario_kind": None,
             "scenario": None,
             "source": "vault_note",
+            "scope": "reference",
+            "durability": "read_only",
+            "is_canonical": False,
             "body_excerpt": note.body[:1200],
             "path": note.relative_path,
             "is_scenario_comparison": False,
@@ -83,6 +88,19 @@ class ContextSourceResolver:
             "source_record_title": summary["title"],
             "source": summary["source"],
             "type": summary.get("type"),
+            "source_scope": summary.get("scope"),
+            "source_durability": summary.get("durability"),
+            "source_is_canonical": summary.get("is_canonical"),
+            "source_provenance": {
+                "relationship": "source_record",
+                "record_id": summary["id"],
+                "record_title": summary["title"],
+                "source": summary["source"],
+                "type": summary.get("type"),
+                "scope": summary.get("scope"),
+                "durability": summary.get("durability"),
+                "is_canonical": summary.get("is_canonical"),
+            },
         }
 
     def navigator_continuity_context(
@@ -118,7 +136,7 @@ class ContextSourceResolver:
         )
         return continuity
 
-    def _saved_record_summary(self, record: Any, *, scope: str) -> dict[str, Any]:
+    def _saved_record_summary(self, record: Any, *, product_scope: ProductScope) -> dict[str, Any]:
         scenario_metadata = saved_record_scenario_metadata(record)
         scenario = scenario_payload(scenario_metadata)
         payload = {
@@ -127,7 +145,7 @@ class ContextSourceResolver:
             "card": record.card,
             "type": record.type,
             "source": record.source,
-            "scope": scope,
+            **product_scope.to_payload(),
             "body_excerpt": record.body[:1200],
             "is_scenario_comparison": (
                 scenario["scenario_kind"] == "comparison"
@@ -154,6 +172,9 @@ class ContextSourceResolver:
             "source": summary["source"],
             "type": summary.get("type"),
             "card": summary.get("card"),
+            "scope": summary.get("scope"),
+            "durability": summary.get("durability"),
+            "is_canonical": summary.get("is_canonical"),
             "reopenable_in_whiteboard": (
                 summary.get("source") != "vault_note"
                 and summary.get("type") != "protocol"
@@ -266,27 +287,17 @@ def _is_scenario_comparison_record(record: Any) -> bool:
     return "## Recommendation" in body and "## Branches Compared" in body
 
 
-def _record_scope(
+def _record_product_scope(
     record: Any,
     *,
     durable_scope: dict[str, Any],
     session: ExperimentSession | None,
     fallback: str,
-) -> str:
-    path = getattr(record, "path", None)
+) -> ProductScope:
     canonical_root = durable_scope.get("canonical_scope", {}).get("root")
-    if _path_is_relative_to(path, canonical_root):
-        return "canonical"
-    if session is not None and _path_is_relative_to(path, session.root):
-        return "experiment"
-    return "durable" if fallback in {"experiment", "reference"} else fallback
-
-
-def _path_is_relative_to(path: Any, root: Any) -> bool:
-    if path is None or root is None:
-        return False
-    try:
-        Path(path).resolve().relative_to(Path(root).resolve())
-        return True
-    except (OSError, RuntimeError, ValueError):
-        return False
+    return product_scope_for_record(
+        record,
+        canonical_root=Path(canonical_root) if canonical_root is not None else None,
+        experiment_root=session.root if session is not None else None,
+        fallback_scope="durable" if fallback in {"experiment", "reference"} else fallback,
+    )

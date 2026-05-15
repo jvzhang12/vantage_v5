@@ -13,12 +13,12 @@ Backend lifecycle boundary for whiteboard save, snapshot, publish, promotion, sa
 - `artifact_lifecycle_card_fields()`: presentation helper that adds `artifact_origin` and `artifact_lifecycle` only for artifact records, centralizing card enrichment for server, Chat, and Scenario Lab serializers.
 - `artifact_lifecycle_kind()`: convenience helper for learned-item rationale copy that needs the normalized lifecycle value.
 - `DraftArtifactRuntime`: typed runtime wrapper for the workspace store, artifact store, state store, graph-action executor, and active scope.
-- `DraftArtifactLifecycleResult`: result object containing the relevant workspace, executed action, artifact record, scope, and optional assistant message.
+- `DraftArtifactLifecycleResult`: result object containing the relevant workspace, executed action, artifact record, scope, optional assistant message, and convenience accessors for saved-item source provenance / opened-copy metadata.
 - `DraftArtifactLifecycle`: service with methods for reopening saved items into the whiteboard, saving visible whiteboard snapshots, publishing visible whiteboards, saving workspace updates, and promoting saved or unsaved whiteboard buffers into artifacts.
 
 ## Notable Behavior
 
-- `open_saved_item_into_whiteboard()` delegates saved-item resolution to the graph executor, writes the reopened whiteboard into the active runtime scope, reloads the workspace document, and returns the same graph action shape as the older route-level implementation.
+- `open_saved_item_into_whiteboard()` delegates saved-item resolution to the graph executor, writes the reopened whiteboard into the active runtime scope, reloads the workspace document, and returns the same graph action shape as the older route-level implementation plus additive provenance when a saved item is copied into an editable whiteboard.
 - `artifact_lifecycle_card_fields()` keeps card serializers from importing storage-level lifecycle parsing directly. The storage parser still recovers metadata from Markdown/frontmatter, but lifecycle owns which recovered fields are exposed on product cards.
 - `save_visible_whiteboard_snapshot()` persists the whiteboard, makes it active, and creates a `whiteboard_snapshot` artifact.
 - `publish_visible_whiteboard()` promotes the current visible whiteboard content into a `promoted_artifact` without first forcing a workspace save, matching the prior `/api/chat` local publish behavior.

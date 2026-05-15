@@ -55,6 +55,14 @@ class DraftArtifactLifecycleResult:
     def graph_action(self) -> dict[str, Any]:
         return self.action.to_dict()
 
+    @property
+    def source_provenance(self) -> dict[str, Any] | None:
+        return self.action.source_provenance
+
+    @property
+    def opened_copy(self) -> dict[str, Any] | None:
+        return self.action.opened_copy
+
 
 class DraftArtifactLifecycle:
     def open_saved_item_into_whiteboard(

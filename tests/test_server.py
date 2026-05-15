@@ -5514,6 +5514,44 @@ def test_open_accepts_record_id_alias_for_memory(tmp_path: Path) -> None:
     assert opened_payload["graph_action"]["record_id"] == "user-prefers-chat-first-ux"
     assert opened_payload["graph_action"]["concept_id"] == "user-prefers-chat-first-ux"
     assert opened_payload["graph_action"]["source"] == "memory"
+    assert opened_payload["graph_action"]["source_scope"] == "durable"
+    assert opened_payload["graph_action"]["opened_copy_scope"] == "durable"
+    assert opened_payload["source_provenance"]["scope"] == "durable"
+    assert opened_payload["opened_copy"]["writable"] is True
+
+
+def test_open_canonical_saved_item_preserves_source_and_copy_provenance(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path)
+    record = MemoryStore(repo_root / "canonical" / "memories").create_memory(
+        title="Canonical Briefing Note",
+        card="Canonical memory card.",
+        body="Canonical memory body.",
+    )
+
+    opened = client.post("/api/concepts/open", json={"record_id": record.id})
+
+    assert opened.status_code == 200
+    opened_payload = opened.json()
+    assert opened_payload["workspace_id"] == record.id
+    assert opened_payload["scope"] == "durable"
+    assert opened_payload["source_provenance"] == {
+        "relationship": "source_record",
+        "record_id": record.id,
+        "record_title": record.title,
+        "source": "memory",
+        "type": "memory",
+        "scope": "canonical",
+        "durability": "durable",
+        "is_canonical": True,
+    }
+    assert "path" not in opened_payload["source_provenance"]
+    assert opened_payload["opened_copy"]["scope"] == "durable"
+    assert opened_payload["opened_copy"]["durability"] == "durable"
+    assert opened_payload["opened_copy"]["is_canonical"] is False
+    assert opened_payload["opened_copy"]["writable"] is True
+    assert opened_payload["opened_copy"]["source_scope"] == "canonical"
+    assert opened_payload["graph_action"]["source_scope"] == "canonical"
+    assert opened_payload["graph_action"]["opened_copy_scope"] == "durable"
 
 
 def test_open_missing_saved_item_returns_404(tmp_path: Path) -> None:

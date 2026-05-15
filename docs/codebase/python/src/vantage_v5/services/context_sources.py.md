@@ -15,8 +15,9 @@ Context-source resolver for pinned context, whiteboard provenance summaries, and
 ## Notable Behavior
 
 - Looks in active runtime stores first, then ordered reference stores, which can include durable user records plus lower-priority canonical defaults.
-- Labels saved-record summaries by comparing paths to the configured canonical root and active experiment root, so similarly named user/profile path segments do not affect scope.
-- Falls back to vault-note summaries for pinned reference notes.
+- Labels saved-record summaries through `product_scope.py`, using configured canonical root and active experiment root containment so similarly named user/profile path segments do not affect scope.
+- Falls back to vault-note summaries for pinned reference notes, marking them as read-only reference scope.
+- Whiteboard source summaries now include additive source provenance fields (`source_scope`, `source_durability`, `source_is_canonical`, and nested `source_provenance`) so continuity/debug traces can explain when the current editable whiteboard originated from canonical or reference material.
 - Reconstructs a short continuity frame from the latest Memory Trace, unique reopenable recalled records, the current whiteboard, and up to three recent whiteboards.
 - Marks protocol records as non-reopenable in whiteboard continuity, because protocols are instructional guidance objects rather than work products to draft from.
 - Preserves Scenario Lab comparison metadata through the shared `record_cards.py` helpers.

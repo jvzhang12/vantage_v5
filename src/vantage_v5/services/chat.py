@@ -1601,18 +1601,9 @@ def _graph_action_payload(
     meta: MetaDecision,
 ) -> dict[str, Any] | None:
     if executed_action:
-        return {
-            "type": executed_action.action,
-            "status": executed_action.status,
-            "summary": executed_action.summary,
-            "record_id": executed_action.record_id,
-            "concept_id": executed_action.concept_id,
-            "workspace_id": executed_action.workspace_id,
-            "source": executed_action.source,
-            "record_title": executed_action.record_title,
-            "concept_title": executed_action.record_title,
-            "rationale": meta.rationale,
-        }
+        payload = executed_action.to_dict()
+        payload["rationale"] = meta.rationale
+        return payload
     if meta.action == "no_op":
         return None
     return {
@@ -1632,18 +1623,9 @@ def _graph_action_payload(
 def _auto_graph_action_payload(executed_action: ExecutedAction | None) -> dict[str, Any] | None:
     if not executed_action:
         return None
-    return {
-        "type": executed_action.action,
-        "status": executed_action.status,
-        "summary": executed_action.summary,
-        "record_id": executed_action.record_id,
-        "concept_id": executed_action.concept_id,
-        "workspace_id": executed_action.workspace_id,
-        "source": executed_action.source,
-        "record_title": executed_action.record_title,
-        "concept_title": executed_action.record_title,
-        "rationale": executed_action.summary,
-    }
+    payload = executed_action.to_dict()
+    payload["rationale"] = executed_action.summary
+    return payload
 
 
 def _merge_records(*record_lists: list[Any]) -> list[Any]:

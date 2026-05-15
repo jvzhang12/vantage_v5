@@ -680,6 +680,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             reference_concept_store=reference_concept_store,
             reference_memory_store=reference_memory_store,
             reference_artifact_store=reference_artifact_store,
+            canonical_root=Path(canonical_scope["root"]),
+            experiment_root=session.root if session is not None else None,
+            runtime_scope=scope,
         )
         chat_service = ChatService(
             model=cfg.model,
@@ -1542,6 +1545,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         payload = _workspace_payload(result.workspace, scope=result.scope)
         payload["graph_action"] = result.graph_action
+        if result.source_provenance is not None:
+            payload["source_provenance"] = dict(result.source_provenance)
+        if result.opened_copy is not None:
+            payload["opened_copy"] = dict(result.opened_copy)
         return payload
 
     @app.post("/api/chat")

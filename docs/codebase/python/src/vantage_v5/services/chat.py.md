@@ -48,7 +48,7 @@ Orchestrates the normal chat pipeline: retrieve candidate memory, vet it, genera
 - `resolve_selected_record_candidate()`, `should_preserve_selected_record()`, `build_continuity_hint()`, and `anchor_selected_record_candidate()`: shared helpers from `vetting.py` that keep an explicitly selected record in scope only when continuity is genuinely part of the turn.
 - `_created_record_payload()`: reloads the written record so the response can include its final stored form, including thin lineage fields for concept revisions and provenance-backed records, additive taxonomy fields, lifecycle-owned artifact card fields for auto-saved whiteboard snapshots or promoted artifacts, plus the product-safe learned rationale and correction affordance metadata used by inspectable learned cards.
 - `_memory_trace_payload()`: exposes the current turn’s Memory Trace record back to the client, now including normalized trace metadata such as `turn_mode`, `trace_scope`, `workspace_scope`, `grounding_mode`, recalled ids, learned ids, and preserved-context ids.
-- `_graph_action_payload()`: normalizes either executed or planned meta actions for reporting.
+- `_graph_action_payload()`: normalizes either executed or planned meta actions for reporting, preserving any additive provenance fields already present on executed actions.
 - `_merge_records()`, `_merge_saved_records()`, `_find_record()`: support helpers for combining and locating records. The merge helpers preserve the first record seen so active user/session records win over lower-priority reference defaults with the same id.
 - `_normalize_memory_mode()`, `_normalize_whiteboard_mode()`: map request intent to conservative backend enums.
 

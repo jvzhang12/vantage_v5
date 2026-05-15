@@ -24,6 +24,8 @@ def _runtime(
     reference_concept_store: ConceptStore | None = None,
     reference_memory_store: MemoryStore | None = None,
     reference_artifact_store: ArtifactStore | None = None,
+    canonical_root: Path | None = None,
+    experiment_root: Path | None = None,
 ) -> DraftArtifactRuntime:
     concept_store = ConceptStore(tmp_path / "concepts")
     memory_store = MemoryStore(tmp_path / "memories")
@@ -39,6 +41,9 @@ def _runtime(
         reference_concept_store=reference_concept_store,
         reference_memory_store=reference_memory_store,
         reference_artifact_store=reference_artifact_store,
+        canonical_root=canonical_root,
+        experiment_root=experiment_root,
+        runtime_scope=scope,
     )
     return DraftArtifactRuntime(
         workspace_store=workspace_store,
@@ -165,6 +170,23 @@ def test_open_saved_item_into_whiteboard_supports_saved_record_types(tmp_path: P
         assert result.action.action == "open_saved_item_into_workspace"
         assert result.action.record_id == record.id
         assert result.action.source == record.source
+        assert result.graph_action["source_scope"] == "durable"
+        assert result.graph_action["source_durability"] == "durable"
+        assert result.graph_action["source_is_canonical"] is False
+        assert result.graph_action["opened_copy_scope"] == "durable"
+        assert result.graph_action["opened_copy_durability"] == "durable"
+        assert result.graph_action["opened_copy_writable"] is True
+        assert result.graph_action["source_provenance"] == {
+            "relationship": "source_record",
+            "record_id": record.id,
+            "record_title": record.title,
+            "source": record.source,
+            "type": record.type,
+            "scope": "durable",
+            "durability": "durable",
+            "is_canonical": False,
+        }
+        assert "path" not in result.graph_action["source_provenance"]
         assert result.artifact is None
         assert result.scope == "durable"
         assert runtime.state_store.get_active_workspace_id(default_workspace_id="fallback") == record.id
@@ -233,7 +255,85 @@ def test_open_saved_item_into_whiteboard_uses_experiment_workspace_for_reference
     assert result.workspace.path.exists()
     assert not (tmp_path / "durable" / "workspaces" / f"{record.id}.md").exists()
     assert result.action.source == "memory"
+    assert result.graph_action["source_scope"] == "durable"
+    assert result.graph_action["source_durability"] == "durable"
+    assert result.graph_action["source_is_canonical"] is False
+    assert result.graph_action["opened_copy_scope"] == "experiment"
+    assert result.graph_action["opened_copy_durability"] == "temporary"
+    assert result.graph_action["opened_copy_writable"] is True
     assert runtime.state_store.get_active_workspace_id(default_workspace_id="fallback") == record.id
+
+
+def test_open_saved_item_into_whiteboard_preserves_canonical_source_provenance(tmp_path: Path) -> None:
+    canonical_root = tmp_path / "canonical"
+    canonical_concept_store = ConceptStore(canonical_root / "concepts")
+    record = canonical_concept_store.create_concept(
+        title="Canonical Brief",
+        card="Canonical source card.",
+        body="Canonical body.",
+    )
+    runtime = _runtime(
+        tmp_path / "user",
+        reference_concept_store=canonical_concept_store,
+        canonical_root=canonical_root,
+    )
+    lifecycle = DraftArtifactLifecycle()
+
+    result = lifecycle.open_saved_item_into_whiteboard(runtime=runtime, record_id=record.id)
+
+    assert result.workspace.path == tmp_path / "user" / "workspaces" / f"{record.id}.md"
+    assert result.graph_action["source_scope"] == "canonical"
+    assert result.graph_action["source_durability"] == "durable"
+    assert result.graph_action["source_is_canonical"] is True
+    assert result.graph_action["opened_copy_scope"] == "durable"
+    assert result.graph_action["opened_copy_is_canonical"] is False
+    assert result.graph_action["opened_copy_writable"] is True
+    assert result.graph_action["source_provenance"] == {
+        "relationship": "source_record",
+        "record_id": record.id,
+        "record_title": record.title,
+        "source": "concept",
+        "type": "concept",
+        "scope": "canonical",
+        "durability": "durable",
+        "is_canonical": True,
+    }
+    assert result.graph_action["opened_copy"] == {
+        "relationship": "editable_workspace_copy",
+        "workspace_id": record.id,
+        "source_record_id": record.id,
+        "source_record_title": record.title,
+        "source": "concept",
+        "source_scope": "canonical",
+        "writable": True,
+        "scope": "durable",
+        "durability": "durable",
+        "is_canonical": False,
+    }
+    assert "path" not in result.graph_action["source_provenance"]
+
+
+def test_open_saved_item_into_whiteboard_marks_experiment_source_as_temporary(tmp_path: Path) -> None:
+    experiment_root = tmp_path / "experiment"
+    runtime = _runtime(
+        experiment_root,
+        scope="experiment",
+        experiment_root=experiment_root,
+    )
+    record = runtime.executor.concept_store.create_concept(
+        title="Experiment Draft Source",
+        card="Session-local card.",
+        body="Session-local body.",
+    )
+    lifecycle = DraftArtifactLifecycle()
+
+    result = lifecycle.open_saved_item_into_whiteboard(runtime=runtime, record_id=record.id)
+
+    assert result.graph_action["source_scope"] == "experiment"
+    assert result.graph_action["source_durability"] == "temporary"
+    assert result.graph_action["source_is_canonical"] is False
+    assert result.graph_action["opened_copy_scope"] == "experiment"
+    assert result.graph_action["opened_copy_durability"] == "temporary"
 
 
 def test_open_saved_item_into_whiteboard_raises_for_missing_record(tmp_path: Path) -> None:

@@ -20,4 +20,6 @@ The multi-user profile coverage verifies that a configured Basic Auth user map c
 
 The canonical-scope regression coverage verifies that a profile literally named `canonical` keeps private concept, protocol, memory, and artifact records labeled durable while configured canonical defaults remain read-through and canonical.
 
+The saved-item open coverage verifies that `/api/concepts/open` returns additive source/copy provenance, including canonical source scope for read-through records and durable writable scope for the opened user Whiteboard copy.
+
 The chat-service monkeypatch stubs now expose `ChatTurnBodyParts` through `to_body_parts()`, matching the deep `turn_payloads.py` assembler boundary instead of returning prebuilt public turn dictionaries.

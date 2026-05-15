@@ -1,4 +1,14 @@
-import type { AppState, ArtifactAction, HealthPayload, NormalizedTurn, SurfaceInvocation, SurfacePayload, ViewKind, WorkspacePayload } from "./types";
+import type {
+  AppState,
+  ArtifactAction,
+  HealthPayload,
+  NormalizedTurn,
+  SelectedAttentionResource,
+  SurfaceInvocation,
+  SurfacePayload,
+  ViewKind,
+  WorkspacePayload,
+} from "./types";
 
 export const initialState: AppState = {
   auth: {
@@ -83,8 +93,34 @@ function validSurfaceId(surfaceId: string | null, surfaces: SurfacePayload[]): s
   return surfaces.some((surface) => surface.id === surfaceId) ? surfaceId : null;
 }
 
+function selectedWhiteboardResource(turn: NormalizedTurn): SelectedAttentionResource | null {
+  if (turn.navigatorSelection?.surfaceToOpen !== "whiteboard") {
+    return null;
+  }
+  const primaryResourceId = turn.navigatorSelection.primaryResourceId;
+  const primaryResource = turn.selectedAttentionResources.find((resource) => (
+    Boolean(primaryResourceId) && resource.resourceId === primaryResourceId
+  ));
+  const selectedResource = primaryResource || turn.selectedAttentionResources[0] || null;
+  if (!selectedResource?.content.trim()) {
+    return null;
+  }
+  if (selectedResource.app !== "whiteboard" && selectedResource.suggestedSurface !== "whiteboard") {
+    return null;
+  }
+  return selectedResource;
+}
+
+function workspaceIdFromResource(resource: SelectedAttentionResource): string {
+  const [, id] = resource.resourceId.split(":", 2);
+  return id || resource.resourceId || resource.id;
+}
+
 function nextViewForTurn(turn: NormalizedTurn, state: AppState): ViewKind {
   if (turn.workspaceUpdate?.content) {
+    return "whiteboard";
+  }
+  if (selectedWhiteboardResource(turn)) {
     return "whiteboard";
   }
   if (turn.surfacePayloads.length) {
@@ -146,7 +182,8 @@ export function appReducer(state: AppState, action: Action): AppState {
       return { ...state, busy: true, notice: null };
     case "CHAT_SUCCESS": {
       const turn = action.turn;
-      const workspaceContent = turn.workspaceUpdate?.content || state.workspace.content;
+      const selectedResource = selectedWhiteboardResource(turn);
+      const workspaceContent = turn.workspaceUpdate?.content || selectedResource?.content || state.workspace.content;
       const surfacePayloads = turn.surfacePayloads.length ? turn.surfacePayloads : state.surfacePayloads;
       const requestedActiveSurfaceId = turn.activeSurfaceId || turn.surfacePayloads[0]?.id || state.activeSurfaceId;
       const activeSurfaceId = validSurfaceId(requestedActiveSurfaceId, surfacePayloads);
@@ -156,9 +193,14 @@ export function appReducer(state: AppState, action: Action): AppState {
         activeSurfaceId,
         workspace: {
           ...state.workspace,
-          title: turn.workspaceUpdate?.title || state.workspace.title,
+          id: turn.workspaceUpdate?.content
+            ? state.workspace.id
+            : selectedResource
+              ? workspaceIdFromResource(selectedResource)
+              : state.workspace.id,
+          title: turn.workspaceUpdate?.title || selectedResource?.title || state.workspace.title,
           content: workspaceContent,
-          dirty: Boolean(turn.workspaceUpdate?.content) || state.workspace.dirty,
+          dirty: turn.workspaceUpdate?.content ? true : selectedResource ? false : state.workspace.dirty,
         },
       };
       return {

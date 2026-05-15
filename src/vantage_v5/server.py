@@ -410,6 +410,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 encoding="utf-8",
             )
 
+    def _seed_account_calendar_file(root: Path) -> None:
+        if cfg.calendar_events_path:
+            return
+        events_path = root / "state" / "calendar" / "events.json"
+        if events_path.exists():
+            return
+        events_path.parent.mkdir(parents=True, exist_ok=True)
+        events_path.write_text(
+            json.dumps(
+                {
+                    "calendars": [{"id": "local", "title": "Calendar"}],
+                    "events": [],
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
     def _canonical_scope() -> dict[str, Any]:
         return {
             "root": canonical_root,
@@ -1061,7 +1079,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             "password": _make_password_record(request.password),
         }
         _write_account_registry(account_store_path, accounts)
-        _ensure_storage_root(_user_root_for_key(account_key))
+        user_root = _user_root_for_key(account_key)
+        _ensure_storage_root(user_root)
+        _seed_account_calendar_file(user_root)
         durable_scope_cache.pop(account_key, None)
         return _login_response_for_user(username, created=True)
 

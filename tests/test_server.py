@@ -1523,6 +1523,12 @@ def test_create_account_hashes_password_and_creates_user_session(tmp_path: Path)
     assert account["password"]["algorithm"] == "pbkdf2_sha256"
     assert password not in account_path.read_text(encoding="utf-8")
     assert (repo_root / "users" / "taylor_01" / "workspaces" / "v5-milestone-1.md").exists()
+    calendar_path = repo_root / "users" / "taylor_01" / "state" / "calendar" / "events.json"
+    assert calendar_path.exists()
+    assert json.loads(calendar_path.read_text(encoding="utf-8")) == {
+        "calendars": [{"id": "local", "title": "Calendar"}],
+        "events": [],
+    }
     assert not (repo_root / "users" / "taylor_01" / "concepts" / "email-drafting-protocol.md").exists()
 
     protocols = client.get("/api/protocols")
@@ -1547,6 +1553,37 @@ def test_create_account_hashes_password_and_creates_user_session(tmp_path: Path)
     workspace = client.get("/api/workspace")
     assert workspace.status_code == 200
     assert workspace.json()["workspace_id"] == "v5-milestone-1"
+
+
+def test_create_account_does_not_seed_profile_calendar_when_global_calendar_is_configured(tmp_path: Path) -> None:
+    global_event = {
+        "id": "advisor-check-in",
+        "calendar_id": "school",
+        "title": "Advisor check-in",
+        "start": "2026-05-14T11:00:00",
+        "end": "2026-05-14T11:30:00",
+    }
+    global_calendar_path = _write_calendar_events(
+        tmp_path / "global-calendar" / "events.json",
+        events=[global_event],
+    )
+    client, repo_root = _client(
+        tmp_path,
+        auth_users={
+            "eden": "eden-password",
+        },
+        calendar_events_path=global_calendar_path,
+    )
+
+    created = client.post("/api/accounts", json={"username": "Taylor_01", "password": "taylor-password"})
+    assert created.status_code == 201
+
+    profile_calendar_path = repo_root / "users" / "taylor_01" / "state" / "calendar" / "events.json"
+    assert not profile_calendar_path.exists()
+    assert json.loads(global_calendar_path.read_text(encoding="utf-8")) == {
+        "calendars": [{"id": "school", "title": "School"}],
+        "events": [global_event],
+    }
 
 
 def test_create_account_can_require_access_code(tmp_path: Path) -> None:

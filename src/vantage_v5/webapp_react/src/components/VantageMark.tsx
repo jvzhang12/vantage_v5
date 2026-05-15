@@ -30,20 +30,20 @@ export function VantageMark({
       xmlns="http://www.w3.org/2000/svg"
     >
       {title ? <title id={titleId}>{title}</title> : null}
-      <Facet points="13 3 28 18 26 25 18 20" />
-      <Facet points="16 24 26 34 25 39 20 35" />
-      <Facet points="25 22 31 33 30 42 22 29" />
-      <Facet points="20 40 29 47 28 53 24 49" />
-      <Facet points="29 48 32 58 31 64 25 53" />
-      <Facet points="51 3 36 18 38 25 46 20" />
-      <Facet points="48 24 38 34 39 39 44 35" />
-      <Facet points="39 22 33 33 34 42 42 29" />
-      <Facet points="44 40 35 47 36 53 40 49" />
-      <Facet points="35 48 32 58 33 64 39 53" />
+      <path
+        d="M32 6 58 56H6L32 6Z"
+        stroke="currentColor"
+        strokeLinejoin="miter"
+        strokeWidth="3"
+      />
+      <path
+        d="M32 14 50 52H14L32 14Z"
+        opacity="0.45"
+        stroke="currentColor"
+        strokeLinejoin="miter"
+        strokeWidth="1.5"
+      />
+      <path d="M21 26H28L32 40 37 26H44L35 52H29L21 26Z" fill="currentColor" />
     </svg>
   );
-}
-
-function Facet({ points }: { points: string }) {
-  return <polygon fill="currentColor" points={points} />;
 }

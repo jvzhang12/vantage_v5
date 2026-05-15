@@ -7,7 +7,7 @@ Tailwind stylesheet for the React Vantage interface.
 - Implements the premium graphite Vantage theme using Tailwind layers.
 - Keeps the default state sparse, centered, and chat-first.
 - Styles the latest-turn Vantage “Why this answer?” receipt without dashboard chrome.
-- Defines the static mosaic Vantage mark sizing and shared color treatment.
+- Defines the static Vantage mark sizing and shared color treatment.
 
 ## Coverage
 

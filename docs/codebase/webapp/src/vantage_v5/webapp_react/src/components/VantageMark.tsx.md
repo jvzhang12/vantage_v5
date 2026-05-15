@@ -4,7 +4,7 @@ Reusable static SVG logo mark for Vantage.
 
 ## Purpose
 
-- Render the abstract V-shaped mosaic mark as flat SVG polygons.
+- Render the simple triangle-frame Vantage mark as static SVG paths.
 - Keep the mark lightweight, accessible when labelled, and reusable across app chrome and composer surfaces.
 - Inherit color with `currentColor` so parent styles can choose the muted cyan accent without duplicating SVG assets.
 

@@ -17,4 +17,5 @@ Focused unit tests for the backend Protocol Engine.
 - One-off draft requests can recall a protocol without writing or updating that protocol, even if the interpreter over-eagerly proposes an update.
 - Interpreter decisions that only recall a protocol preserve existing concept records without writing.
 - Guidance construction prefers persisted/canonical protocol records over built-ins and keeps protocol metadata explicit.
+- Guidance construction preserves product provenance for experiment-local temporary protocols, canonical protocols, durable user protocols, and built-in fallback guidance.
 - Guidance construction falls back to built-in protocols, such as Scenario Lab, when no persisted or canonical protocol exists.

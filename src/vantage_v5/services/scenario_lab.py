@@ -297,6 +297,8 @@ class ScenarioLabService:
         protocol_guidance = self.protocol_engine.build_guidance(
             protocol_kinds=applied_protocol_kinds or [],
             concept_records=concepts,
+            experiment_root=self.experiment_root,
+            runtime_scope=self.runtime_scope,
         )
         protocol_candidates = protocol_guidance.candidate_memory()
         if protocol_candidates:

@@ -310,6 +310,8 @@ class ChatService:
                 *protocol_turn.recall_protocol_kinds,
             ],
             concept_records=concepts,
+            experiment_root=self.experiment_root,
+            runtime_scope=self.runtime_scope,
         )
         protocol_candidates = protocol_guidance.candidate_memory()
         if protocol_candidates:

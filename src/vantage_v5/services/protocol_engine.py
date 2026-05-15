@@ -306,6 +306,8 @@ class ProtocolEngine:
         protocol_kinds: list[str],
         concept_records: list[MarkdownRecord],
         limit: int = 4,
+        experiment_root: Path | None = None,
+        runtime_scope: str = "durable",
     ) -> ProtocolGuidance:
         normalized_kinds: list[str] = []
         warnings: list[str] = []
@@ -321,6 +323,8 @@ class ProtocolEngine:
             concept_records=concept_records,
             limit=limit,
             canonical_root=self.canonical_root,
+            experiment_root=experiment_root,
+            runtime_scope=runtime_scope,
         )
         return ProtocolGuidance(
             protocol_kinds=tuple(normalized_kinds),

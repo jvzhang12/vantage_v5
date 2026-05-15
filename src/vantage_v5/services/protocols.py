@@ -343,6 +343,8 @@ def protocol_candidates_for_kinds(
     concept_records: list[MarkdownRecord],
     limit: int = 4,
     canonical_root: Path | None = None,
+    experiment_root: Path | None = None,
+    runtime_scope: str = "durable",
 ) -> list[CandidateMemory]:
     supported_kinds = _supported_protocol_kinds(protocol_kinds)
     if not supported_kinds:
@@ -359,7 +361,12 @@ def protocol_candidates_for_kinds(
             continue
         seen.add(record_kind)
         label = record_kind.replace("_", " ")
-        product_scope = product_scope_for_record(record, canonical_root=canonical_root)
+        product_scope = product_scope_for_record(
+            record,
+            canonical_root=canonical_root,
+            experiment_root=experiment_root,
+            fallback_scope=runtime_scope,
+        )
         candidates.append(
             CandidateMemory(
                 id=record.id,

@@ -181,6 +181,71 @@ def test_protocol_engine_builds_guidance_from_persisted_protocol_override(tmp_pa
     }
 
 
+def test_protocol_engine_marks_experiment_protocol_guidance_temporary(tmp_path: Path) -> None:
+    experiment_root = tmp_path / "state" / "experiments" / "experiment-1"
+    protocol_record = MarkdownRecord(
+        id="email-drafting-protocol",
+        title="Experiment Email Protocol",
+        type="protocol",
+        card="Experiment-local email guidance.",
+        body="Use temporary experiment email guidance.",
+        status="active",
+        links_to=[],
+        comes_from=[],
+        path=experiment_root / "concepts" / "email-drafting-protocol.md",
+        source_value="concept",
+        trust_value="high",
+        metadata={"protocol_kind": "email"},
+    )
+
+    guidance = ProtocolEngine().build_guidance(
+        protocol_kinds=["email"],
+        concept_records=[protocol_record],
+        experiment_root=experiment_root,
+        runtime_scope="experiment",
+    )
+
+    assert len(guidance.candidates) == 1
+    candidate = guidance.candidates[0]
+    assert candidate.scope == "experiment"
+    assert candidate.durability == "temporary"
+    assert candidate.is_canonical is False
+    assert candidate.to_dict()["scope"] == "experiment"
+    assert candidate.to_dict()["durability"] == "temporary"
+
+
+def test_protocol_engine_preserves_canonical_and_builtin_guidance_scope(tmp_path: Path) -> None:
+    canonical_root = tmp_path / "canonical"
+    canonical_record = MarkdownRecord(
+        id="email-drafting-protocol",
+        title="Canonical Email Protocol",
+        type="protocol",
+        card="Canonical email guidance.",
+        body="Use canonical email guidance.",
+        status="active",
+        links_to=[],
+        comes_from=[],
+        path=canonical_root / "concepts" / "email-drafting-protocol.md",
+        source_value="concept",
+        trust_value="high",
+        metadata={"protocol_kind": "email"},
+    )
+
+    guidance = ProtocolEngine(canonical_root=canonical_root).build_guidance(
+        protocol_kinds=["email", "scenario_lab"],
+        concept_records=[canonical_record],
+        experiment_root=tmp_path / "state" / "experiments" / "experiment-1",
+        runtime_scope="experiment",
+    )
+
+    candidates = {candidate.id: candidate for candidate in guidance.candidates}
+    assert candidates["email-drafting-protocol"].scope == "canonical"
+    assert candidates["email-drafting-protocol"].durability == "durable"
+    assert candidates["email-drafting-protocol"].is_canonical is True
+    assert candidates["scenario-lab-protocol"].scope == "builtin"
+    assert candidates["scenario-lab-protocol"].durability == "builtin"
+
+
 def test_protocol_engine_builds_guidance_from_builtin_when_no_override(tmp_path: Path) -> None:
     guidance = ProtocolEngine().build_guidance(
         protocol_kinds=["unknown", "scenario_lab"],

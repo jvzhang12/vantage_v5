@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from pathlib import Path
 from typing import Any
 
 from vantage_v5.services.model_client import create_model_client
@@ -252,6 +253,7 @@ def build_protocol_write_from_update(
     variables: dict[str, Any] | None,
     applies_to: list[str] | None,
     existing_protocols: list[MarkdownRecord],
+    canonical_root: Path | None = None,
 ) -> ProtocolWrite:
     supported_kind = _supported_protocol_kind(protocol_kind)
     if supported_kind is None:
@@ -287,7 +289,7 @@ def build_protocol_write_from_update(
         "override_of_builtin": supported_kind in BUILT_IN_PROTOCOLS
         or bool(existing is not None and existing.metadata.get("override_of_builtin")),
         "override_of_canonical": bool(existing is not None and (
-            _is_canonical_record(existing)
+            _is_canonical_record(existing, canonical_root=canonical_root)
             or existing.metadata.get("override_of_canonical")
         )),
     }
@@ -338,6 +340,7 @@ def protocol_candidates_for_kinds(
     protocol_kinds: list[str],
     concept_records: list[MarkdownRecord],
     limit: int = 4,
+    canonical_root: Path | None = None,
 ) -> list[CandidateMemory]:
     supported_kinds = _supported_protocol_kinds(protocol_kinds)
     if not supported_kinds:
@@ -373,7 +376,7 @@ def protocol_candidates_for_kinds(
                     "applies_to": record.metadata.get("applies_to") or [],
                     "modifiable": bool(record.metadata.get("modifiable", True)),
                     "is_builtin": False,
-                    "is_canonical": _is_canonical_record(record),
+                    "is_canonical": _is_canonical_record(record, canonical_root=canonical_root),
                     "overrides_builtin": bool(record.metadata.get("override_of_builtin")),
                     "overrides_canonical": bool(record.metadata.get("override_of_canonical")),
                 },
@@ -440,8 +443,14 @@ def _find_protocol(records: list[MarkdownRecord], protocol_kind: str) -> Markdow
     return None
 
 
-def _is_canonical_record(record: MarkdownRecord) -> bool:
-    return "canonical" in record.path.parts
+def _is_canonical_record(record: MarkdownRecord, *, canonical_root: Path | None) -> bool:
+    if canonical_root is None:
+        return False
+    try:
+        record.path.resolve().relative_to(canonical_root.resolve())
+        return True
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 def _protocol_variables(record: MarkdownRecord | None) -> dict[str, Any]:

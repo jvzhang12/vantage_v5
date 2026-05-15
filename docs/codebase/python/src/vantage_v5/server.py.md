@@ -92,7 +92,7 @@ FastAPI application entrypoint for Vantage V5. It wires together configuration, 
 
 - Preserves the original single-user storage layout when no multi-user credential map is configured.
 - When `auth_users` is configured, Basic Auth usernames are normalized into safe storage ids and each user gets isolated Markdown-backed `concepts/`, `memories/`, `artifacts/`, `workspaces/`, `memory_trace/`, `state/`, and `traces/` directories under `users/<username>/`.
-- Adds a read-through canonical default layer under `canonical/`: profile and experiment stores stay private/writable, while canonical concepts, protocols, memories, and artifacts are visible as lower-priority reference context without being copied into each user folder.
+- Adds a read-through canonical default layer under `canonical/`: profile and experiment stores stay private/writable, while canonical concepts, protocols, memories, and artifacts are visible as lower-priority reference context without being copied into each user folder. API scope labels classify records against the configured canonical root and active experiment root, so profile or path segment names such as `canonical` do not make private records appear global.
 - Refuses non-local bind hosts such as `0.0.0.0` unless auth is enabled through a configured password, configured user map, local account store, or account-creation access code, unless `VANTAGE_V5_ALLOW_UNSAFE_PUBLIC_NO_AUTH=true` is explicitly set.
 - Supports optional `TrustedHostMiddleware` through `VANTAGE_V5_ALLOWED_HOSTS`.
 - Blocks mutating cross-origin requests when an `Origin` or `Referer` does not match the request host or configured `VANTAGE_V5_ALLOWED_ORIGINS`.

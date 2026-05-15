@@ -190,6 +190,7 @@ class ScenarioLabService:
         vetting_service: ConceptVettingService,
         protocol_engine: ProtocolEngine,
         traces_dir: Path,
+        runtime_scope: str = "durable",
     ) -> None:
         self.model = model
         self.concept_store = concept_store
@@ -206,6 +207,7 @@ class ScenarioLabService:
         self.vetting_service = vetting_service
         self.protocol_engine = protocol_engine
         self.traces_dir = traces_dir
+        self.runtime_scope = "experiment" if runtime_scope == "experiment" else "durable"
         self.client = create_model_client(
             model_client_config or ModelClientConfig(openai_api_key=openai_api_key)
         )
@@ -367,7 +369,7 @@ class ScenarioLabService:
                 namespace_mode=namespace_mode,
             )
             persisted_paths.append(comparison_artifact.path)
-            created_record = _record_payload(comparison_artifact)
+            created_record = _record_payload(comparison_artifact, scope=self.runtime_scope)
             assistant_message = _scenario_chat_brief(
                 scenario_plan,
                 saved_branches=saved_branches,
@@ -383,7 +385,7 @@ class ScenarioLabService:
                 workspace_scope="visible" if workspace.content.strip() else "excluded",
                 learned=[created_record],
                 response_mode=response_mode,
-                scope="experiment" if "experiments" in self.memory_trace_store.records_dir.parts else "durable",
+                scope=self.runtime_scope,
                 pending_workspace_update=pending_workspace_update,
                 visible_artifacts=visible_artifacts,
                 turn_mode="scenario_lab",
@@ -412,7 +414,7 @@ class ScenarioLabService:
                 candidate_memory=[candidate.to_dict() for candidate in candidate_memory],
                 working_memory=[candidate.to_dict() for candidate in vetted_memory],
                 learned=[created_record],
-                memory_trace_record=_record_payload(memory_trace_record),
+                memory_trace_record=_record_payload(memory_trace_record, scope=self.runtime_scope),
                 response_mode=response_mode,
                 vetting=vetting,
                 navigator=navigation.to_dict(),
@@ -672,7 +674,7 @@ class ScenarioLabService:
                         "source_tier": "workspace",
                         "status": "counterfactual",
                         "source": "workspace",
-                        "scope": "experiment" if "experiments" in document.path.parts else "durable",
+                        "scope": self.runtime_scope,
                         "scenario_kind": scenario_metadata.get("scenario_kind", "branch"),
                         **scenario_metadata,
                     }
@@ -1042,8 +1044,8 @@ def _render_comparison_artifact(
     return "\n".join(sections)
 
 
-def _record_payload(record: ArtifactRecord) -> dict[str, Any]:
-    scope = "experiment" if "experiments" in record.path.parts else "durable"
+def _record_payload(record: ArtifactRecord, *, scope: str = "durable") -> dict[str, Any]:
+    scope = "experiment" if scope == "experiment" else "durable"
     scenario_metadata = ArtifactStore.parse_scenario_metadata(record) or {}
     payload = {
         "id": record.id,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import re
 from typing import Any
 
@@ -109,7 +110,9 @@ class ProtocolEngine:
         model: str = "",
         openai_api_key: str | None = None,
         model_client_config: ModelClientConfig | None = None,
+        canonical_root: Path | None = None,
     ) -> None:
+        self.canonical_root = canonical_root
         self.protocol_interpreter = ProtocolInterpreter(
             model=model,
             openai_api_key=openai_api_key,
@@ -284,6 +287,7 @@ class ProtocolEngine:
             variables=variables,
             applies_to=applies_to,
             existing_protocols=concept_records,
+            canonical_root=self.canonical_root,
         )
         return concept_store.upsert_protocol(
             protocol_id=protocol_write.protocol_id,
@@ -316,6 +320,7 @@ class ProtocolEngine:
             protocol_kinds=normalized_kinds,
             concept_records=concept_records,
             limit=limit,
+            canonical_root=self.canonical_root,
         )
         return ProtocolGuidance(
             protocol_kinds=tuple(normalized_kinds),

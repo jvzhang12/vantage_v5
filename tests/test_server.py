@@ -1016,6 +1016,7 @@ def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_
         }
     ]
     artifact_ids_before = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
+    concept_ids_before = {path.stem for path in (repo_root / "concepts").glob("*.md")}
     captured: dict[str, object] = {}
 
     def _route(self, **kwargs):
@@ -1031,13 +1032,13 @@ def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_
         captured["visible_artifacts"] = kwargs["visible_artifacts"]
         return "Start with one graph traversal problem without notes, then compare and log mistakes."
 
+    def _unexpected_meta_write(self, **kwargs):
+        raise AssertionError("Visible artifact Q&A should not ask meta to create durable graph records.")
+
     monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
     monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
-    monkeypatch.setattr(
-        "vantage_v5.services.meta.MetaService.decide",
-        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Visible artifact Q&A should not save."),
-    )
+    monkeypatch.setattr("vantage_v5.services.meta.MetaService.decide", _unexpected_meta_write)
 
     response = client.post(
         "/api/chat",
@@ -1068,6 +1069,9 @@ def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_
     artifact_ids_after = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
     assert artifact_ids_after == artifact_ids_before
     assert not any(artifact_id.startswith("first-action-from-midterm-study-plan") for artifact_id in artifact_ids_after)
+    concept_ids_after = {path.stem for path in (repo_root / "concepts").glob("*.md")}
+    assert concept_ids_after == concept_ids_before
+    assert "active-study-cycle-for-algorithm-exam-preparation" not in concept_ids_after
 
 
 def test_chat_uses_attention_selection_as_primary_surface_authority(tmp_path: Path, monkeypatch) -> None:
@@ -1249,7 +1253,7 @@ def test_chat_attention_open_directive_prefers_source_artifact_over_opened_copy(
     def _reply(self, **kwargs):
         captured["whiteboard_mode"] = kwargs["whiteboard_mode"]
         captured["selected_attention_resources"] = kwargs["selected_attention_resources"]
-        return "I found the Midterm Study Plan."
+        return "I found the Midterm Study Plan. It includes homework priorities and task focus for graphs."
 
     monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
@@ -1278,6 +1282,9 @@ def test_chat_attention_open_directive_prefers_source_artifact_over_opened_copy(
     assert payload["workspace_update"] is None
     assert payload["created_record"] is None
     assert payload["graph_action"] is None
+    assert payload["artifact_actions"] == []
+    assert payload["active_surface_id"] is None
+    assert payload["surface_payloads"] == []
     assert payload["selected_attention_resources"][0]["resource_id"] == f"artifact:{source_artifact.id}"
     assert payload["selected_attention_resources"][0]["title"] == "Midterm Study Plan"
     assert "Practice BFS" in payload["selected_attention_resources"][0]["content"]

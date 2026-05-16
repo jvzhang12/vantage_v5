@@ -51,6 +51,25 @@ WHITEBOARD_LABEL_RE = re.compile(
     r"(?<![A-Z0-9_])(?P<label>CHAT_RESPONSE|WHITEBOARD_DRAFT|WHITEBOARD_OFFER)\s*:",
     re.IGNORECASE,
 )
+ARTIFACT_QNA_RE = re.compile(
+    r"\b(?:summari[sz]e|explain|key points?|main points?|takeaways?|walk me through|tell me about|"
+    r"what\s+(?:are|is|should|does|do|comes)|how\s+(?:should|do|does|can)|why|when|where|which)\b",
+    re.IGNORECASE,
+)
+ARTIFACT_REFERENCE_RE = re.compile(
+    r"\b(?:this|that|current|visible|open|opened)\s+"
+    r"(?:artifact|whiteboard|item|document|draft|plan|study plan|itinerary|outline|list|note|material|content)\b|"
+    r"\b(?:this|the)\s+(?:study\s+)?plan\b|"
+    r"\b(?:it|this|that)\b|"
+    r"\b(?:current view|what i(?:'m| am) looking at)\b|"
+    r"\b(?:from|in|on|about|using|based on)\s+(?:this|that|the current view)\b",
+    re.IGNORECASE,
+)
+EXPLICIT_GRAPH_WRITE_RE = re.compile(
+    r"\b(?:remember|learn|save|note that|save this|save as concept|make this a concept|"
+    r"turn this into a concept|conceptuali[sz]e|create (?:a )?concept|store this)\b",
+    re.IGNORECASE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -497,6 +516,20 @@ class ChatService:
                 action="no_op",
                 rationale=(
                     "A reusable protocol was updated deterministically, so no separate meta write was needed."
+                ),
+            )
+            executed_action = None
+        elif _should_suppress_auto_graph_write(
+            message=message,
+            memory_mode=memory_mode,
+            visible_artifacts=visible_artifacts,
+            selected_attention_resources=selected_attention_resources,
+        ):
+            meta = MetaDecision(
+                action="no_op",
+                rationale=(
+                    "Ordinary Q&A about a visible or selected artifact stays in chat unless the user "
+                    "explicitly asks Vantage to save, remember, or conceptualize it."
                 ),
             )
             executed_action = None
@@ -1561,6 +1594,56 @@ def _normalize_memory_mode(memory_intent: str | None) -> str:
     if memory_intent in {"skip", "dont_save"}:
         return "dont_save"
     return "auto"
+
+
+def _should_suppress_auto_graph_write(
+    *,
+    message: str,
+    memory_mode: str,
+    visible_artifacts: list[dict[str, Any]] | None,
+    selected_attention_resources: list[dict[str, Any]] | None,
+) -> bool:
+    if memory_mode != "auto":
+        return False
+    if EXPLICIT_GRAPH_WRITE_RE.search(message):
+        return False
+    if not _has_artifact_context(
+        visible_artifacts=visible_artifacts,
+        selected_attention_resources=selected_attention_resources,
+    ):
+        return False
+    return bool(ARTIFACT_QNA_RE.search(message) and ARTIFACT_REFERENCE_RE.search(message))
+
+
+def _has_artifact_context(
+    *,
+    visible_artifacts: list[dict[str, Any]] | None,
+    selected_attention_resources: list[dict[str, Any]] | None,
+) -> bool:
+    for artifact in visible_artifacts or []:
+        if not isinstance(artifact, dict):
+            continue
+        kind = str(artifact.get("kind") or "").strip().lower()
+        artifact_id = str(artifact.get("id") or "").strip().lower()
+        if kind in {"artifact", "whiteboard"} or artifact_id.startswith("artifact:"):
+            return True
+    for resource in selected_attention_resources or []:
+        if not isinstance(resource, dict):
+            continue
+        kind = str(resource.get("kind") or "").strip().lower()
+        app = str(resource.get("app") or "").strip().lower()
+        surface = str(resource.get("suggested_surface") or "").strip().lower()
+        source = str(resource.get("source") or "").strip().lower()
+        resource_id = str(resource.get("resource_id") or resource.get("id") or "").strip().lower()
+        if (
+            source == "artifact"
+            or kind in {"artifact", "whiteboard"}
+            or app == "whiteboard"
+            or surface == "whiteboard"
+            or resource_id.startswith("artifact:")
+        ):
+            return True
+    return False
 
 
 def _trace_preserved_context_payload(candidate: CandidateMemory | None) -> dict[str, Any] | None:

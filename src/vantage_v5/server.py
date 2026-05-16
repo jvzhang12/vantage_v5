@@ -22,6 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from vantage_v5.config import AppConfig
 from vantage_v5.services.artifact_actions import action_graph_payload
 from vantage_v5.services.artifact_actions import action_surface_context
+from vantage_v5.services.artifact_actions import ArtifactActionPlan
 from vantage_v5.services.artifact_actions import ArtifactActionPlanner
 from vantage_v5.services.artifact_actions import ArtifactActionStore
 from vantage_v5.services.artifact_actions import execute_artifact_action
@@ -885,17 +886,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 app_capabilities=app_capabilities,
             )
         )
+        open_only_handoff = _is_whiteboard_open_only_payload(payload)
         action_visible_artifacts = [
             *(visible_artifacts or []),
             *_visible_artifacts_from_selected_attention(payload.get("selected_attention_resources")),
         ]
-        action_plan = _artifact_mutation_compiler_for_scope(
-            durable_scope,
-            app_capabilities=app_capabilities,
-        ).compile_for_turn(
-            user_message=message,
-            semantic_action=str(payload.get("assistant_message") or ""),
-            visible_artifacts=action_visible_artifacts,
+        action_plan = (
+            ArtifactActionPlan(artifact_actions=[])
+            if open_only_handoff
+            else _artifact_mutation_compiler_for_scope(
+                durable_scope,
+                app_capabilities=app_capabilities,
+            ).compile_for_turn(
+                user_message=message,
+                semantic_action=str(payload.get("assistant_message") or ""),
+                visible_artifacts=action_visible_artifacts,
+            )
         )
         payload["artifact_actions"] = action_plan.artifact_actions
         if action_plan.artifact_actions:
@@ -918,6 +924,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             workspace_payload=payload.get("workspace") if isinstance(payload.get("workspace"), dict) else None,
         )
         return attach_safe_turn_state(payload)
+
+    def _is_whiteboard_open_only_payload(payload: dict[str, Any]) -> bool:
+        invocation = payload.get("surface_invocation")
+        if not isinstance(invocation, dict):
+            return False
+        if str(invocation.get("write_behavior") or "").strip().lower() != "open_only":
+            return False
+        primary_surface = str(invocation.get("primary_surface") or "").strip().lower()
+        if primary_surface == "whiteboard":
+            return True
+        for surface in invocation.get("surfaces") or []:
+            if isinstance(surface, dict) and str(surface.get("kind") or "").strip().lower() == "whiteboard":
+                return True
+        return False
 
     def _visible_artifacts_from_selected_attention(value: Any) -> list[dict[str, Any]]:
         artifacts: list[dict[str, Any]] = []

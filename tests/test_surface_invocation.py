@@ -98,7 +98,44 @@ def test_surface_invocation_keeps_visible_artifact_for_ambiguous_followup() -> N
 
     assert invocation.intent == "current_artifact_followup"
     assert invocation.primary_surface == "chat"
+    assert invocation.whiteboard_mode == "chat"
+    assert invocation.resolved_whiteboard_mode(requested_mode="auto", current_mode="draft") == "chat"
     assert invocation.surfaces[0].status == "kept_current_view"
+
+
+def test_surface_invocation_keeps_visible_whiteboard_qna_in_chat() -> None:
+    invocation = build_surface_invocation(
+        user_message="What should I do first from this study plan?",
+        visible_artifacts=[
+            {
+                "id": "artifact:midterm-study-plan",
+                "kind": "whiteboard",
+                "title": "Midterm Study Plan",
+            }
+        ],
+    )
+
+    assert invocation.intent == "current_artifact_followup"
+    assert invocation.primary_surface == "chat"
+    assert invocation.write_behavior == "none"
+    assert invocation.resolved_whiteboard_mode(requested_mode="auto", current_mode="draft") == "chat"
+
+
+def test_surface_invocation_visible_artifact_explicit_whiteboard_draft_still_drafts() -> None:
+    invocation = build_surface_invocation(
+        user_message="Draft this study plan in the whiteboard.",
+        visible_artifacts=[
+            {
+                "id": "artifact:midterm-study-plan",
+                "kind": "whiteboard",
+                "title": "Midterm Study Plan",
+            }
+        ],
+    )
+
+    assert invocation.intent == "durable_artifact"
+    assert invocation.primary_surface == "whiteboard"
+    assert invocation.whiteboard_mode == "draft"
 
 
 def test_surface_invocation_code_artifact_summons_code_and_whiteboard() -> None:

@@ -18,6 +18,7 @@ Deterministic policy layer for deciding which Vantage surface should be summoned
 ## Surface Rules
 
 - Chat-only requests stay in chat when the user explicitly asks for that.
+- Visible artifact/Whiteboard follow-up questions such as "what should I do first/next?" stay in chat and keep the current view instead of opening or replacing a draft.
 - Schedule lookup requests summon `calendar_day`.
 - Schedule planning requests summon `calendar_day` with `task_focus` and `whiteboard` support.
 - Task/deadline/focus requests summon `task_focus`.

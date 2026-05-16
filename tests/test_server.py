@@ -979,6 +979,85 @@ def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: 
     assert "calendar.read_week" in {tool["name"] for tool in captured["reply_app_capabilities"]["tools"]}
 
 
+def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_artifact(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    visible_artifacts = [
+        {
+            "id": "artifact:midterm-study-plan",
+            "kind": "whiteboard",
+            "title": "Midterm Study Plan",
+            "summary": "Study plan for graph algorithms and priorities.",
+            "content": (
+                "# Midterm Study Plan\n\n"
+                "## Focus Areas\n\n"
+                "- Graph traversal: BFS, DFS, edge cases, and implementation details.\n"
+                "- Runtime analysis: explain time and space complexity out loud.\n"
+                "- Practice: two timed problems, then a mistake log.\n\n"
+                "## Plan\n\n"
+                "1. Review lecture notes for 25 minutes.\n"
+                "2. Solve one graph traversal problem without notes.\n"
+                "3. Compare against solution and write down mistakes.\n"
+            ),
+        }
+    ]
+    artifact_ids_before = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
+    captured: dict[str, object] = {}
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="The model misread the visible study-plan follow-up as a whiteboard draft.",
+            whiteboard_mode="draft",
+        )
+
+    def _reply(self, **kwargs):
+        captured["whiteboard_mode"] = kwargs["whiteboard_mode"]
+        captured["visible_artifacts"] = kwargs["visible_artifacts"]
+        return "Start with one graph traversal problem without notes, then compare and log mistakes."
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Visible artifact Q&A should not save."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "What should I do first from this study plan?",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": visible_artifacts[0]["content"],
+            "visible_artifacts": visible_artifacts,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"].startswith("Start with one graph traversal problem")
+    assert payload["workspace_update"] is None
+    assert payload["created_record"] is None
+    assert payload["graph_action"] is None
+    assert payload["artifact_actions"] == []
+    assert payload["visible_artifacts"][0]["id"] == "artifact:midterm-study-plan"
+    assert "Midterm Study Plan" in payload["visible_artifacts"][0]["content"]
+    assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "chat"
+    assert payload["surface_invocation"]["intent"] == "current_artifact_followup"
+    assert payload["surface_invocation"]["primary_surface"] == "chat"
+    assert captured["whiteboard_mode"] == "chat"
+    assert captured["visible_artifacts"][0]["id"] == "artifact:midterm-study-plan"
+    artifact_ids_after = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
+    assert artifact_ids_after == artifact_ids_before
+    assert not any(artifact_id.startswith("first-action-from-midterm-study-plan") for artifact_id in artifact_ids_after)
+
+
 def test_chat_uses_attention_selection_as_primary_surface_authority(tmp_path: Path, monkeypatch) -> None:
     client, _ = _client(tmp_path)
 

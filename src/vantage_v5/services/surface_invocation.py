@@ -66,8 +66,10 @@ LIGHTWEIGHT_CHAT_RE = re.compile(
 )
 CURRENT_ARTIFACT_FOLLOWUP_RE = re.compile(
     r"\b(?:what should i do next|what should i focus on next|what next|what's next|what is next|"
-    r"now what|what am i looking at|what is this|what's this|based on (?:this|the current view)|using (?:this|the current view)|"
-    r"how should i use (?:this|the current view))\b",
+    r"what should i do first|what should i focus on first|what should i start with|where should i start|"
+    r"what comes first|what's first|what is first|now what|what am i looking at|what is this|what's this|"
+    r"based on (?:this|the current view)|using (?:this|the current view)|"
+    r"how should i use (?:this|the current view|this plan|the plan))\b",
     re.IGNORECASE,
 )
 
@@ -170,6 +172,7 @@ def build_surface_invocation(
                 "so Vantage should answer using the current view instead of replacing it."
             ),
             confidence=0.78,
+            whiteboard_mode="chat",
             status="kept_current_view",
         )
     if _is_travel_plan(message):
@@ -341,6 +344,7 @@ def _visible_surface_kind(visible_artifacts: list[dict[str, Any]] | None) -> str
             SURFACE_CALENDAR_WEEK,
             SURFACE_TASK_FOCUS,
             SURFACE_WHITEBOARD,
+            "artifact",
             "today_briefing",
             SURFACE_CODE_ARTIFACT,
         }:

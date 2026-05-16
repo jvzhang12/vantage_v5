@@ -67,6 +67,7 @@ HARD_SURFACE_INTENTS = {"chat_only", "scenario_comparison", "current_artifact_fo
 RESOURCE_VALUE_LIMIT = 2800
 VECTOR_MATCH_THRESHOLD = 0.16
 VECTOR_BONUS_WEIGHT = 3.6
+DERIVATIVE_ARTIFACT_PENALTY = 1.2
 ATTENTION_STOPWORDS = {
     "about",
     "can",
@@ -866,7 +867,12 @@ def _record_resource(record: MarkdownRecord, *, store_key: str, runtime: dict[st
         is_canonical=product_scope.is_canonical,
         source_status={"store": store_key, "trust": record.trust, "read_only": True},
         timestamps=timestamps,
-        value_ref={"record_id": record.id, "path": str(record.path), "source": record.source},
+        value_ref={
+            "record_id": record.id,
+            "path": str(record.path),
+            "source": record.source,
+            "comes_from": list(record.comes_from),
+        },
         suggested_surface="whiteboard" if record.source == "artifact" else None,
     )
 
@@ -976,6 +982,12 @@ def _rank_resources(
     query_phrase = query_frame.normalized_text
     vector_hits = vector_hits or {}
     query_vector = semantic_vector(query_frame.raw_text)
+    artifact_ids = {
+        str(resource.value_ref.get("record_id") or "").strip()
+        for resource in resources
+        if resource.source == "artifact"
+    }
+    prefer_source_artifacts = _should_prefer_source_artifact(query_frame)
     for resource in resources:
         rule_score = 0.0
         temporal_score = 0.0
@@ -1024,7 +1036,21 @@ def _rank_resources(
             query_frame=query_frame,
             temporal_matches=temporal_matches,
         )
-        score = max(0.0, rule_score + temporal_score + source_score + recency_score + vector_bonus - trace_scope_penalty)
+        derivative_artifact_penalty = _derivative_artifact_penalty(
+            resource,
+            artifact_ids=artifact_ids,
+            prefer_source_artifacts=prefer_source_artifacts,
+        )
+        score = max(
+            0.0,
+            rule_score
+            + temporal_score
+            + source_score
+            + recency_score
+            + vector_bonus
+            - trace_scope_penalty
+            - derivative_artifact_penalty,
+        )
         if score < 1.0 and resource.source != "visible_artifact":
             continue
         candidates.append(
@@ -1058,6 +1084,7 @@ def _rank_resources(
                     "indexed_vector_similarity": round(indexed_vector_similarity, 4),
                     "vector_bonus": round(vector_bonus, 4),
                     "trace_scope_penalty": round(-trace_scope_penalty, 4),
+                    "derivative_artifact_penalty": round(-derivative_artifact_penalty, 4),
                     "hybrid": round(score, 4),
                 },
             )
@@ -1159,6 +1186,51 @@ def _memory_trace_scope_penalty(
     if temporal_matches:
         return 0.0
     return 18.0
+
+
+def _should_prefer_source_artifact(query_frame: QueryFrame) -> bool:
+    explicit_derivative_terms = {
+        "action",
+        "first",
+        "immediate",
+        "next",
+        "step",
+    }
+    if set(query_frame.tokens) & explicit_derivative_terms:
+        return False
+    if not ({"read", "reopen"} & set(query_frame.operations)):
+        return False
+    return any(
+        phrase in query_frame.normalized_text
+        for phrase in (
+            "exam preparation",
+            "find my",
+            "find the",
+            "material",
+            "materials",
+            "pull up",
+            "study plan",
+        )
+    )
+
+
+def _derivative_artifact_penalty(
+    resource: AttentionResource,
+    *,
+    artifact_ids: set[str],
+    prefer_source_artifacts: bool,
+) -> float:
+    if not prefer_source_artifacts or resource.source != "artifact":
+        return 0.0
+    comes_from = resource.value_ref.get("comes_from")
+    if not isinstance(comes_from, list):
+        return 0.0
+    if not any(str(parent_id).strip() in artifact_ids for parent_id in comes_from):
+        return 0.0
+    title = resource.title.lower()
+    if not any(term in title for term in ("action", "first", "immediate", "next", "step")):
+        return 0.0
+    return DERIVATIVE_ARTIFACT_PENALTY
 
 
 def _candidate_priority(candidate: AttentionCandidate) -> int:

@@ -170,6 +170,15 @@ def test_attention_retrieval_prefers_saved_artifact_over_unrequested_memory_trac
         card="Graph algorithms, runtime analysis, and study priorities.",
         body="# Midterm Study Plan\n\nPractice BFS, DFS, edge cases, and runtime analysis.",
     )
+    derivative = runtime["artifact_store"].create_artifact(
+        title="First Action from Midterm Study Plan",
+        card="Drafted the detailed answer into the whiteboard for collaborative editing.",
+        body=(
+            "# First Action from Midterm Study Plan\n\n"
+            "Start with graph traversal fundamentals, BFS mechanics, DFS mechanics, and edge cases."
+        ),
+        comes_from=[artifact.id],
+    )
     runtime["memory_trace_store"].create_turn_trace(
         user_message="Can you find my exam preparation material about graphs and study priorities?",
         assistant_message="A prior answer that mentioned the midterm study plan.",
@@ -199,8 +208,20 @@ def test_attention_retrieval_prefers_saved_artifact_over_unrequested_memory_trac
 
     assert turn.candidates[0].resource_id == f"artifact:{artifact.id}"
     assert selection.primary_resource_id == f"artifact:{artifact.id}"
+    derivative_candidate = next(item for item in turn.candidates if item.resource_id == f"artifact:{derivative.id}")
+    assert derivative_candidate.retrieval_scores["derivative_artifact_penalty"] < 0
     trace_candidate = next(item for item in turn.candidates if item.source == "memory_trace")
     assert trace_candidate.retrieval_scores["trace_scope_penalty"] < 0
+
+    action_turn = engine.prepare_turn(
+        message="What is the first action from the Midterm Study Plan?",
+        runtime=runtime,
+        workspace=workspace,
+        visible_artifacts=[],
+    )
+
+    assert action_turn.candidates[0].resource_id == f"artifact:{derivative.id}"
+    assert action_turn.candidates[0].retrieval_scores["derivative_artifact_penalty"] == 0
 
 
 def test_sqlite_vector_index_persists_and_queries_semantic_hits(tmp_path: Path) -> None:

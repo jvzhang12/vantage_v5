@@ -95,7 +95,7 @@ function validSurfaceId(surfaceId: string | null, surfaces: SurfacePayload[]): s
 
 function selectedWhiteboardResource(turn: NormalizedTurn): SelectedAttentionResource | null {
   const hasWhiteboardOpenDirective = turn.navigatorSelection?.surfaceToOpen === "whiteboard"
-    || turn.selectedAttentionResources.some(isOpenableWhiteboardResource);
+    || isOpenOnlyWhiteboardInvocation(turn);
   if (!hasWhiteboardOpenDirective) {
     return null;
   }
@@ -116,6 +116,17 @@ function selectedWhiteboardResource(turn: NormalizedTurn): SelectedAttentionReso
 
 function isOpenableWhiteboardResource(resource: SelectedAttentionResource): boolean {
   return resource.app === "whiteboard" || resource.suggestedSurface === "whiteboard" || resource.kind === "whiteboard";
+}
+
+function isOpenOnlyWhiteboardInvocation(turn: NormalizedTurn): boolean {
+  const invocation = turn.surfaceInvocation;
+  if (invocation?.writeBehavior !== "open_only") {
+    return false;
+  }
+  if (invocation.primarySurface === "whiteboard") {
+    return true;
+  }
+  return invocation.surfaces.some((surface) => surface.kind === "whiteboard");
 }
 
 function workspaceIdFromResource(resource: SelectedAttentionResource): string {

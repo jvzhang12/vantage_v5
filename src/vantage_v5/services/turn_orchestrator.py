@@ -117,6 +117,19 @@ class TurnOrchestrator:
             attention_selection,
             selected_resources=selected_attention_resources,
         )
+        if _is_open_only_whiteboard_invocation(surface_invocation_payload):
+            if (
+                resolved_whiteboard_mode == "draft"
+                and self.whiteboard_routing.should_continue_current_whiteboard_draft(
+                    request.message,
+                    context.workspace,
+                )
+            ):
+                surface_invocation_payload["write_behavior"] = "draft_only"
+                surface_invocation_payload["whiteboard_mode"] = "draft"
+            else:
+                resolved_whiteboard_mode = "chat"
+                surface_invocation_payload["whiteboard_mode"] = "chat"
         surface_invocation_payload["resolved_whiteboard_mode"] = (
             resolved_whiteboard_mode if navigation.mode == "chat" else None
         )
@@ -359,6 +372,20 @@ class TurnOrchestrator:
         if attention_state_payload:
             payload.update(attention_state_payload)
         return payload
+
+
+def _is_open_only_whiteboard_invocation(surface_invocation: dict[str, Any]) -> bool:
+    if str(surface_invocation.get("write_behavior") or "").strip().lower() != "open_only":
+        return False
+    primary = str(surface_invocation.get("primary_surface") or "").strip().lower()
+    if primary == "whiteboard":
+        return True
+    for surface in surface_invocation.get("surfaces") or []:
+        if not isinstance(surface, dict):
+            continue
+        if str(surface.get("kind") or "").strip().lower() == "whiteboard":
+            return True
+    return False
 
 
 def _safe_scenario_lab_error_message(error: Exception) -> str:

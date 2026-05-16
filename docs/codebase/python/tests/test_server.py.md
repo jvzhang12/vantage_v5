@@ -6,7 +6,7 @@ That matters because these routes are the contract for the whole application. Th
 
 The visible-artifact chat regression coverage verifies that ordinary follow-up Q&A over an open Whiteboard, such as asking what to do first from the Midterm Study Plan, asking to summarize/explain/key-point that plan, or using pronoun-only references like "summarize it", stays chat-first, keeps the visible artifact in the payload, and does not save a derivative artifact or draft.
 
-The attention-surface regression coverage verifies that a selected saved artifact can produce a Whiteboard open directive even when an already-visible Today card is also selected, and that the open directive remains separate from draft/save behavior.
+The attention-surface regression coverage verifies that a selected saved artifact can produce a Whiteboard open directive even when an already-visible Today card is also selected, and that the open directive remains separate from draft/save behavior. It also verifies that a final `open_only` Whiteboard invocation forces chat execution when an earlier base route was drafty, preventing workspace updates, graph actions, or created artifacts for a UI-only open.
 
 The fixture also ignores generated `launch-strategy*.md` workspace files when copying local workspaces into the temporary repo, so manual Scenario Lab runs cannot change detached branch namespace assertions.
 

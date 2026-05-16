@@ -232,6 +232,26 @@ describe("appReducer", () => {
       turn: turn({
         userMessage: "Can you find my exam preparation material about graphs and study priorities",
         selectedAttentionResources: [visibleToday, selectedArtifact],
+        surfaceInvocation: {
+          intent: "attention_selected_context",
+          primarySurface: "whiteboard",
+          supportingSurfaces: ["today_briefing"],
+          surfaces: [
+            {
+              kind: "whiteboard",
+              role: "primary",
+              reason: "Open the matching saved artifact in the whiteboard.",
+              status: "selected",
+            },
+          ],
+          writeBehavior: "open_only",
+          reason: "Open the matching saved artifact in the whiteboard.",
+          confidence: 0.9,
+          dataSources: [],
+          capabilityRefs: [],
+          trigger: "attention_navigator",
+          policyVersion: "surface-invocation-v1",
+        },
         navigatorSelection: {
           selectedIds: [visibleToday.resourceId, selectedArtifact.resourceId],
           primaryResourceId: visibleToday.resourceId,
@@ -251,6 +271,44 @@ describe("appReducer", () => {
     expect(state.workspace.content).toContain("Prioritize graph traversals");
     expect(state.workspace.dirty).toBe(false);
     expect(state.surfacePayloads).toHaveLength(0);
+  });
+
+  it("keeps a selected whiteboard resource as context when there is no open directive", () => {
+    const selectedArtifact = {
+      id: "selected-artifact-midterm-study-plan",
+      resourceId: "artifact:midterm-study-plan",
+      kind: "artifact",
+      app: "whiteboard",
+      title: "Midterm Study Plan",
+      summary: "Exam preparation material about graphs and study priorities.",
+      source: "artifact",
+      content: "# Midterm Study Plan\n\nPrioritize graph traversals and proof review.",
+      data: {},
+      timestamps: {},
+      suggestedSurface: "whiteboard",
+      whySelected: "The artifact is useful context, but the backend did not ask the UI to open it.",
+    };
+    const state = appReducer(initialState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "Can you summarize this study plan?",
+        selectedAttentionResources: [selectedArtifact],
+        navigatorSelection: {
+          selectedIds: [selectedArtifact.resourceId],
+          primaryResourceId: selectedArtifact.resourceId,
+          supportingResourceIds: [],
+          rejectedCandidateIds: [],
+          surfaceToOpen: "",
+          reason: "Use the saved study plan as answer context.",
+          confidence: 0.9,
+          fallback: false,
+        },
+      }),
+    });
+
+    expect(state.view).toBe("chat");
+    expect(state.workspace.id).toBe(initialState.workspace.id);
+    expect(state.workspace.content).toBe(initialState.workspace.content);
   });
 
   it("removes the active artifact without treating cached surfaces as visible", () => {

@@ -1190,6 +1190,69 @@ def test_chat_attention_open_directive_prefers_selected_artifact_over_visible_to
     assert captured["whiteboard_mode"] == "chat"
 
 
+def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    artifact = ArtifactStore(repo_root / "artifacts").create_artifact(
+        title="Midterm Study Plan",
+        card="Exam preparation material about graphs and study priorities.",
+        body="# Midterm Study Plan\n\nPrioritize graph traversals and proof review.",
+    )
+    captured: dict[str, object] = {}
+
+    def _route(self, **kwargs):
+        artifact_resource_id = f"artifact:{artifact.id}"
+        assert any(candidate["resource_id"] == artifact_resource_id for candidate in kwargs["attention_candidates"])
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Navigator selected the saved study plan while the base surface policy was drafty.",
+            whiteboard_mode="draft",
+            attention_selection={
+                "selected_ids": [artifact_resource_id],
+                "primary_resource_id": artifact_resource_id,
+                "supporting_resource_ids": [],
+                "rejected_candidate_ids": [],
+                "reason": "Open the selected study plan as the relevant material.",
+                "confidence": 0.9,
+            },
+        )
+
+    def _reply(self, **kwargs):
+        captured["whiteboard_mode"] = kwargs["whiteboard_mode"]
+        return "Use the Midterm Study Plan as context, but answer in chat."
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Open-only selected context should not save."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Plan my day around studying with the Midterm Study Plan today.",
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["navigator_selection"]["surface_to_open"] == "whiteboard"
+    assert payload["surface_invocation"]["primary_surface"] == "whiteboard"
+    assert payload["surface_invocation"]["write_behavior"] == "open_only"
+    assert payload["surface_invocation"]["whiteboard_mode"] == "chat"
+    assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "chat"
+    assert payload["workspace_update"] is None
+    assert payload["created_record"] is None
+    assert payload["graph_action"] is None
+    assert captured["whiteboard_mode"] == "chat"
+
+
 def test_chat_returns_proposed_calendar_action_without_mutating_user_file(tmp_path: Path) -> None:
     client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
     calendar_events_path = _write_calendar_events(

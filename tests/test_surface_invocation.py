@@ -112,6 +112,8 @@ def test_surface_invocation_keeps_visible_artifact_for_ambiguous_followup() -> N
         "Can you summarize this study plan?",
         "Can you explain this study plan?",
         "What are the key points in this study plan?",
+        "Summarize it.",
+        "Explain the open artifact.",
     ],
 )
 def test_surface_invocation_keeps_visible_whiteboard_qna_in_chat(message: str) -> None:

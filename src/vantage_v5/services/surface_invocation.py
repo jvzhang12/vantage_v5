@@ -81,12 +81,15 @@ VISIBLE_ARTIFACT_REFERENCE_RE = re.compile(
     r"\b(?:this|that|current|visible|open|opened)\s+"
     r"(?:artifact|whiteboard|item|document|draft|plan|study plan|itinerary|outline|list|note|material|content)\b|"
     r"\b(?:this|the)\s+(?:study\s+)?plan\b|"
+    r"\b(?:it|this|that)\b|"
     r"\b(?:current view|what i(?:'m| am) looking at)\b|"
     r"\b(?:from|in|on|about|using|based on)\s+(?:this|that|the current view)\b",
     re.IGNORECASE,
 )
 VISIBLE_ARTIFACT_WRITE_RE = re.compile(
-    r"\b(?:draft|edit|update|revise|rewrite|write|create|make|build|turn|convert|save|publish|open)\b",
+    r"\b(?:draft|edit|update|revise|rewrite|write|create|make|build|turn|convert|save|publish)\b|"
+    r"\b(?:open|pull up|bring up|show|use|start|resume)\s+"
+    r"(?:(?:a|the)\s+)?(?:(?:fresh|new|blank|empty|shared)\s+)?whiteboard\b",
     re.IGNORECASE,
 )
 EXPLICIT_WHITEBOARD_DRAFT_RE = re.compile(

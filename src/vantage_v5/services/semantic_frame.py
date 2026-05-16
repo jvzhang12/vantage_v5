@@ -10,7 +10,7 @@ from vantage_v5.storage.workspaces import WorkspaceDocument
 
 
 _SAVE_RE = re.compile(r"\b(?:save|store)\b", re.IGNORECASE)
-_PUBLISH_RE = re.compile(r"\b(?:publish|artifact|finalize|ship)\b", re.IGNORECASE)
+_PUBLISH_RE = re.compile(r"\b(?:publish|finalize|ship)\b", re.IGNORECASE)
 _DRAFT_RE = re.compile(r"\b(?:draft|write|compose|outline|plan|sketch|create|build)\b", re.IGNORECASE)
 _REVISE_RE = re.compile(r"\b(?:revise|edit|rewrite|refine|polish|tighten|update|change|adjust|add|remove|include)\b", re.IGNORECASE)
 _INSPECT_RE = re.compile(

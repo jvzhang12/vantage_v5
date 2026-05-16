@@ -986,6 +986,8 @@ def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: 
         "Can you summarize this study plan?",
         "Can you explain this study plan?",
         "What are the key points in this study plan?",
+        "Summarize it.",
+        "Explain the open artifact.",
     ],
 )
 def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_artifact(

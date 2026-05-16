@@ -11,6 +11,7 @@ from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_kind
 from vantage_v5.services.executor import GraphActionExecutor
 from vantage_v5.storage.artifacts import ArtifactStore
 from vantage_v5.storage.concepts import ConceptStore
+from vantage_v5.storage.markdown_store import MAX_RECORD_ID_LENGTH
 from vantage_v5.storage.memories import MemoryStore
 from vantage_v5.storage.state import ActiveWorkspaceStateStore
 from vantage_v5.storage.workspaces import WorkspaceDocument
@@ -100,6 +101,35 @@ def test_save_workspace_update_returns_snapshot_result(tmp_path: Path) -> None:
     assert result.artifact is not None
     assert result.artifact.title == "Daily Plan"
     assert runtime.state_store.get_active_workspace_id(default_workspace_id="fallback") == "daily-plan"
+
+
+def test_save_workspace_update_bounds_snapshot_filename_without_truncating_title(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    lifecycle = DraftArtifactLifecycle()
+    long_title = ("Midterm Study Plan " + "graphs priorities " * 40).strip()
+
+    result = lifecycle.save_workspace_update(
+        runtime=runtime,
+        workspace_id="midterm-study-plan",
+        content=f"# {long_title}\n\nFocus on graphs and priority review.",
+    )
+    second = lifecycle.save_workspace_update(
+        runtime=runtime,
+        workspace_id="midterm-study-plan",
+        content=f"# {long_title}\n\nKeep iterating on the same plan.",
+    )
+
+    assert result.artifact is not None
+    assert second.artifact is not None
+    assert result.artifact.title == long_title
+    assert second.artifact.title == long_title
+    assert len(result.artifact.id) <= MAX_RECORD_ID_LENGTH
+    assert len(second.artifact.id) <= MAX_RECORD_ID_LENGTH
+    assert len(result.artifact.path.name.encode("utf-8")) < 255
+    assert len(second.artifact.path.name.encode("utf-8")) < 255
+    assert result.artifact.id != second.artifact.id
+    assert result.artifact.path.exists()
+    assert second.artifact.path.exists()
 
 
 def test_publish_visible_whiteboard_promotes_without_saving_workspace(tmp_path: Path) -> None:

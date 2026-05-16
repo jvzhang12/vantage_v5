@@ -18,5 +18,6 @@ Focused unit tests for the Draft/Artifact Lifecycle service.
 - Artifact lifecycle card enrichment exposes `artifact_origin` / `artifact_lifecycle` for artifacts, recovers comparison hubs, and does not add artifact-only fields to concepts.
 - Saving a visible whiteboard persists the workspace, updates active workspace state, and creates a `whiteboard_snapshot` artifact.
 - Saving a workspace update returns the saved workspace plus snapshot graph action and artifact.
+- Saving a workspace update with an extremely long visible title keeps the full artifact title while bounding the saved artifact filename/id and preserving uniqueness across repeated saves.
 - Publishing visible whiteboard content creates a `promoted_artifact` without forcing an unsaved workspace file to exist.
 - Promoting an unsaved whiteboard buffer creates a promoted artifact with whiteboard provenance and does not persist the workspace.

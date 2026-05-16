@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import UTC, datetime
+import hashlib
 from pathlib import Path
 import re
 from typing import Any
@@ -11,6 +12,8 @@ import yaml
 
 
 SLUG_RE = re.compile(r"[^a-z0-9]+")
+MAX_RECORD_ID_LENGTH = 160
+RECORD_ID_HASH_LENGTH = 10
 
 
 @dataclass(slots=True)
@@ -257,10 +260,17 @@ class MarkdownRecordStore:
         return self._load_record(path)
 
     def _unique_id(self, base_id: str) -> str:
+        base_id = storage_safe_record_id(base_id, fallback=self.default_type)
         record_id = base_id
         index = 2
         while (self.records_dir / f"{record_id}.md").exists():
-            record_id = f"{base_id}-{index}"
+            suffix = f"-{index}"
+            bounded_base = storage_safe_record_id(
+                base_id,
+                fallback=self.default_type,
+                max_length=MAX_RECORD_ID_LENGTH - len(suffix),
+            )
+            record_id = f"{bounded_base}{suffix}"
             index += 1
         return record_id
 
@@ -321,6 +331,33 @@ class MarkdownRecordStore:
 def slugify(value: str) -> str:
     normalized = SLUG_RE.sub("-", value.lower()).strip("-")
     return normalized
+
+
+def storage_safe_record_id(
+    value: str,
+    *,
+    fallback: str = "record",
+    max_length: int = MAX_RECORD_ID_LENGTH,
+) -> str:
+    slug = slugify(value)
+    if not slug:
+        slug = slugify(fallback) or "record"
+    return _bounded_record_id(slug, max_length=max_length)
+
+
+def _bounded_record_id(record_id: str, *, max_length: int) -> str:
+    if max_length < 1:
+        raise ValueError("max_length must be positive.")
+    if len(record_id) <= max_length:
+        return record_id
+    digest = hashlib.sha1(record_id.encode("utf-8")).hexdigest()[:RECORD_ID_HASH_LENGTH]
+    if max_length <= len(digest):
+        return digest[:max_length]
+    prefix_length = max_length - len(digest) - 1
+    prefix = record_id[:prefix_length].rstrip("-")
+    if not prefix:
+        return digest[:max_length]
+    return f"{prefix}-{digest}"
 
 
 def _metadata_text(value: Any) -> str:

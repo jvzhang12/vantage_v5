@@ -72,6 +72,31 @@ CURRENT_ARTIFACT_FOLLOWUP_RE = re.compile(
     r"how should i use (?:this|the current view|this plan|the plan))\b",
     re.IGNORECASE,
 )
+VISIBLE_ARTIFACT_QNA_RE = re.compile(
+    r"\b(?:summari[sz]e|explain|key points?|main points?|takeaways?|walk me through|tell me about|"
+    r"what\s+(?:are|is|should|does|do|comes)|how\s+(?:should|do|does|can)|why|when|where|which)\b",
+    re.IGNORECASE,
+)
+VISIBLE_ARTIFACT_REFERENCE_RE = re.compile(
+    r"\b(?:this|that|current|visible|open|opened)\s+"
+    r"(?:artifact|whiteboard|item|document|draft|plan|study plan|itinerary|outline|list|note|material|content)\b|"
+    r"\b(?:this|the)\s+(?:study\s+)?plan\b|"
+    r"\b(?:current view|what i(?:'m| am) looking at)\b|"
+    r"\b(?:from|in|on|about|using|based on)\s+(?:this|that|the current view)\b",
+    re.IGNORECASE,
+)
+VISIBLE_ARTIFACT_WRITE_RE = re.compile(
+    r"\b(?:draft|edit|update|revise|rewrite|write|create|make|build|turn|convert|save|publish|open)\b",
+    re.IGNORECASE,
+)
+EXPLICIT_WHITEBOARD_DRAFT_RE = re.compile(
+    r"\b(?:draft|write|put|move|build|plan|outline|sketch|work|create|review|refine|edit|update|revise|rewrite)\b"
+    r".{0,80}\b(?:in|on|into)\s+(?:the\s+)?whiteboard\b|"
+    r"\b(?:edit|update|revise|rewrite|refine|work on)\s+(?:the\s+)?whiteboard\b|"
+    r"\b(?:open|pull up|bring up|show|use|start|resume)\s+"
+    r"(?:(?:a|the)\s+)?(?:(?:fresh|new|blank|empty|shared)\s+)?whiteboard\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +185,16 @@ def build_surface_invocation(
             write_behavior="none",
             reason="The user explicitly asked to keep this response in chat.",
             confidence=0.95,
+        )
+    if _is_explicit_whiteboard_draft_request(message):
+        return _invocation(
+            intent="durable_artifact",
+            primary=SURFACE_WHITEBOARD,
+            supporting=(),
+            write_behavior="draft_only",
+            reason="The user explicitly asked to work in the whiteboard.",
+            confidence=0.88,
+            whiteboard_mode="draft",
         )
     if visible_surface_kind and _is_current_artifact_followup(message):
         return _invocation(
@@ -333,7 +368,15 @@ def _is_task_focus(message: str) -> bool:
 
 
 def _is_current_artifact_followup(message: str) -> bool:
-    return bool(CURRENT_ARTIFACT_FOLLOWUP_RE.search(message))
+    if VISIBLE_ARTIFACT_WRITE_RE.search(message):
+        return False
+    if CURRENT_ARTIFACT_FOLLOWUP_RE.search(message):
+        return True
+    return bool(VISIBLE_ARTIFACT_QNA_RE.search(message) and VISIBLE_ARTIFACT_REFERENCE_RE.search(message))
+
+
+def _is_explicit_whiteboard_draft_request(message: str) -> bool:
+    return bool(EXPLICIT_WHITEBOARD_DRAFT_RE.search(message))
 
 
 def _visible_surface_kind(visible_artifacts: list[dict[str, Any]] | None) -> str | None:

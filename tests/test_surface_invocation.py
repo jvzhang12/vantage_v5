@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.surface_invocation import build_surface_invocation
 
@@ -103,9 +105,18 @@ def test_surface_invocation_keeps_visible_artifact_for_ambiguous_followup() -> N
     assert invocation.surfaces[0].status == "kept_current_view"
 
 
-def test_surface_invocation_keeps_visible_whiteboard_qna_in_chat() -> None:
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What should I do first from this study plan?",
+        "Can you summarize this study plan?",
+        "Can you explain this study plan?",
+        "What are the key points in this study plan?",
+    ],
+)
+def test_surface_invocation_keeps_visible_whiteboard_qna_in_chat(message: str) -> None:
     invocation = build_surface_invocation(
-        user_message="What should I do first from this study plan?",
+        user_message=message,
         visible_artifacts=[
             {
                 "id": "artifact:midterm-study-plan",
@@ -123,7 +134,7 @@ def test_surface_invocation_keeps_visible_whiteboard_qna_in_chat() -> None:
 
 def test_surface_invocation_visible_artifact_explicit_whiteboard_draft_still_drafts() -> None:
     invocation = build_surface_invocation(
-        user_message="Draft this study plan in the whiteboard.",
+        user_message="Draft this in the whiteboard.",
         visible_artifacts=[
             {
                 "id": "artifact:midterm-study-plan",

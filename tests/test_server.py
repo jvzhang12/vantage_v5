@@ -979,9 +979,19 @@ def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: 
     assert "calendar.read_week" in {tool["name"] for tool in captured["reply_app_capabilities"]["tools"]}
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What should I do first from this study plan?",
+        "Can you summarize this study plan?",
+        "Can you explain this study plan?",
+        "What are the key points in this study plan?",
+    ],
+)
 def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_artifact(
     tmp_path: Path,
     monkeypatch,
+    message: str,
 ) -> None:
     client, repo_root = _client(tmp_path, openai_api_key="test-key")
     visible_artifacts = [
@@ -1030,7 +1040,7 @@ def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_
     response = client.post(
         "/api/chat",
         json={
-            "message": "What should I do first from this study plan?",
+            "message": message,
             "history": [],
             "workspace_id": "midterm-study-plan",
             "workspace_scope": "visible",

@@ -11,4 +11,4 @@ Reducer and initial state for the React Vantage app.
 
 - Auth bootstrap, including whether account creation requires an access code, composer state, chat lifecycle, active view, profile menu, notices, whiteboard edits, workspace save state, and surface activation.
 - Chat success stores backend history while rendering only the latest assistant answer or summoned artifact.
-- When the backend attention selection names a saved artifact and asks to open `whiteboard`, the reducer foregrounds the Whiteboard with that selected resource content as an editable local buffer without creating a persisted surface payload or save request.
+- When backend attention selection names a saved artifact, the reducer can foreground the Whiteboard with that selected resource content as an editable local buffer without creating a persisted surface payload or save request, even if an already-visible Today/calendar surface was the primary selected context.

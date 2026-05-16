@@ -17,3 +17,4 @@ Unit tests for the Attention + Navigator selection service.
 - Regression coverage for polluted study-plan artifacts, where broad material lookup should choose the full `Midterm Study Plan` over derivative first-action snapshots but explicit first-action queries can still choose the derivative.
 - Operational indexing for calendar day/week and task focus resources.
 - Deterministic Navigator fallback that opens the appropriate surface when the model is unavailable.
+- Surface-selection regression coverage where an already-visible Today resource can be selected first while a saved artifact selected second still produces a Whiteboard `open_only` directive.

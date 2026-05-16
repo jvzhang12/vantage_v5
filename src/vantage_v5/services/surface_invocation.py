@@ -55,8 +55,7 @@ DURABLE_WORK_PRODUCT_RE = re.compile(
     r".{0,140}\b(?:essay|paper|research paper|report|brief|document|doc|proposal|roadmap|strategy|"
     r"plan|study plan|project plan|launch plan|checklist|agenda|outline|playbook|itinerary|schedule|"
     r"list)\b|"
-    r"\b(?:essay|research paper|paper introduction|report|proposal|roadmap|study plan|project plan|"
-    r"launch plan|itinerary|playbook)\b",
+    r"\b(?:essay|research paper|paper introduction|report|proposal|itinerary|playbook)\b",
     re.IGNORECASE,
 )
 LIGHTWEIGHT_CHAT_RE = re.compile(
@@ -166,7 +165,6 @@ def build_surface_invocation(
     visible_artifacts: list[dict[str, Any]] | None = None,
 ) -> SurfaceInvocation:
     message = _clean(user_message)
-    lowered = message.lower()
     requested_mode = _clean(requested_whiteboard_mode).lower() or "auto"
     navigation_mode = _clean(getattr(navigation, "mode", "")).lower()
     visible_surface_kind = _visible_surface_kind(visible_artifacts)
@@ -213,6 +211,16 @@ def build_surface_invocation(
             whiteboard_mode="chat",
             status="kept_current_view",
         )
+    if not visible_surface_kind and _is_current_material_question(message):
+        return _invocation(
+            intent="selected_material_question",
+            primary=SURFACE_CHAT,
+            supporting=(),
+            write_behavior="none",
+            reason="The user is asking a normal question about current or selected material, not asking Vantage to draft or save.",
+            confidence=0.74,
+            whiteboard_mode="chat",
+        )
     if _is_travel_plan(message):
         return _invocation(
             intent="durable_artifact",
@@ -244,7 +252,7 @@ def build_surface_invocation(
             confidence=0.82,
             whiteboard_mode="draft",
         )
-    if _is_durable_work_product(message, lowered=lowered):
+    if _is_durable_work_product(message):
         return _invocation(
             intent="durable_artifact",
             primary=SURFACE_WHITEBOARD,
@@ -378,6 +386,12 @@ def _is_current_artifact_followup(message: str) -> bool:
     return bool(VISIBLE_ARTIFACT_QNA_RE.search(message) and VISIBLE_ARTIFACT_REFERENCE_RE.search(message))
 
 
+def _is_current_material_question(message: str) -> bool:
+    if VISIBLE_ARTIFACT_WRITE_RE.search(message):
+        return False
+    return bool(VISIBLE_ARTIFACT_QNA_RE.search(message) and VISIBLE_ARTIFACT_REFERENCE_RE.search(message))
+
+
 def _is_explicit_whiteboard_draft_request(message: str) -> bool:
     return bool(EXPLICIT_WHITEBOARD_DRAFT_RE.search(message))
 
@@ -404,12 +418,12 @@ def _is_code_artifact(message: str) -> bool:
     return bool(re.search(r"\b(?:can you|please|help me|write|build|implement|fix|create|make|refactor|test)\b", message, re.IGNORECASE))
 
 
-def _is_durable_work_product(message: str, *, lowered: str) -> bool:
+def _is_durable_work_product(message: str) -> bool:
     if EMAIL_DRAFT_RE.search(message):
         return True
     if DURABLE_WORK_PRODUCT_RE.search(message):
         return True
-    return "study plan" in lowered or "project plan" in lowered
+    return False
 
 
 def _clean(value: Any) -> str:

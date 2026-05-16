@@ -151,6 +151,21 @@ def test_surface_invocation_visible_artifact_explicit_whiteboard_draft_still_dra
     assert invocation.whiteboard_mode == "draft"
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "What should I do first from this study plan?",
+        "Can you summarize this study plan?",
+    ],
+)
+def test_surface_invocation_does_not_draft_for_study_plan_noun_only(message: str) -> None:
+    invocation = build_surface_invocation(user_message=message)
+
+    assert invocation.primary_surface == "chat"
+    assert invocation.write_behavior == "none"
+    assert invocation.resolved_whiteboard_mode(requested_mode="auto", current_mode="chat") == "chat"
+
+
 def test_surface_invocation_code_artifact_summons_code_and_whiteboard() -> None:
     invocation = build_surface_invocation(user_message="Can you implement the calendar endpoint tests?")
 

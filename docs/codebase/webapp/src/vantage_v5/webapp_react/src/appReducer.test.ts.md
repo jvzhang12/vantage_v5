@@ -10,4 +10,4 @@ Vitest coverage for the React app reducer.
 
 - Chat success stores backend continuity history while the UI model keeps the latest answer.
 - Returned artifact surfaces become active and move the app into artifact view.
-- Navigator-selected saved artifacts with `surface_to_open="whiteboard"` become visible Whiteboard content, and that content is included in the next visible-artifact context without creating a separate persisted artifact surface.
+- Navigator-selected saved artifacts, including artifacts selected behind an already-visible Today surface, become visible Whiteboard content, and that content is included in the next visible-artifact context without creating a separate persisted artifact surface.

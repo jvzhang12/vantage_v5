@@ -441,6 +441,47 @@ def test_navigator_selection_falls_back_to_ranked_candidates(tmp_path: Path) -> 
     assert payload["primary_surface"] == "calendar_day"
 
 
+def test_navigator_selection_opens_selected_saved_artifact_over_visible_today() -> None:
+    candidates = (
+        _candidate(
+            resource_id="visible:today-2026-05-14",
+            kind="today_briefing",
+            app="calendar",
+            source="visible_artifact",
+            suggested_surface="today_briefing",
+            score=12.0,
+        ),
+        _candidate(
+            resource_id="artifact:midterm-study-plan",
+            kind="artifact",
+            app="whiteboard",
+            source="artifact",
+            suggested_surface="whiteboard",
+            score=10.0,
+        ),
+    )
+
+    selection = normalize_navigator_selection(
+        {
+            "selected_ids": ["visible:today-2026-05-14", "artifact:midterm-study-plan"],
+            "primary_resource_id": "visible:today-2026-05-14",
+            "reason": "Use the visible Today context and the saved study plan.",
+            "confidence": 0.9,
+        },
+        candidates=candidates,
+    )
+    payload = apply_attention_surface_selection(
+        {"intent": "general_chat", "primary_surface": "chat", "supporting_surfaces": [], "write_behavior": "none", "surfaces": []},
+        selection,
+    )
+
+    assert selection.primary_resource_id == "visible:today-2026-05-14"
+    assert selection.surface_to_open == "whiteboard"
+    assert payload["primary_surface"] == "whiteboard"
+    assert payload["write_behavior"] == "open_only"
+    assert payload["selection_authority"] == "attention_navigator"
+
+
 def test_attention_surface_selection_overrides_legacy_surface_choice() -> None:
     selection = NavigatorSelection(
         selected_ids=("task_focus:2026-05-14",),
@@ -515,6 +556,38 @@ def test_attention_surface_selection_respects_hard_chat_guard() -> None:
     assert payload["primary_surface"] == "chat"
     assert payload["intent"] == "chat_only"
     assert "selection_authority" not in payload
+
+
+def _candidate(
+    *,
+    resource_id: str,
+    kind: str,
+    app: str,
+    source: str,
+    suggested_surface: str | None,
+    score: float,
+):
+    from vantage_v5.services.attention import AttentionCandidate
+
+    return AttentionCandidate(
+        id=f"candidate-{resource_id}",
+        resource_id=resource_id,
+        kind=kind,
+        app=app,
+        title=resource_id,
+        summary="Test resource.",
+        source=source,
+        scope="durable",
+        durability="durable",
+        is_canonical=False,
+        score=score,
+        matched_keys=(),
+        temporal_matches=(),
+        suggested_surface=suggested_surface,
+        why_candidate="Test candidate.",
+        value_ref={},
+        retrieval_scores={"hybrid": score},
+    )
 
 
 def _runtime(root: Path) -> dict:

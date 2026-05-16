@@ -10,6 +10,7 @@ Focused unit tests for the deterministic surface invocation policy.
 - Schedule planning summons `calendar_day` with `task_focus` and `whiteboard` support.
 - To-do/focus requests summon `task_focus`.
 - Visible artifact/Whiteboard follow-up questions, including pronoun-only summarize/explain/key-points phrasing, stay in chat and force chat mode even if an upstream route suggested draft mode, while explicit "draft this in the whiteboard" requests still draft.
+- Selected/current material questions such as "What should I do first from this study plan?" and "Can you summarize this study plan?" do not draft merely because the noun "study plan" appears.
 - Code/implementation requests summon `code_artifact` with whiteboard support.
 - Scenario Lab routes are recognized as already handled by the branch/comparison artifact path.
 

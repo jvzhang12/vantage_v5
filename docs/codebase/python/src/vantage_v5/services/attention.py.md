@@ -18,7 +18,7 @@ Implements the first-pass Attention + Navigator selection layer for Vantage.
 - Hybrid ranking adds `retrieval_scores` to each candidate, including deterministic score, temporal score, semantic vector similarity, vector bonus, and final hybrid score.
 - `AttentionTurn.select()` normalizes the Navigator's selection or chooses a small deterministic fallback set.
 - `attention_payload()` exposes `query_frame`, `attention_candidates`, `navigator_selection`, and `selected_attention_resources` for `/api/chat`, `system_state`, and the Vantage receipt. Candidate and selected-resource DTOs now carry `scope`, `durability`, and `is_canonical` directly rather than requiring consumers to infer product provenance from `source_status.store`.
-- `apply_attention_surface_selection()` lets Navigator-selected operational resources foreground surfaces such as calendar day, calendar week, task focus, or whiteboard.
+- `apply_attention_surface_selection()` lets Navigator-selected resources foreground surfaces such as calendar day, calendar week, task focus, or whiteboard. Selecting a saved artifact for Whiteboard is treated as an `open_only` UI action, not as draft/write intent, and it can override an already-visible operational surface such as Today.
 
 ## Important Boundaries
 

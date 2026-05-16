@@ -94,21 +94,28 @@ function validSurfaceId(surfaceId: string | null, surfaces: SurfacePayload[]): s
 }
 
 function selectedWhiteboardResource(turn: NormalizedTurn): SelectedAttentionResource | null {
-  if (turn.navigatorSelection?.surfaceToOpen !== "whiteboard") {
+  const hasWhiteboardOpenDirective = turn.navigatorSelection?.surfaceToOpen === "whiteboard"
+    || turn.selectedAttentionResources.some(isOpenableWhiteboardResource);
+  if (!hasWhiteboardOpenDirective) {
     return null;
   }
-  const primaryResourceId = turn.navigatorSelection.primaryResourceId;
+  const primaryResourceId = turn.navigatorSelection?.primaryResourceId;
   const primaryResource = turn.selectedAttentionResources.find((resource) => (
     Boolean(primaryResourceId) && resource.resourceId === primaryResourceId
   ));
-  const selectedResource = primaryResource || turn.selectedAttentionResources[0] || null;
+  const selectedResource = (
+    primaryResource && isOpenableWhiteboardResource(primaryResource)
+      ? primaryResource
+      : turn.selectedAttentionResources.find(isOpenableWhiteboardResource)
+  ) || null;
   if (!selectedResource?.content.trim()) {
     return null;
   }
-  if (selectedResource.app !== "whiteboard" && selectedResource.suggestedSurface !== "whiteboard") {
-    return null;
-  }
   return selectedResource;
+}
+
+function isOpenableWhiteboardResource(resource: SelectedAttentionResource): boolean {
+  return resource.app === "whiteboard" || resource.suggestedSurface === "whiteboard" || resource.kind === "whiteboard";
 }
 
 function workspaceIdFromResource(resource: SelectedAttentionResource): string {

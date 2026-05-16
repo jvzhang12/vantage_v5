@@ -198,6 +198,61 @@ describe("appReducer", () => {
     expect(String(visibleArtifacts[0].content)).toContain("Prioritize graph traversals");
   });
 
+  it("opens a selected saved artifact even when visible Today is the primary selected resource", () => {
+    const visibleToday = {
+      id: "selected-visible-today",
+      resourceId: "visible:today-2026-05-14",
+      kind: "today_briefing",
+      app: "calendar",
+      title: "Today",
+      summary: "Visible Today surface.",
+      source: "visible_artifact",
+      content: "# Today\n\nAlgorithms lab.",
+      data: {},
+      timestamps: {},
+      suggestedSurface: "today_briefing",
+      whySelected: "Today was already visible.",
+    };
+    const selectedArtifact = {
+      id: "selected-artifact-midterm-study-plan",
+      resourceId: "artifact:midterm-study-plan",
+      kind: "artifact",
+      app: "whiteboard",
+      title: "Midterm Study Plan",
+      summary: "Exam preparation material about graphs and study priorities.",
+      source: "artifact",
+      content: "# Midterm Study Plan\n\nPrioritize graph traversals and proof review.",
+      data: {},
+      timestamps: {},
+      suggestedSurface: "whiteboard",
+      whySelected: "The user asked for exam preparation material about graphs and study priorities.",
+    };
+    const state = appReducer(initialState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "Can you find my exam preparation material about graphs and study priorities",
+        selectedAttentionResources: [visibleToday, selectedArtifact],
+        navigatorSelection: {
+          selectedIds: [visibleToday.resourceId, selectedArtifact.resourceId],
+          primaryResourceId: visibleToday.resourceId,
+          supportingResourceIds: [selectedArtifact.resourceId],
+          rejectedCandidateIds: [],
+          surfaceToOpen: "",
+          reason: "Today is visible, and the saved study plan is relevant.",
+          confidence: 0.9,
+          fallback: false,
+        },
+      }),
+    });
+
+    expect(state.view).toBe("whiteboard");
+    expect(state.workspace.id).toBe("midterm-study-plan");
+    expect(state.workspace.title).toBe("Midterm Study Plan");
+    expect(state.workspace.content).toContain("Prioritize graph traversals");
+    expect(state.workspace.dirty).toBe(false);
+    expect(state.surfacePayloads).toHaveLength(0);
+  });
+
   it("removes the active artifact without treating cached surfaces as visible", () => {
     const surface = {
       id: "calendar-week-2026-05-11",

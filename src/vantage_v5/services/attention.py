@@ -557,15 +557,12 @@ def normalize_navigator_selection(
     surface_to_open = _clean_text(selection.get("surface_to_open"))
     if surface_to_open not in SURFACE_KINDS:
         surface_to_open = None
-    if not surface_to_open and primary_resource_id:
-        surface_to_open = next(
-            (
-                candidate.suggested_surface
-                for candidate in candidates
-                if candidate.resource_id == primary_resource_id and candidate.source != "visible_artifact"
-            ),
-            None,
-        )
+    surface_to_open = _selection_surface_to_open(
+        surface_to_open,
+        primary_resource_id=primary_resource_id,
+        selected_ids=selected_ids,
+        candidates=candidates,
+    )
     return NavigatorSelection(
         selected_ids=selected_ids,
         primary_resource_id=primary_resource_id,
@@ -718,15 +715,49 @@ def _supporting_surfaces_for_selection(
 
 def _attention_write_behavior(surface: str, *, existing: Any) -> str:
     existing_text = _clean_text(existing)
+    if surface == "whiteboard":
+        return existing_text if existing_text == "draft_only" else "open_only"
     if existing_text and existing_text != "none":
         return existing_text
     if surface in {"calendar_day", "calendar_week", "today_briefing"}:
         return "read_only"
     if surface == "task_focus":
         return "proposal_only"
-    if surface == "whiteboard":
-        return "draft_only"
     return "none"
+
+
+def _selection_surface_to_open(
+    requested_surface: str | None,
+    *,
+    primary_resource_id: str | None,
+    selected_ids: tuple[str, ...],
+    candidates: tuple[AttentionCandidate, ...],
+) -> str | None:
+    by_id = {candidate.resource_id: candidate for candidate in candidates}
+    primary = by_id.get(primary_resource_id or "")
+    selected = [by_id[item] for item in selected_ids if item in by_id]
+    selected_whiteboard = next((_candidate for _candidate in selected if _is_openable_whiteboard_candidate(_candidate)), None)
+    if selected_whiteboard is not None and (not requested_surface or _is_visible_operational_candidate(primary)):
+        return "whiteboard"
+    if requested_surface:
+        return requested_surface
+    if primary is not None and primary.source != "visible_artifact":
+        surface = primary.suggested_surface if primary.suggested_surface in SURFACE_KINDS else primary.kind
+        return surface if surface in SURFACE_KINDS else None
+    return None
+
+
+def _is_openable_whiteboard_candidate(candidate: AttentionCandidate) -> bool:
+    if candidate.source == "visible_artifact":
+        return False
+    return candidate.suggested_surface == "whiteboard" or candidate.app == "whiteboard" or candidate.kind == "whiteboard"
+
+
+def _is_visible_operational_candidate(candidate: AttentionCandidate | None) -> bool:
+    if candidate is None or candidate.source != "visible_artifact":
+        return False
+    surface = candidate.suggested_surface if candidate.suggested_surface in SURFACE_KINDS else candidate.kind
+    return surface in {"today_briefing", "calendar_day", "calendar_week", "task_focus"}
 
 
 def _temporal_references(message: str, *, today: date) -> list[TemporalReference]:

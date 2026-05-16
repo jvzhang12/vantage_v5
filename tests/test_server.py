@@ -1190,6 +1190,100 @@ def test_chat_attention_open_directive_prefers_selected_artifact_over_visible_to
     assert captured["whiteboard_mode"] == "chat"
 
 
+def test_chat_attention_open_directive_prefers_source_artifact_over_opened_copy(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    source_artifact = ArtifactStore(repo_root / "artifacts").create_artifact(
+        title="Midterm Study Plan",
+        card="Study plan for graph algorithms, runtime analysis, and active recall.",
+        body="# Midterm Study Plan\n\nPractice BFS, DFS, edge cases, and runtime analysis.",
+    )
+    opened_copy = ArtifactStore(repo_root / "artifacts").create_artifact(
+        title="Midterm Study Plan",
+        card="Drafted the detailed answer into the whiteboard for collaborative editing.",
+        body="# Midterm Study Plan\n\nExpanded copy with graph traversal and study priorities.",
+        comes_from=[source_artifact.id],
+    )
+    derivative = ArtifactStore(repo_root / "artifacts").create_artifact(
+        title="First Action from Midterm Study Plan",
+        card="Drafted the detailed answer into the whiteboard for collaborative editing.",
+        body="# First Action from Midterm Study Plan\n\nStart with BFS and DFS.",
+        comes_from=[source_artifact.id],
+    )
+    visible_today = {
+        "id": "today-2026-05-14",
+        "kind": "today_briefing",
+        "title": "Today",
+        "summary": "Today is already visible.",
+        "content": "# Today\n\nAlgorithms lab.",
+        "data": {"date": "2026-05-14"},
+    }
+    captured: dict[str, object] = {}
+
+    def _route(self, **kwargs):
+        selected = [
+            f"candidate-artifact:{opened_copy.id}",
+            "candidate-visible:today-2026-05-14",
+            f"candidate-artifact:{source_artifact.id}",
+            f"candidate-artifact:{derivative.id}",
+        ]
+        for candidate_id in selected:
+            assert any(candidate["id"] == candidate_id for candidate in kwargs["attention_candidates"])
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.91,
+            reason="Navigator selected the matching saved study-plan material.",
+            whiteboard_mode="chat",
+            attention_selection={
+                "selected_ids": selected,
+                "primary_resource_id": f"candidate-artifact:{opened_copy.id}",
+                "supporting_resource_ids": selected[1:],
+                "rejected_candidate_ids": [],
+                "reason": "The saved Midterm Study Plan is the material the user asked to find.",
+                "confidence": 0.91,
+            },
+        )
+
+    def _reply(self, **kwargs):
+        captured["whiteboard_mode"] = kwargs["whiteboard_mode"]
+        captured["selected_attention_resources"] = kwargs["selected_attention_resources"]
+        return "I found the Midterm Study Plan."
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Opening selected context should not save."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Can you find my exam preparation material about graphs and study priorities?",
+            "history": [],
+            "visible_artifacts": [visible_today],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["navigator_selection"]["primary_resource_id"] == f"artifact:{source_artifact.id}"
+    assert payload["navigator_selection"]["surface_to_open"] == "whiteboard"
+    assert payload["surface_invocation"]["primary_surface"] == "whiteboard"
+    assert payload["surface_invocation"]["write_behavior"] == "open_only"
+    assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "chat"
+    assert payload["workspace_update"] is None
+    assert payload["created_record"] is None
+    assert payload["graph_action"] is None
+    assert payload["selected_attention_resources"][0]["resource_id"] == f"artifact:{source_artifact.id}"
+    assert payload["selected_attention_resources"][0]["title"] == "Midterm Study Plan"
+    assert "Practice BFS" in payload["selected_attention_resources"][0]["content"]
+    assert captured["whiteboard_mode"] == "chat"
+
+
 def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(
     tmp_path: Path,
     monkeypatch,

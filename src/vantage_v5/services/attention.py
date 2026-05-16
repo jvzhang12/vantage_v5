@@ -531,13 +531,19 @@ def normalize_navigator_selection(
 ) -> NavigatorSelection:
     candidate_ids = [candidate.resource_id for candidate in candidates]
     candidate_id_set = set(candidate_ids)
+    id_aliases = {
+        alias: candidate.resource_id
+        for candidate in candidates
+        for alias in (candidate.resource_id, candidate.id)
+        if alias
+    }
     selection = raw_selection if isinstance(raw_selection, dict) else {}
     raw_ids = selection.get("selected_ids") if isinstance(selection.get("selected_ids"), list) else []
     selected_ids = tuple(
         dict.fromkeys(
-            str(item).strip()
+            id_aliases.get(str(item).strip(), "")
             for item in raw_ids
-            if str(item).strip() in candidate_id_set
+            if id_aliases.get(str(item).strip(), "") in candidate_id_set
         )
     )[:limit]
     fallback = False
@@ -549,9 +555,16 @@ def normalize_navigator_selection(
         selected_ids = tuple(candidate.resource_id for candidate in fallback_candidates)
         reason = "Deterministic fallback selected the highest-signal attention candidates."
         confidence = 0.55 if selected_ids else 0.0
-    primary_resource_id = _clean_text(selection.get("primary_resource_id"))
+    raw_primary_resource_id = _clean_text(selection.get("primary_resource_id"))
+    primary_resource_id = id_aliases.get(raw_primary_resource_id, raw_primary_resource_id)
     if primary_resource_id not in selected_ids:
         primary_resource_id = selected_ids[0] if selected_ids else None
+    primary_resource_id = _preferred_primary_resource_id(
+        primary_resource_id,
+        selected_ids=selected_ids,
+        candidates=candidates,
+    )
+    selected_ids = _primary_first(selected_ids, primary_resource_id)
     supporting = tuple(item for item in selected_ids if item != primary_resource_id)
     rejected = tuple(candidate_id for candidate_id in candidate_ids if candidate_id not in selected_ids)
     surface_to_open = _clean_text(selection.get("surface_to_open"))
@@ -724,6 +737,43 @@ def _attention_write_behavior(surface: str, *, existing: Any) -> str:
     if surface == "task_focus":
         return "proposal_only"
     return "none"
+
+
+def _preferred_primary_resource_id(
+    primary_resource_id: str | None,
+    *,
+    selected_ids: tuple[str, ...],
+    candidates: tuple[AttentionCandidate, ...],
+) -> str | None:
+    if not primary_resource_id:
+        return primary_resource_id
+    by_id = {candidate.resource_id: candidate for candidate in candidates}
+    primary = by_id.get(primary_resource_id)
+    if primary is None or primary.source != "artifact":
+        return primary_resource_id
+    comes_from = primary.value_ref.get("comes_from")
+    if not isinstance(comes_from, list):
+        return primary_resource_id
+    selected_id_set = set(selected_ids)
+    primary_title = _normalized_title(primary.title)
+    for parent_id in comes_from:
+        parent_resource_id = _resource_id("artifact", str(parent_id).strip())
+        parent = by_id.get(parent_resource_id)
+        if parent_resource_id not in selected_id_set or parent is None:
+            continue
+        if _normalized_title(parent.title) == primary_title:
+            return parent_resource_id
+    return primary_resource_id
+
+
+def _primary_first(selected_ids: tuple[str, ...], primary_resource_id: str | None) -> tuple[str, ...]:
+    if not primary_resource_id or primary_resource_id not in selected_ids:
+        return selected_ids
+    return (primary_resource_id, *(item for item in selected_ids if item != primary_resource_id))
+
+
+def _normalized_title(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
 
 
 def _selection_surface_to_open(

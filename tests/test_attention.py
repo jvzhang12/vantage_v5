@@ -482,6 +482,64 @@ def test_navigator_selection_opens_selected_saved_artifact_over_visible_today() 
     assert payload["selection_authority"] == "attention_navigator"
 
 
+def test_navigator_selection_accepts_candidate_ids_and_prefers_source_artifact_copy() -> None:
+    candidates = (
+        _candidate(
+            resource_id="artifact:midterm-study-plan-2",
+            kind="artifact",
+            app="whiteboard",
+            source="artifact",
+            suggested_surface="whiteboard",
+            score=12.0,
+            title="Midterm Study Plan",
+            value_ref={"record_id": "midterm-study-plan-2", "comes_from": ["midterm-study-plan"]},
+        ),
+        _candidate(
+            resource_id="artifact:midterm-study-plan",
+            kind="artifact",
+            app="whiteboard",
+            source="artifact",
+            suggested_surface="whiteboard",
+            score=10.0,
+            title="Midterm Study Plan",
+            value_ref={"record_id": "midterm-study-plan", "comes_from": ["vantage-demo-day-plan"]},
+        ),
+        _candidate(
+            resource_id="artifact:first-action-from-midterm-study-plan",
+            kind="artifact",
+            app="whiteboard",
+            source="artifact",
+            suggested_surface="whiteboard",
+            score=8.0,
+            title="First Action from Midterm Study Plan",
+            value_ref={"record_id": "first-action-from-midterm-study-plan", "comes_from": ["midterm-study-plan"]},
+        ),
+    )
+
+    selection = normalize_navigator_selection(
+        {
+            "selected_ids": [
+                "candidate-artifact:midterm-study-plan-2",
+                "candidate-artifact:midterm-study-plan",
+                "candidate-artifact:first-action-from-midterm-study-plan",
+            ],
+            "primary_resource_id": "candidate-artifact:midterm-study-plan-2",
+            "reason": "Use the selected study material.",
+            "confidence": 0.9,
+        },
+        candidates=candidates,
+    )
+
+    assert selection.fallback is False
+    assert selection.primary_resource_id == "artifact:midterm-study-plan"
+    assert selection.selected_ids[0] == "artifact:midterm-study-plan"
+    assert selection.supporting_resource_ids == (
+        "artifact:midterm-study-plan-2",
+        "artifact:first-action-from-midterm-study-plan",
+    )
+    assert selection.surface_to_open == "whiteboard"
+
+
 def test_attention_surface_selection_overrides_legacy_surface_choice() -> None:
     selection = NavigatorSelection(
         selected_ids=("task_focus:2026-05-14",),
@@ -566,6 +624,8 @@ def _candidate(
     source: str,
     suggested_surface: str | None,
     score: float,
+    title: str | None = None,
+    value_ref: dict | None = None,
 ):
     from vantage_v5.services.attention import AttentionCandidate
 
@@ -574,7 +634,7 @@ def _candidate(
         resource_id=resource_id,
         kind=kind,
         app=app,
-        title=resource_id,
+        title=title or resource_id,
         summary="Test resource.",
         source=source,
         scope="durable",
@@ -585,7 +645,7 @@ def _candidate(
         temporal_matches=(),
         suggested_surface=suggested_surface,
         why_candidate="Test candidate.",
-        value_ref={},
+        value_ref=value_ref or {},
         retrieval_scores={"hybrid": score},
     )
 

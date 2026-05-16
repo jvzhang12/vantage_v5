@@ -136,6 +136,10 @@
     @apply mb-6 w-full max-w-[760px] rounded-[18px] border border-white/[0.08] bg-graphite-panel p-6 shadow-vantage;
   }
 
+  .app-main--whiteboard .latest-answer {
+    display: none;
+  }
+
   .latest-answer__top,
   .latest-answer__meta {
     @apply flex items-center gap-3 text-sm text-ivory-muted;
@@ -773,6 +777,10 @@
 }
 
 @media (max-width: 640px) {
+  .app-shell {
+    overflow-y: auto;
+  }
+
   .topbar {
     height: auto;
     min-height: 72px;
@@ -803,6 +811,13 @@
     padding: 16px 14px 24px;
   }
 
+  .app-main--whiteboard {
+    height: calc(100svh - 72px);
+    min-height: 0;
+    overflow: hidden;
+    padding-bottom: 12px;
+  }
+
   .app-main--artifact,
   .app-main--whiteboard,
   .app-main--vantage {
@@ -811,6 +826,11 @@
 
   .main-content {
     gap: 16px;
+  }
+
+  .app-main--whiteboard .main-content {
+    min-height: 0;
+    overflow: hidden;
   }
 
   .greeting-block {
@@ -829,6 +849,14 @@
 
   .composer-wrap {
     margin-top: 12px;
+  }
+
+  .app-main--whiteboard .composer-wrap {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    flex-shrink: 0;
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   .composer-shell {
@@ -861,6 +889,14 @@
     margin-bottom: 0;
     border-radius: 14px;
     padding: 18px;
+  }
+
+  .app-main--whiteboard .latest-answer {
+    order: -1;
+    display: block;
+    flex-shrink: 0;
+    max-height: clamp(128px, 24svh, 220px);
+    overflow-y: auto;
   }
 
   .latest-answer__top,
@@ -906,6 +942,16 @@
     min-height: 54svh;
     font-size: 16px;
     line-height: 1.7;
+  }
+
+  .app-main--whiteboard .whiteboard-surface {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-main--whiteboard .whiteboard-surface textarea {
+    min-height: 0;
   }
 
   .inspection-title-line {

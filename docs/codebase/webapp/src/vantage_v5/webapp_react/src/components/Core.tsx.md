@@ -7,6 +7,7 @@ Reusable core UI components for the React Vantage shell.
 - Provide the premium graphite application shell and default chat-only experience.
 - Keep top chrome, composer, answer card, login, notices, and small shared controls reusable.
 - Host the reusable static Vantage mark wrapper used by the topbar, composer, latest answer card, and auth screen.
+- Mark the outer shell with a stable class so responsive layout rules can allow mobile whiteboard/chat content to scroll without changing desktop chrome.
 
 ## Components
 

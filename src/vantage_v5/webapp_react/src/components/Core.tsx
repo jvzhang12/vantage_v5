@@ -30,7 +30,7 @@ export function VantageGlyph({
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen overflow-hidden bg-graphite text-ivory">
+    <div className="app-shell min-h-screen overflow-hidden bg-graphite text-ivory">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(127,231,240,0.055),transparent_34%)]" />
       <div className="relative flex min-h-screen flex-col">{children}</div>
     </div>

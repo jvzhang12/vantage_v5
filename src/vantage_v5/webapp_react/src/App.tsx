@@ -60,7 +60,9 @@ export function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const currentSurface = activeSurface(state);
   const proposedArtifactActions = state.latestTurn?.artifactActions.filter((action) => action.status === "proposed") || [];
-  const showLatestAnswer = Boolean(state.latestTurn && (state.view === "chat" || state.view === "artifact"));
+  const showLatestAnswer = Boolean(state.latestTurn && (
+    state.view === "chat" || state.view === "artifact" || state.view === "whiteboard"
+  ));
 
   useEffect(() => {
     let cancelled = false;

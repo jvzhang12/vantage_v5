@@ -65,6 +65,7 @@ The goal is the same as the Python summaries: let future agents understand the s
 
 ## Webapp Tests
 
+- [src/vantage_v5/webapp_react/src/App.test.tsx.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp_react/src/App.test.tsx.md)
 - [tests/product_identity.test.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/tests/product_identity.test.mjs.md)
 - [tests/math_render.test.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/tests/math_render.test.mjs.md)
 - [tests/webapp_state_model.test.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/tests/webapp_state_model.test.mjs.md)

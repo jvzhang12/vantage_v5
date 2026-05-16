@@ -1162,10 +1162,11 @@ def test_chat_attention_open_directive_prefers_selected_artifact_over_visible_to
     monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
     monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
-    monkeypatch.setattr(
-        "vantage_v5.services.meta.MetaService.decide",
-        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Opening selected context should not save."),
-    )
+
+    def _unexpected_meta_write(self, **kwargs):
+        raise AssertionError("Open-only selected context should not run automatic graph writes.")
+
+    monkeypatch.setattr("vantage_v5.services.meta.MetaService.decide", _unexpected_meta_write)
 
     response = client.post(
         "/api/chat",
@@ -1178,7 +1179,7 @@ def test_chat_attention_open_directive_prefers_selected_artifact_over_visible_to
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["navigator_selection"]["primary_resource_id"] == "visible:today-2026-05-14"
+    assert payload["navigator_selection"]["primary_resource_id"] == f"artifact:{artifact.id}"
     assert payload["navigator_selection"]["surface_to_open"] == "whiteboard"
     assert payload["surface_invocation"]["primary_surface"] == "whiteboard"
     assert payload["surface_invocation"]["write_behavior"] == "open_only"
@@ -1188,9 +1189,9 @@ def test_chat_attention_open_directive_prefers_selected_artifact_over_visible_to
     assert payload["graph_action"] is None
     assert payload["active_surface_id"] is None
     assert payload["surface_payloads"] == []
-    assert payload["selected_attention_resources"][1]["resource_id"] == f"artifact:{artifact.id}"
-    assert payload["selected_attention_resources"][1]["suggested_surface"] == "whiteboard"
-    assert "graph traversals" in payload["selected_attention_resources"][1]["content"]
+    assert payload["selected_attention_resources"][0]["resource_id"] == f"artifact:{artifact.id}"
+    assert payload["selected_attention_resources"][0]["suggested_surface"] == "whiteboard"
+    assert "graph traversals" in payload["selected_attention_resources"][0]["content"]
     assert captured["whiteboard_mode"] == "chat"
 
 
@@ -1258,10 +1259,11 @@ def test_chat_attention_open_directive_prefers_source_artifact_over_opened_copy(
     monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
     monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
-    monkeypatch.setattr(
-        "vantage_v5.services.meta.MetaService.decide",
-        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Opening selected context should not save."),
-    )
+
+    def _unexpected_meta_write(self, **kwargs):
+        raise AssertionError("Open-only source-artifact handoff should not run automatic graph writes.")
+
+    monkeypatch.setattr("vantage_v5.services.meta.MetaService.decide", _unexpected_meta_write)
 
     response = client.post(
         "/api/chat",
@@ -1328,10 +1330,11 @@ def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(
     monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
     monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
-    monkeypatch.setattr(
-        "vantage_v5.services.meta.MetaService.decide",
-        lambda self, **kwargs: MetaDecision(action="no_op", rationale="Open-only selected context should not save."),
-    )
+
+    def _unexpected_meta_write(self, **kwargs):
+        raise AssertionError("Open-only drafty-base handoff should not run automatic graph writes.")
+
+    monkeypatch.setattr("vantage_v5.services.meta.MetaService.decide", _unexpected_meta_write)
 
     response = client.post(
         "/api/chat",

@@ -117,7 +117,9 @@ class TurnOrchestrator:
             attention_selection,
             selected_resources=selected_attention_resources,
         )
+        suppress_auto_graph_writes = False
         if _is_open_only_whiteboard_invocation(surface_invocation_payload):
+            suppress_auto_graph_writes = True
             if (
                 resolved_whiteboard_mode == "draft"
                 and self.whiteboard_routing.should_continue_current_whiteboard_draft(
@@ -277,6 +279,7 @@ class TurnOrchestrator:
                 app_capabilities=context.app_capabilities,
                 applied_protocol_kinds=applied_protocol_kinds,
                 turn_stage=turn_stage,
+                suppress_auto_graph_writes=suppress_auto_graph_writes,
             )
 
         payload = assemble_service_turn_payload(
@@ -347,6 +350,7 @@ class TurnOrchestrator:
                 whiteboard_mode=resolved_whiteboard_mode,
                 public_summary="Scenario Lab fell back to a chat response.",
             ),
+            suppress_auto_graph_writes=_is_open_only_whiteboard_invocation(surface_invocation),
         )
         payload = assemble_scenario_lab_fallback_payload(
             ScenarioLabFallbackParts(

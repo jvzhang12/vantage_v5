@@ -238,6 +238,7 @@ class ChatService:
         app_capabilities: dict[str, Any] | None = None,
         applied_protocol_kinds: list[str] | None = None,
         turn_stage: TurnStage | None = None,
+        suppress_auto_graph_writes: bool = False,
     ) -> ChatTurn:
         visible_artifacts = normalize_visible_artifacts(visible_artifacts)
         selected_attention_resources = _normalize_selected_attention_resources(selected_attention_resources)
@@ -516,6 +517,18 @@ class ChatService:
                 action="no_op",
                 rationale=(
                     "A reusable protocol was updated deterministically, so no separate meta write was needed."
+                ),
+            )
+            executed_action = None
+        elif (
+            suppress_auto_graph_writes
+            and memory_mode == "auto"
+            and not EXPLICIT_GRAPH_WRITE_RE.search(message)
+        ):
+            meta = MetaDecision(
+                action="no_op",
+                rationale=(
+                    "This turn is a UI-only Whiteboard open, so Vantage did not create a durable graph record."
                 ),
             )
             executed_action = None

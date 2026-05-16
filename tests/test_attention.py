@@ -475,7 +475,7 @@ def test_navigator_selection_opens_selected_saved_artifact_over_visible_today() 
         selection,
     )
 
-    assert selection.primary_resource_id == "visible:today-2026-05-14"
+    assert selection.primary_resource_id == "artifact:midterm-study-plan"
     assert selection.surface_to_open == "whiteboard"
     assert payload["primary_surface"] == "whiteboard"
     assert payload["write_behavior"] == "open_only"
@@ -536,6 +536,160 @@ def test_navigator_selection_accepts_candidate_ids_and_prefers_source_artifact_c
     assert selection.supporting_resource_ids == (
         "artifact:midterm-study-plan-2",
         "artifact:first-action-from-midterm-study-plan",
+    )
+    assert selection.surface_to_open == "whiteboard"
+
+
+def test_navigator_selection_prefers_source_artifact_over_concept_and_opened_copy() -> None:
+    candidates = (
+        _candidate(
+            resource_id="concept:exam-preparation-strategy",
+            kind="concept",
+            app="learned",
+            source="concept",
+            suggested_surface=None,
+            score=22.0,
+            title="Exam Preparation Strategy",
+            value_ref={"record_id": "exam-preparation-strategy"},
+        ),
+        _candidate(
+            resource_id="artifact:midterm-study-plan-2",
+            kind="artifact",
+            app="whiteboard",
+            source="artifact",
+            suggested_surface="whiteboard",
+            score=12.0,
+            title="Midterm Study Plan",
+            value_ref={"record_id": "midterm-study-plan-2", "comes_from": ["midterm-study-plan"]},
+        ),
+        _candidate(
+            resource_id="artifact:midterm-study-plan",
+            kind="artifact",
+            app="whiteboard",
+            source="artifact",
+            suggested_surface="whiteboard",
+            score=9.0,
+            title="Midterm Study Plan",
+            value_ref={"record_id": "midterm-study-plan", "comes_from": ["vantage-demo-day-plan"]},
+        ),
+    )
+
+    selection = normalize_navigator_selection(
+        {
+            "selected_ids": [
+                "concept:exam-preparation-strategy",
+                "artifact:midterm-study-plan-2",
+                "artifact:midterm-study-plan",
+            ],
+            "primary_resource_id": "concept:exam-preparation-strategy",
+            "surface_to_open": "whiteboard",
+            "reason": "Use the selected study material.",
+            "confidence": 0.9,
+        },
+        candidates=candidates,
+    )
+
+    assert selection.primary_resource_id == "artifact:midterm-study-plan"
+    assert selection.selected_ids[0] == "artifact:midterm-study-plan"
+    assert selection.supporting_resource_ids == (
+        "concept:exam-preparation-strategy",
+        "artifact:midterm-study-plan-2",
+    )
+    assert selection.surface_to_open == "whiteboard"
+
+
+def test_navigator_selection_keeps_selected_artifact_as_context_without_open_signal() -> None:
+    candidates = (
+        _candidate(
+            resource_id="concept:exam-preparation-strategy",
+            kind="concept",
+            app="learned",
+            source="concept",
+            suggested_surface=None,
+            score=22.0,
+            title="Exam Preparation Strategy",
+            value_ref={"record_id": "exam-preparation-strategy"},
+        ),
+        _candidate(
+            resource_id="artifact:midterm-study-plan",
+            kind="artifact",
+            app="whiteboard",
+            source="artifact",
+            suggested_surface="whiteboard",
+            score=9.0,
+            title="Midterm Study Plan",
+            value_ref={"record_id": "midterm-study-plan"},
+        ),
+    )
+
+    selection = normalize_navigator_selection(
+        {
+            "selected_ids": ["concept:exam-preparation-strategy", "artifact:midterm-study-plan"],
+            "primary_resource_id": "concept:exam-preparation-strategy",
+            "reason": "Use both as context.",
+            "confidence": 0.9,
+        },
+        candidates=candidates,
+    )
+
+    assert selection.primary_resource_id == "concept:exam-preparation-strategy"
+    assert selection.selected_ids == ("concept:exam-preparation-strategy", "artifact:midterm-study-plan")
+    assert selection.surface_to_open is None
+
+
+def test_navigator_selection_infers_open_target_for_find_material_query() -> None:
+    candidates = (
+        _candidate(
+            resource_id="concept:exam-preparation-strategy",
+            kind="concept",
+            app="learned",
+            source="concept",
+            suggested_surface=None,
+            score=22.0,
+            title="Exam Preparation Strategy",
+            value_ref={"record_id": "exam-preparation-strategy"},
+        ),
+        _candidate(
+            resource_id="artifact:midterm-study-plan-2",
+            kind="artifact",
+            app="whiteboard",
+            source="artifact",
+            suggested_surface="whiteboard",
+            score=12.0,
+            title="Midterm Study Plan",
+            value_ref={"record_id": "midterm-study-plan-2", "comes_from": ["midterm-study-plan"]},
+        ),
+        _candidate(
+            resource_id="artifact:midterm-study-plan",
+            kind="artifact",
+            app="whiteboard",
+            source="artifact",
+            suggested_surface="whiteboard",
+            score=9.0,
+            title="Midterm Study Plan",
+            value_ref={"record_id": "midterm-study-plan"},
+        ),
+    )
+
+    selection = normalize_navigator_selection(
+        {
+            "selected_ids": ["concept:exam-preparation-strategy", "artifact:midterm-study-plan-2"],
+            "primary_resource_id": "concept:exam-preparation-strategy",
+            "reason": "Use both as context.",
+            "confidence": 0.9,
+        },
+        candidates=candidates,
+        query_frame=build_query_frame(
+            "Can you find my exam preparation material about graphs and study priorities?",
+            today=date(2026, 5, 14),
+        ),
+    )
+
+    assert selection.primary_resource_id == "artifact:midterm-study-plan"
+    assert selection.selected_ids == (
+        "artifact:midterm-study-plan",
+        "concept:exam-preparation-strategy",
+        "artifact:midterm-study-plan-2",
     )
     assert selection.surface_to_open == "whiteboard"
 

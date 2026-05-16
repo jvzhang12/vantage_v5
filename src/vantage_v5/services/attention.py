@@ -286,7 +286,12 @@ class AttentionTurn:
         return [candidate.to_dict() for candidate in self.candidates[:limit]]
 
     def select(self, raw_selection: Any, *, limit: int = 4) -> tuple[NavigatorSelection, tuple[SelectedAttentionResource, ...]]:
-        selection = normalize_navigator_selection(raw_selection, candidates=self.candidates, limit=limit)
+        selection = normalize_navigator_selection(
+            raw_selection,
+            candidates=self.candidates,
+            limit=limit,
+            query_frame=self.query_frame,
+        )
         selected = tuple(
             self._selected_resource(candidate_id, selection.reason)
             for candidate_id in selection.selected_ids
@@ -528,6 +533,7 @@ def normalize_navigator_selection(
     *,
     candidates: tuple[AttentionCandidate, ...],
     limit: int = 4,
+    query_frame: QueryFrame | None = None,
 ) -> NavigatorSelection:
     candidate_ids = [candidate.resource_id for candidate in candidates]
     candidate_id_set = set(candidate_ids)
@@ -559,22 +565,28 @@ def normalize_navigator_selection(
     primary_resource_id = id_aliases.get(raw_primary_resource_id, raw_primary_resource_id)
     if primary_resource_id not in selected_ids:
         primary_resource_id = selected_ids[0] if selected_ids else None
+    surface_to_open = _clean_text(selection.get("surface_to_open"))
+    if surface_to_open not in SURFACE_KINDS:
+        surface_to_open = None
+    infer_openable_source = _should_prefer_source_artifact(query_frame) if query_frame is not None else False
     primary_resource_id = _preferred_primary_resource_id(
         primary_resource_id,
         selected_ids=selected_ids,
         candidates=candidates,
+        requested_surface=surface_to_open,
+        infer_openable_source=infer_openable_source,
     )
+    if primary_resource_id and primary_resource_id not in selected_ids and primary_resource_id in candidate_id_set:
+        selected_ids = (primary_resource_id, *selected_ids)[:limit]
     selected_ids = _primary_first(selected_ids, primary_resource_id)
     supporting = tuple(item for item in selected_ids if item != primary_resource_id)
     rejected = tuple(candidate_id for candidate_id in candidate_ids if candidate_id not in selected_ids)
-    surface_to_open = _clean_text(selection.get("surface_to_open"))
-    if surface_to_open not in SURFACE_KINDS:
-        surface_to_open = None
     surface_to_open = _selection_surface_to_open(
         surface_to_open,
         primary_resource_id=primary_resource_id,
         selected_ids=selected_ids,
         candidates=candidates,
+        infer_openable_source=infer_openable_source,
     )
     return NavigatorSelection(
         selected_ids=selected_ids,
@@ -744,17 +756,28 @@ def _preferred_primary_resource_id(
     *,
     selected_ids: tuple[str, ...],
     candidates: tuple[AttentionCandidate, ...],
+    requested_surface: str | None = None,
+    infer_openable_source: bool = False,
 ) -> str | None:
     if not primary_resource_id:
         return primary_resource_id
     by_id = {candidate.resource_id: candidate for candidate in candidates}
+    selected_id_set = set(selected_ids)
     primary = by_id.get(primary_resource_id)
+    preferred_open_target = _preferred_openable_source_artifact(
+        primary,
+        selected_ids=selected_ids,
+        candidates=by_id,
+        requested_surface=requested_surface,
+        infer_openable_source=infer_openable_source,
+    )
+    if preferred_open_target is not None:
+        return preferred_open_target
     if primary is None or primary.source != "artifact":
         return primary_resource_id
     comes_from = primary.value_ref.get("comes_from")
     if not isinstance(comes_from, list):
         return primary_resource_id
-    selected_id_set = set(selected_ids)
     primary_title = _normalized_title(primary.title)
     for parent_id in comes_from:
         parent_resource_id = _resource_id("artifact", str(parent_id).strip())
@@ -764,6 +787,109 @@ def _preferred_primary_resource_id(
         if _normalized_title(parent.title) == primary_title:
             return parent_resource_id
     return primary_resource_id
+
+
+def _preferred_openable_source_artifact(
+    primary: AttentionCandidate | None,
+    *,
+    selected_ids: tuple[str, ...],
+    candidates: dict[str, AttentionCandidate],
+    requested_surface: str | None,
+    infer_openable_source: bool,
+) -> str | None:
+    if primary is not None and primary.source == "artifact":
+        should_choose_open_target = True
+    elif requested_surface == "whiteboard":
+        should_choose_open_target = True
+    elif _is_visible_operational_candidate(primary):
+        should_choose_open_target = True
+    elif infer_openable_source:
+        should_choose_open_target = True
+    else:
+        should_choose_open_target = False
+    if not should_choose_open_target:
+        return None
+    selected = [candidates[item] for item in selected_ids if item in candidates]
+    artifacts = _openable_artifact_candidates_with_sources(selected, candidates=candidates)
+    if not artifacts:
+        return None
+    scored = sorted(
+        artifacts,
+        key=lambda candidate: _source_artifact_open_score(candidate, selected=selected),
+        reverse=True,
+    )
+    best = scored[0]
+    if primary in artifacts:
+        primary_score = _source_artifact_open_score(primary, selected=selected)
+        best_score = _source_artifact_open_score(best, selected=selected)
+        if primary_score >= best_score:
+            return primary.resource_id
+    return best.resource_id
+
+
+def _openable_artifact_candidates_with_sources(
+    selected: list[AttentionCandidate],
+    *,
+    candidates: dict[str, AttentionCandidate],
+) -> list[AttentionCandidate]:
+    artifacts = [
+        candidate
+        for candidate in selected
+        if candidate.source == "artifact" and _is_openable_whiteboard_candidate(candidate)
+    ]
+    artifact_ids = {candidate.resource_id for candidate in artifacts}
+    for candidate in list(artifacts):
+        comes_from = candidate.value_ref.get("comes_from")
+        if not isinstance(comes_from, list):
+            continue
+        title = _normalized_title(candidate.title)
+        for parent_id in comes_from:
+            parent_resource_id = _resource_id("artifact", str(parent_id).strip())
+            parent = candidates.get(parent_resource_id)
+            if (
+                parent is None
+                or parent.resource_id in artifact_ids
+                or parent.source != "artifact"
+                or not _is_openable_whiteboard_candidate(parent)
+                or _normalized_title(parent.title) != title
+            ):
+                continue
+            artifacts.append(parent)
+            artifact_ids.add(parent.resource_id)
+    return artifacts
+
+
+def _source_artifact_open_score(
+    candidate: AttentionCandidate,
+    *,
+    selected: list[AttentionCandidate],
+) -> float:
+    score = candidate.score / 1000.0
+    title = _normalized_title(candidate.title)
+    if any(term in title for term in ("action", "first", "immediate", "next", "step")):
+        score -= 40.0
+    comes_from = candidate.value_ref.get("comes_from")
+    if isinstance(comes_from, list):
+        parent_ids = {str(parent_id).strip() for parent_id in comes_from}
+        if any(
+            other.source == "artifact"
+            and _normalized_title(other.title) == title
+            and str(other.value_ref.get("record_id") or "").strip() in parent_ids
+            for other in selected
+        ):
+            score -= 20.0
+    candidate_record_id = str(candidate.value_ref.get("record_id") or "").strip()
+    if candidate_record_id:
+        if any(
+            other.source == "artifact"
+            and _normalized_title(other.title) == title
+            and isinstance(other.value_ref.get("comes_from"), list)
+            and candidate_record_id
+            in {str(parent_id).strip() for parent_id in other.value_ref.get("comes_from") or []}
+            for other in selected
+        ):
+            score += 30.0
+    return score
 
 
 def _primary_first(selected_ids: tuple[str, ...], primary_resource_id: str | None) -> tuple[str, ...]:
@@ -782,12 +908,15 @@ def _selection_surface_to_open(
     primary_resource_id: str | None,
     selected_ids: tuple[str, ...],
     candidates: tuple[AttentionCandidate, ...],
+    infer_openable_source: bool = False,
 ) -> str | None:
     by_id = {candidate.resource_id: candidate for candidate in candidates}
     primary = by_id.get(primary_resource_id or "")
     selected = [by_id[item] for item in selected_ids if item in by_id]
     selected_whiteboard = next((_candidate for _candidate in selected if _is_openable_whiteboard_candidate(_candidate)), None)
-    if selected_whiteboard is not None and (not requested_surface or _is_visible_operational_candidate(primary)):
+    if selected_whiteboard is not None and (
+        _is_visible_operational_candidate(primary) or infer_openable_source
+    ):
         return "whiteboard"
     if requested_surface:
         return requested_surface

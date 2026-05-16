@@ -14,7 +14,7 @@ Implements the first-pass Attention + Navigator selection layer for Vantage.
 
 - `build_query_frame()` extracts domains, operation hints, entities, requested artifact kinds, and temporal references such as today, tomorrow, last week, or last Tuesday.
 - `AttentionEngine.prepare_turn()` indexes candidate resources from the current runtime and user-scoped operational providers.
-- Ranking favors visible artifacts first, then exact key/entity matches, temporal matches, operational app matches, and recency.
+- Ranking favors visible artifacts first, then exact key/entity matches, temporal matches, operational app matches, and recency. Broad saved-material lookups also give a small penalty to derivative action/step artifacts when their source artifact is present, while explicit first-action/next-step queries can still choose the derivative.
 - Hybrid ranking adds `retrieval_scores` to each candidate, including deterministic score, temporal score, semantic vector similarity, vector bonus, and final hybrid score.
 - `AttentionTurn.select()` normalizes the Navigator's selection or chooses a small deterministic fallback set.
 - `attention_payload()` exposes `query_frame`, `attention_candidates`, `navigator_selection`, and `selected_attention_resources` for `/api/chat`, `system_state`, and the Vantage receipt. Candidate and selected-resource DTOs now carry `scope`, `durability`, and `is_canonical` directly rather than requiring consumers to infer product provenance from `source_status.store`.

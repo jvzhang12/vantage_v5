@@ -14,6 +14,7 @@ from vantage_v5.services.local_semantic_actions import LocalSemanticActionEngine
 from vantage_v5.services.local_semantic_actions import LocalSemanticTurnContext
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.navigator import NavigatorService
+from vantage_v5.services.navigator import apply_control_panel_open_intent_fallback
 from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.semantic_frame import build_semantic_frame
 from vantage_v5.services.semantic_policy import decide_semantic_policy
@@ -88,6 +89,11 @@ class TurnOrchestrator:
                 visible_artifacts=context.visible_artifacts,
                 attention_candidates=attention_candidates,
             )
+        navigation = apply_control_panel_open_intent_fallback(
+            navigation,
+            user_message=request.message,
+            attention_candidates=attention_candidates,
+        )
         attention_selection = None
         selected_attention_resources = ()
         if attention_turn is not None:

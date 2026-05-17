@@ -585,13 +585,6 @@ def normalize_navigator_selection(
     selected_ids = _primary_first(selected_ids, primary_resource_id)
     supporting = tuple(item for item in selected_ids if item != primary_resource_id)
     rejected = tuple(candidate_id for candidate_id in candidate_ids if candidate_id not in selected_ids)
-    surface_to_open = _selection_surface_to_open(
-        surface_to_open,
-        primary_resource_id=primary_resource_id,
-        selected_ids=selected_ids,
-        candidates=candidates,
-        infer_openable_source=infer_openable_source,
-    )
     return NavigatorSelection(
         selected_ids=selected_ids,
         primary_resource_id=primary_resource_id,
@@ -946,30 +939,6 @@ def _primary_first(selected_ids: tuple[str, ...], primary_resource_id: str | Non
 
 def _normalized_title(value: str) -> str:
     return " ".join(str(value or "").strip().lower().split())
-
-
-def _selection_surface_to_open(
-    requested_surface: str | None,
-    *,
-    primary_resource_id: str | None,
-    selected_ids: tuple[str, ...],
-    candidates: tuple[AttentionCandidate, ...],
-    infer_openable_source: bool = False,
-) -> str | None:
-    by_id = {candidate.resource_id: candidate for candidate in candidates}
-    primary = by_id.get(primary_resource_id or "")
-    selected = [by_id[item] for item in selected_ids if item in by_id]
-    if requested_surface:
-        return requested_surface
-    selected_whiteboard = next((_candidate for _candidate in selected if _is_openable_whiteboard_candidate(_candidate)), None)
-    if selected_whiteboard is not None and infer_openable_source:
-        return "whiteboard"
-    if primary is not None and primary.source != "visible_artifact":
-        surface = primary.suggested_surface if primary.suggested_surface in SURFACE_KINDS else primary.kind
-        if primary.source == "artifact" and surface == "whiteboard":
-            return None
-        return surface if surface in SURFACE_KINDS else None
-    return None
 
 
 def _is_openable_whiteboard_candidate(candidate: AttentionCandidate) -> bool:

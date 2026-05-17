@@ -1089,7 +1089,7 @@ def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_
     assert "active-study-cycle-for-algorithm-exam-preparation" not in concept_ids_after
 
 
-def test_chat_uses_attention_selection_as_primary_surface_authority(tmp_path: Path, monkeypatch) -> None:
+def test_chat_uses_explicit_navigator_surface_open_intent(tmp_path: Path, monkeypatch) -> None:
     client, _ = _client(tmp_path)
 
     def _route(self, **kwargs):
@@ -1186,7 +1186,7 @@ def test_chat_attention_open_directive_prefers_selected_artifact_over_visible_to
     response = client.post(
         "/api/chat",
         json={
-            "message": "Can you find my exam preparation material about graphs and study priorities?",
+            "message": "Show me the saved Midterm Study Plan",
             "history": [],
             "visible_artifacts": [visible_today],
         },
@@ -1196,6 +1196,10 @@ def test_chat_attention_open_directive_prefers_selected_artifact_over_visible_to
     payload = response.json()
     assert payload["navigator_selection"]["primary_resource_id"] == f"artifact:{artifact.id}"
     assert payload["navigator_selection"]["surface_to_open"] == "whiteboard"
+    assert any(
+        action["type"] == "open_whiteboard"
+        for action in payload["turn_interpretation"]["control_panel"]["actions"]
+    )
     assert payload["surface_invocation"]["primary_surface"] == "whiteboard"
     assert payload["surface_invocation"]["write_behavior"] == "open_only"
     assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "chat"
@@ -1293,6 +1297,10 @@ def test_chat_attention_open_directive_prefers_source_artifact_over_opened_copy(
     payload = response.json()
     assert payload["navigator_selection"]["primary_resource_id"] == f"artifact:{source_artifact.id}"
     assert payload["navigator_selection"]["surface_to_open"] == "whiteboard"
+    assert any(
+        action["type"] == "open_whiteboard"
+        for action in payload["turn_interpretation"]["control_panel"]["actions"]
+    )
     assert payload["surface_invocation"]["primary_surface"] == "whiteboard"
     assert payload["surface_invocation"]["write_behavior"] == "open_only"
     assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "chat"

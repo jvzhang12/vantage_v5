@@ -71,6 +71,13 @@ PENDING_ACCEPT_RE = re.compile(
     r"^\s*(?:yes|yeah|yep|sure|ok(?:ay)?|please do|go ahead|do it|sounds good|let'?s do that|that works|open it|use it)\b",
     re.IGNORECASE,
 )
+SAVED_MATERIAL_OPEN_LOOKUP_RE = re.compile(
+    r"\b(?:find|show|open|pull up|look at|go back(?: to)?|reopen|revisit)\b"
+    r".{0,100}\b(?:saved|artifact|material|materials|study plan|plan|whiteboard|note|document|exam preparation)\b"
+    r"|\b(?:saved|artifact|material|materials|study plan|plan|whiteboard|note|document|exam preparation)\b"
+    r".{0,100}\b(?:find|show|open|pull up|look at|go back(?: to)?|reopen|revisit)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(slots=True)
@@ -223,7 +230,7 @@ class NavigatorService:
                 "The payload may include attention_candidates from deterministic query-key ranking; treat this shortlist as the primary context/resource selection layer for normal turns. "
                 "Select only the few candidates that should actually enter the workspace/model context for this answer. "
                 "Do not select candidates just because they are available; reject noisy or merely adjacent candidates. "
-                "When a selected resource implies a visible app, set attention_selection.surface_to_open to the appropriate surface kind; this choice should be the primary surface authority unless the user explicitly asked for chat-only or the turn enters Scenario Lab. "
+                "Selecting context is not the same as opening UI. Set attention_selection.surface_to_open only when the user is explicitly asking to open/show/find/look at material in an app surface, or when the control_panel would press an open surface action; otherwise leave it null even if a candidate has suggested_surface metadata. "
                 "Only choose actions from available_control_panel_actions. "
                 "For every control_panel action, include protocol_kind as null unless the action type is apply_protocol. "
                 "When action type is apply_protocol, protocol_kind is required and must be one of email, research_paper, or scenario_lab. "
@@ -636,6 +643,137 @@ def _stabilize_decision(
         control_panel=control_panel,
         attention_selection=decision.attention_selection,
     )
+
+
+def apply_control_panel_open_intent_fallback(
+    decision: NavigationDecision,
+    *,
+    user_message: str,
+    attention_candidates: list[dict[str, object]] | None,
+) -> NavigationDecision:
+    if decision.mode != "chat":
+        return decision
+    if not _is_saved_material_open_lookup(user_message):
+        return decision
+
+    attention_selection = _normalize_attention_selection(decision.attention_selection) or {
+        "selected_ids": [],
+        "primary_resource_id": None,
+        "supporting_resource_ids": [],
+        "rejected_candidate_ids": [],
+        "surface_to_open": None,
+        "reason": "",
+        "confidence": 0.0,
+    }
+    if attention_selection.get("surface_to_open"):
+        return decision
+
+    selected_ids = list(attention_selection.get("selected_ids") or [])
+    candidate_by_id = _candidate_aliases(attention_candidates or [])
+    selected_candidates = [
+        candidate_by_id[item]
+        for item in selected_ids
+        if isinstance(item, str) and item in candidate_by_id
+    ]
+    openable = next(
+        (candidate for candidate in selected_candidates if _is_openable_saved_material_candidate(candidate)),
+        None,
+    )
+    if openable is None:
+        openable = next(
+            (
+                candidate
+                for candidate in (attention_candidates or [])
+                if _is_openable_saved_material_candidate(candidate)
+            ),
+            None,
+        )
+    if openable is None:
+        return decision
+
+    openable_id = _candidate_resource_id(openable)
+    if openable_id and openable_id not in selected_ids:
+        selected_ids = [openable_id, *selected_ids]
+    if not selected_ids:
+        return decision
+
+    primary_resource_id = attention_selection.get("primary_resource_id")
+    if not primary_resource_id:
+        primary_resource_id = openable_id
+    reason = (
+        str(attention_selection.get("reason") or "").strip()
+        or "The user asked to open saved material, so Navigator is issuing an explicit Whiteboard open intent."
+    )
+    confidence = max(float(attention_selection.get("confidence") or 0.0), 0.72)
+    control_panel = _ensure_control_panel_action(
+        _normalize_control_panel(decision.control_panel),
+        action_type="open_whiteboard",
+        reason="Saved/open-material lookup should foreground the selected material without drafting or writing.",
+    )
+    return NavigationDecision(
+        mode=decision.mode,
+        confidence=max(decision.confidence, confidence),
+        reason=decision.reason
+        or "Saved/open-material lookup should foreground the selected material without drafting or writing.",
+        comparison_question=decision.comparison_question,
+        branch_count=decision.branch_count,
+        branch_labels=list(decision.branch_labels),
+        whiteboard_mode=decision.whiteboard_mode,
+        preserve_pinned_context=decision.preserve_pinned_context,
+        pinned_context_reason=decision.pinned_context_reason,
+        preserve_selected_record=decision.preserve_selected_record,
+        selected_record_reason=decision.selected_record_reason,
+        control_panel=control_panel,
+        attention_selection={
+            **attention_selection,
+            "selected_ids": selected_ids[:4],
+            "primary_resource_id": primary_resource_id,
+            "supporting_resource_ids": [
+                item
+                for item in selected_ids[:4]
+                if item != primary_resource_id
+            ],
+            "surface_to_open": "whiteboard",
+            "reason": reason,
+            "confidence": confidence,
+        },
+    )
+
+
+def _is_saved_material_open_lookup(message: str) -> bool:
+    return bool(SAVED_MATERIAL_OPEN_LOOKUP_RE.search(str(message or "")))
+
+
+def _candidate_aliases(candidates: list[dict[str, object]]) -> dict[str, dict[str, object]]:
+    aliases: dict[str, dict[str, object]] = {}
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        for key in ("id", "resource_id"):
+            value = str(candidate.get(key) or "").strip()
+            if value:
+                aliases[value] = candidate
+    return aliases
+
+
+def _candidate_resource_id(candidate: dict[str, object]) -> str | None:
+    value = str(candidate.get("resource_id") or "").strip()
+    return value or None
+
+
+def _is_openable_saved_material_candidate(candidate: dict[str, object]) -> bool:
+    if not isinstance(candidate, dict):
+        return False
+    resource_id = str(candidate.get("resource_id") or "").strip().lower()
+    if not resource_id.startswith("artifact:"):
+        return False
+    source = str(candidate.get("source") or "").strip().lower()
+    if source and source != "artifact":
+        return False
+    surface = str(candidate.get("suggested_surface") or "").strip().lower()
+    app = str(candidate.get("app") or "").strip().lower()
+    kind = str(candidate.get("kind") or "").strip().lower()
+    return surface == "whiteboard" or app == "whiteboard" or kind in {"artifact", "whiteboard"}
 
 
 def _is_complex_work_product_request(message: str) -> bool:

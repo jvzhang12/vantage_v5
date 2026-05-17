@@ -18,6 +18,7 @@ LLM-based turn interpreter for Vantage V5. It decides whether a chat turn should
 - If OpenAI is unavailable it returns a fallback decision that keeps the turn in normal chat and leaves the whiteboard / continuity hints unset so later layers can use conservative fallback behavior.
 - Otherwise it calls the Responses API with a JSON schema contract and conservative instructions that reserve Scenario Lab for clear comparative what-if or option-analysis requests while also choosing whether normal chat should stay in chat, invite whiteboard collaboration, or draft directly into the whiteboard.
 - The model now also returns a `control_panel` object with action button presses, requested working-memory queries, and the intended response call after context assembly. This is additive for now, but it is the migration target for removing scattered deterministic intent classifiers.
+- Explicit surface-opening authority lives here: `attention_selection.surface_to_open` should be present only when Navigator or a Navigator-owned control-panel fallback intends to open a UI surface, not merely because a selected resource advertises `suggested_surface` metadata.
 - The available control-panel actions include `apply_protocol`, which lets the Navigator choose reusable task guidance such as the Scenario Lab protocol before the response call.
 - Control-panel actions now include a nullable `protocol_kind` field. It should be `null` for non-protocol actions, and it is required for `apply_protocol` with one of `email`, `research_paper`, or `scenario_lab`.
 - Control-panel normalization now treats the model output as untrusted structured input: unsupported action types are dropped, `apply_protocol` actions must name a supported protocol kind, and non-protocol actions have `protocol_kind` reset to `null`.
@@ -28,6 +29,7 @@ LLM-based turn interpreter for Vantage V5. It decides whether a chat turn should
 - The same interpretation pass can mark an explicitly pinned concept, memory, artifact, or reference note for continuity even when the follow-up is longer than the old short-message heuristic, so “let us keep playing with these rules in mind” can stay anchored to the pinned rules concept.
 - The response is parsed into a `NavigationDecision`.
 - The parsed decision is then stabilized for a few canonical product contracts that should not depend on one model phrasing: obvious work products invite whiteboard collaboration, explicit/pending/active whiteboard drafting resolves to draft mode, fresh/new whiteboard open phrasing still counts as explicit drafting, chat-only work products stay in chat, obvious email/research-paper work receives the matching protocol action, and any changed surface gets a matching stabilized rationale.
+- `apply_control_panel_open_intent_fallback()` is a narrow deterministic Navigator/control-panel fallback for saved/open-material lookup turns. When the model selected a saved artifact but omitted the explicit open signal, this helper adds `surface_to_open="whiteboard"` plus an `open_whiteboard` control-panel action; ordinary artifact Q&A remains chat/context-only.
 - Invalid, missing, or unusable model output falls back to a chat decision instead of blocking the request.
 
 ## Key Classes / Functions
@@ -38,6 +40,7 @@ LLM-based turn interpreter for Vantage V5. It decides whether a chat turn should
 - `route_turn()`: main entry point for interpretation.
 - `_openai_route()`: builds the structured navigator request and parses the model response.
 - `_fallback_decision()`: returns a safe chat decision when routing cannot be completed.
+- `apply_control_panel_open_intent_fallback()`: post-route fallback used by the orchestrator to make saved/open-material UI intent explicit without letting Attention infer opens from selected candidates.
 - `_normalize_whiteboard_mode_hint()`, `_normalize_preserve_pinned_context()`, `_normalize_reason()`, `_normalize_control_panel()`, and `_stabilize_decision()`: validate the semantic hint fields coming back from the model, keep legacy selected-record aliases tolerated at parse time, and enforce the narrow canonical whiteboard/protocol contracts.
 
 ## Notable Edge Cases

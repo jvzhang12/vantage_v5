@@ -413,7 +413,7 @@ def test_attention_my_day_fallback_prefers_operational_resources_over_old_traces
     )
 
     selection = normalize_navigator_selection(None, candidates=turn.candidates)
-    assert selection.surface_to_open in {"calendar_day", "task_focus"}
+    assert selection.surface_to_open is None
     assert selection.primary_resource_id in {"calendar_day:2026-05-14", "task_focus:2026-05-14"}
     assert not str(selection.primary_resource_id or "").startswith("memory_trace:")
 
@@ -436,9 +436,9 @@ def test_navigator_selection_falls_back_to_ranked_candidates(tmp_path: Path) -> 
     selection = normalize_navigator_selection(None, candidates=turn.candidates)
     assert selection.fallback is True
     assert selection.selected_ids
-    assert selection.surface_to_open == "calendar_day"
+    assert selection.surface_to_open is None
     payload = apply_attention_surface_selection({"primary_surface": "chat", "surfaces": []}, selection)
-    assert payload["primary_surface"] == "calendar_day"
+    assert payload["primary_surface"] == "chat"
 
 
 def test_navigator_selection_opens_selected_saved_artifact_over_visible_today() -> None:
@@ -480,10 +480,10 @@ def test_navigator_selection_opens_selected_saved_artifact_over_visible_today() 
     )
 
     assert selection.primary_resource_id == "artifact:midterm-study-plan"
-    assert selection.surface_to_open == "whiteboard"
-    assert payload["primary_surface"] == "whiteboard"
-    assert payload["write_behavior"] == "open_only"
-    assert payload["selection_authority"] == "attention_navigator"
+    assert selection.surface_to_open is None
+    assert payload["primary_surface"] == "chat"
+    assert payload["write_behavior"] == "none"
+    assert "selection_authority" not in payload
 
 
 def test_navigator_selection_accepts_candidate_ids_and_prefers_source_artifact_copy() -> None:
@@ -545,7 +545,7 @@ def test_navigator_selection_accepts_candidate_ids_and_prefers_source_artifact_c
         "artifact:midterm-study-plan-2",
         "artifact:first-action-from-midterm-study-plan",
     )
-    assert selection.surface_to_open == "whiteboard"
+    assert selection.surface_to_open is None
 
 
 def test_navigator_selection_preserves_explicit_opened_copy_outside_material_lookup() -> None:
@@ -754,7 +754,7 @@ def test_navigator_selection_preserves_explicit_derivative_artifact_primary() ->
     assert open_selection.surface_to_open == "whiteboard"
 
 
-def test_navigator_selection_infers_open_target_for_find_material_query() -> None:
+def test_navigator_selection_prefers_source_artifact_without_synthesizing_open_intent() -> None:
     candidates = (
         _candidate(
             resource_id="concept:exam-preparation-strategy",
@@ -814,13 +814,13 @@ def test_navigator_selection_infers_open_target_for_find_material_query() -> Non
             "concept:exam-preparation-strategy",
             "artifact:midterm-study-plan-2",
         )
-        assert selection.surface_to_open == "whiteboard"
+        assert selection.surface_to_open is None
         payload = apply_attention_surface_selection(
             {"intent": "general_chat", "primary_surface": "chat", "supporting_surfaces": [], "write_behavior": "none", "surfaces": []},
             selection,
         )
-        assert payload["primary_surface"] == "whiteboard"
-        assert payload["write_behavior"] == "open_only"
+        assert payload["primary_surface"] == "chat"
+        assert payload["write_behavior"] == "none"
 
 
 def test_attention_surface_selection_forces_open_only_over_drafty_base() -> None:

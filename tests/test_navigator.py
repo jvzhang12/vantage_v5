@@ -4,6 +4,7 @@ from vantage_v5.services.navigator import _normalize_control_panel
 from vantage_v5.services.navigator import _stabilize_decision
 from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.navigator import NavigatorService
+from vantage_v5.services.navigator import apply_control_panel_open_intent_fallback
 from vantage_v5.storage.workspaces import WorkspaceDocument
 
 
@@ -81,6 +82,91 @@ def test_stabilized_decision_keeps_simple_email_draft_in_chat_with_protocol() ->
         action["type"] == "apply_protocol" and action["protocol_kind"] == "email"
         for action in decision.control_panel["actions"]
     )
+    assert all(action["type"] != "open_whiteboard" for action in decision.control_panel["actions"])
+
+
+def test_control_panel_fallback_adds_open_intent_for_saved_material_lookup() -> None:
+    decision = apply_control_panel_open_intent_fallback(
+        NavigationDecision(
+            mode="chat",
+            confidence=0.8,
+            reason="Model selected context but omitted the UI open intent.",
+            whiteboard_mode="chat",
+            control_panel={"actions": [], "working_memory_queries": [], "response_call": None},
+            attention_selection={
+                "selected_ids": ["concept:exam-prep", "artifact:midterm-study-plan"],
+                "primary_resource_id": "concept:exam-prep",
+                "supporting_resource_ids": ["artifact:midterm-study-plan"],
+                "rejected_candidate_ids": [],
+                "surface_to_open": None,
+                "reason": "Use both items as context.",
+                "confidence": 0.82,
+            },
+        ),
+        user_message="Show me the saved Midterm Study Plan",
+        attention_candidates=[
+            {
+                "id": "candidate-concept:exam-prep",
+                "resource_id": "concept:exam-prep",
+                "source": "concept",
+                "kind": "concept",
+                "app": "concept",
+                "suggested_surface": None,
+            },
+            {
+                "id": "candidate-artifact:midterm-study-plan",
+                "resource_id": "artifact:midterm-study-plan",
+                "source": "artifact",
+                "kind": "artifact",
+                "app": "whiteboard",
+                "suggested_surface": "whiteboard",
+            },
+        ],
+    )
+
+    assert decision.attention_selection is not None
+    assert decision.attention_selection["surface_to_open"] == "whiteboard"
+    assert decision.attention_selection["selected_ids"] == [
+        "concept:exam-prep",
+        "artifact:midterm-study-plan",
+    ]
+    assert any(action["type"] == "open_whiteboard" for action in decision.control_panel["actions"])
+    assert decision.whiteboard_mode == "chat"
+
+
+def test_control_panel_fallback_does_not_open_for_normal_artifact_question() -> None:
+    decision = apply_control_panel_open_intent_fallback(
+        NavigationDecision(
+            mode="chat",
+            confidence=0.8,
+            reason="Model selected a study plan as context.",
+            whiteboard_mode="chat",
+            control_panel={"actions": [], "working_memory_queries": [], "response_call": None},
+            attention_selection={
+                "selected_ids": ["artifact:midterm-study-plan"],
+                "primary_resource_id": "artifact:midterm-study-plan",
+                "supporting_resource_ids": [],
+                "rejected_candidate_ids": [],
+                "surface_to_open": None,
+                "reason": "Use the selected study plan as context.",
+                "confidence": 0.82,
+            },
+        ),
+        user_message="Can you summarize this study plan?",
+        attention_candidates=[
+            {
+                "id": "candidate-artifact:midterm-study-plan",
+                "resource_id": "artifact:midterm-study-plan",
+                "source": "artifact",
+                "kind": "artifact",
+                "app": "whiteboard",
+                "suggested_surface": "whiteboard",
+            },
+        ],
+    )
+
+    assert decision.attention_selection is not None
+    assert decision.attention_selection["surface_to_open"] is None
     assert all(action["type"] != "open_whiteboard" for action in decision.control_panel["actions"])
 
 

@@ -39,6 +39,7 @@ The user-facing default should be:
 - compact per-turn evidence in chat so the product difference is visible without opening internals every turn
 - a deliberate `Vantage` view for Reasoning Path, Working Memory, Learned, and the library
 - an on-demand whiteboard that appears only when the user asks for it or accepts an invite/draft flow, and then becomes the main drafting surface rather than another inspection dock
+- a clear authority boundary where Attention selects bounded context, while Navigator/control-panel intent decides whether a UI surface should open
 
 ### 3. Persistent Memory
 The assistant should have persistent memory across conversations.

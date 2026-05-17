@@ -1355,6 +1355,13 @@ def test_chat_negated_close_text_without_control_action_does_not_close(
     payload = response.json()
     assert payload.get("surface_action") is None
     assert payload["surface_invocation"]["intent"] != "close_visible_surface"
+    assert payload["surface_invocation"]["write_behavior"] != "open_only"
+    navigator_selection = payload.get("navigator_selection")
+    assert navigator_selection is None or navigator_selection.get("surface_to_open") is None
+    control_actions = payload["turn_interpretation"]["control_panel"]["actions"]
+    assert all(action["type"] != "open_whiteboard" for action in control_actions)
+    assert all(action["type"] != "close_surface" for action in control_actions)
+    assert any(action["type"] == "preserve_surface" for action in control_actions)
     assert payload["visible_artifacts"][0]["id"] == artifact.id
     assert captured["visible_artifacts"][0]["id"] == artifact.id
     assert payload["workspace_update"] is None

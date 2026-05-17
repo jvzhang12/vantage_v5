@@ -36,6 +36,7 @@ Final response payload assembly helpers for chat, local actions, and Scenario La
 ## Notable Behavior
 
 - `system_state.workspace.has_visible_content` is boolean only; hidden draft body content is not exposed through system state.
+- `system_state.available_controls` includes the Navigator/control-panel surface controls, including non-destructive `close_surface` and no-op `preserve_surface`.
 - `activity.steps` and `activity.items` intentionally mirror each other during the compatibility window.
 - This module preserves legacy `selected_record` and `working_memory`-adjacent payload expectations while the product language continues moving toward pinned context and Recall.
 - The assembler-deepening slices moved local semantic-action payload construction, normal Chat and Scenario Lab service-turn body construction, successful service-turn post-processing, Scenario Lab fallback payload construction, typed turn interpretation shaping, and workspace turn-payload disclosure here while keeping the lower-level finalizer wrappers available as compatibility helpers.

@@ -40,7 +40,7 @@ The user-facing default should be:
 - a deliberate `Vantage` view for Reasoning Path, Working Memory, Learned, and the library
 - an on-demand whiteboard that appears only when the user asks for it or accepts an invite/draft flow, and then becomes the main drafting surface rather than another inspection dock
 - a clear authority boundary where Attention selects bounded context, while Navigator/control-panel intent decides whether a UI surface should open
-- visible surfaces remain user-controlled context: a normal chat command can close or hide the current Whiteboard, artifact, calendar, Today, or task surface without deleting the saved underlying data
+- visible surfaces remain user-controlled context: a normal chat command can close or hide the current Whiteboard, artifact, calendar, Today, or task surface without deleting the saved underlying data, while keep/leave-open commands preserve the current surface instead of reopening another item
 
 ### 3. Persistent Memory
 The assistant should have persistent memory across conversations.

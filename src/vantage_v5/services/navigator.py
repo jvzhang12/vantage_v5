@@ -22,6 +22,7 @@ ALLOWED_CONTROL_PANEL_ACTIONS = {
     "save_whiteboard",
     "publish_artifact",
     "close_surface",
+    "preserve_surface",
     "manage_experiment",
     "ask_clarification",
 }
@@ -77,6 +78,11 @@ SAVED_MATERIAL_OPEN_LOOKUP_RE = re.compile(
     r".{0,100}\b(?:saved|artifact|material|materials|study plan|plan|whiteboard|note|document|exam preparation)\b"
     r"|\b(?:saved|artifact|material|materials|study plan|plan|whiteboard|note|document|exam preparation)\b"
     r".{0,100}\b(?:find|show|open|pull up|look at|go back(?: to)?|reopen|revisit)\b",
+    re.IGNORECASE,
+)
+PRESERVE_VISIBLE_SURFACE_RE = re.compile(
+    r"\b(?:keep|leave)\b.{0,80}\b(?:whiteboard|workspace|artifact|item|document|draft|plan|study plan|material|content|calendar|today|agenda|schedule|tasks?|to[-\s]?dos?|todo|it|this|that)\b.{0,30}\bopen\b"
+    r"|\b(?:don'?t|do not|please don'?t|please do not)\b.{0,40}\b(?:close|hide|dismiss|remove)\b.{0,100}\b(?:whiteboard|workspace|artifact|item|document|draft|plan|study plan|material|content|calendar|today|agenda|schedule|tasks?|to[-\s]?dos?|todo|it|this|that|from view|out of view)\b",
     re.IGNORECASE,
 )
 
@@ -216,6 +222,7 @@ class NavigatorService:
                 "save_whiteboard",
                 "publish_artifact",
                 "close_surface",
+                "preserve_surface",
                 "manage_experiment",
                 "ask_clarification",
             ],
@@ -242,7 +249,8 @@ class NavigatorService:
                 "Do not ask deterministic code to infer user intent later; put the interpretation into the control_panel. "
                 "When the user genuinely asks to close, hide, dismiss, or remove a visible surface from view, add a close_surface action with target set to whiteboard, artifact, calendar, today, task_focus, or current. "
                 "A close_surface action only hides the client-side visible surface/context; it must not imply deleting, saving, editing, mutating calendar/tasks, or clearing pinned context. "
-                "Do not add close_surface for negated or keep-open requests such as 'don't close the whiteboard', 'do not close this artifact', 'please don't remove today from view', 'keep the whiteboard open', or 'leave the calendar open'. "
+                "When the user asks to keep or leave a visible surface open, or explicitly says not to close/hide/remove it, add a preserve_surface action and do not add close_surface, open_whiteboard, draft_whiteboard, or attention_selection.surface_to_open. "
+                "Examples include 'don't close the whiteboard', 'do not close this artifact', 'please don't remove today from view', 'keep the whiteboard open', and 'leave the calendar open'. "
                 "If close/hide intent is ambiguous, prefer respond/chat and do not add close_surface. "
                 "Scenario Lab is for structured comparison across alternative futures, plans, or options that should become durable scenario branches and a comparison artifact. "
                 "Use scenario_lab only when the user is clearly asking for comparative what-if reasoning, option analysis, or branchable alternatives. "
@@ -513,8 +521,8 @@ def _normalize_control_panel(value: object) -> dict[str, object]:
                 normalized_action["protocol_kind"] = protocol_kind
             else:
                 normalized_action["protocol_kind"] = None
-            if action_type == "close_surface":
-                target = _normalize_close_surface_target(
+            if action_type in {"close_surface", "preserve_surface"}:
+                target = _normalize_surface_target(
                     action.get("target")
                     or action.get("surface")
                     or action.get("target_surface")
@@ -587,7 +595,7 @@ def _normalize_attention_selection(value: object) -> dict[str, object] | None:
     }
 
 
-def _normalize_close_surface_target(value: object) -> str | None:
+def _normalize_surface_target(value: object) -> str | None:
     normalized = str(value or "").strip().lower().replace("-", "_")
     aliases = {
         "workspace": "whiteboard",
@@ -713,6 +721,8 @@ def apply_control_panel_open_intent_fallback(
 ) -> NavigationDecision:
     if decision.mode != "chat":
         return decision
+    if _is_preserve_visible_surface_intent(user_message) or _has_control_panel_action(decision, {"preserve_surface"}):
+        return _with_preserve_surface_intent(decision, user_message=user_message)
     if not _is_saved_material_open_lookup(user_message):
         return decision
 
@@ -802,6 +812,59 @@ def apply_control_panel_open_intent_fallback(
 
 def _is_saved_material_open_lookup(message: str) -> bool:
     return bool(SAVED_MATERIAL_OPEN_LOOKUP_RE.search(str(message or "")))
+
+
+def _is_preserve_visible_surface_intent(message: str) -> bool:
+    return bool(PRESERVE_VISIBLE_SURFACE_RE.search(str(message or "")))
+
+
+def _with_preserve_surface_intent(decision: NavigationDecision, *, user_message: str) -> NavigationDecision:
+    attention_selection = _normalize_attention_selection(decision.attention_selection)
+    if attention_selection is not None:
+        attention_selection = {
+            **attention_selection,
+            "surface_to_open": None,
+            "reason": attention_selection.get("reason")
+            or "The user asked to keep the current visible surface in place.",
+        }
+    control_panel = _without_control_panel_actions(
+        _normalize_control_panel(decision.control_panel),
+        {"open_whiteboard", "draft_whiteboard", "close_surface"},
+    )
+    control_panel = _ensure_control_panel_action(
+        control_panel,
+        action_type="preserve_surface",
+        reason="The user asked to keep the current visible surface open, so no UI open or close action should run.",
+        target=_preserve_surface_target(user_message),
+    )
+    return NavigationDecision(
+        mode=decision.mode,
+        confidence=decision.confidence,
+        reason=decision.reason or "The current visible surface should stay open.",
+        comparison_question=decision.comparison_question,
+        branch_count=decision.branch_count,
+        branch_labels=list(decision.branch_labels),
+        whiteboard_mode=decision.whiteboard_mode,
+        preserve_pinned_context=decision.preserve_pinned_context,
+        pinned_context_reason=decision.pinned_context_reason,
+        preserve_selected_record=decision.preserve_selected_record,
+        selected_record_reason=decision.selected_record_reason,
+        control_panel=control_panel,
+        attention_selection=attention_selection,
+    )
+
+
+def _preserve_surface_target(message: str) -> str:
+    text = str(message or "")
+    if re.search(r"\b(?:whiteboard|workspace)\b", text, re.IGNORECASE):
+        return "whiteboard"
+    if re.search(r"\b(?:calendar|today|agenda|schedule|day|week)\b", text, re.IGNORECASE):
+        return "today"
+    if re.search(r"\b(?:tasks?|to[-\s]?dos?|todo)\b", text, re.IGNORECASE):
+        return "task_focus"
+    if re.search(r"\b(?:artifact|item|document|draft|plan|study plan|material|content)\b", text, re.IGNORECASE):
+        return "artifact"
+    return "current"
 
 
 def _candidate_aliases(candidates: list[dict[str, object]]) -> dict[str, dict[str, object]]:
@@ -927,12 +990,16 @@ def _ensure_control_panel_action(
     action_type: str,
     reason: str,
     protocol_kind: str | None = None,
+    target: str | None = None,
 ) -> dict[str, object]:
     actions = list(control_panel.get("actions") if isinstance(control_panel.get("actions"), list) else [])
     for action in actions:
         if isinstance(action, dict) and action.get("type") == action_type and action.get("protocol_kind") == protocol_kind:
             return control_panel
-    actions.append({"type": action_type, "protocol_kind": protocol_kind, "reason": reason})
+    action: dict[str, object] = {"type": action_type, "protocol_kind": protocol_kind, "reason": reason}
+    if target:
+        action["target"] = target
+    actions.append(action)
     return _normalize_control_panel(
         {
             **control_panel,
@@ -940,6 +1007,15 @@ def _ensure_control_panel_action(
             "working_memory_queries": control_panel.get("working_memory_queries", []),
             "response_call": control_panel.get("response_call") or {"type": "chat_response", "after_working_memory": True},
         }
+    )
+
+
+def _has_control_panel_action(decision: NavigationDecision, action_types: set[str]) -> bool:
+    control_panel = _normalize_control_panel(decision.control_panel)
+    actions = control_panel.get("actions") if isinstance(control_panel.get("actions"), list) else []
+    return any(
+        isinstance(action, dict) and str(action.get("type") or "").strip().lower() in action_types
+        for action in actions
     )
 
 

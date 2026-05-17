@@ -669,6 +669,7 @@ def safe_system_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "save_whiteboard",
             "publish_artifact",
             "close_surface",
+            "preserve_surface",
             "manage_experiment",
             "ask_clarification",
         ],

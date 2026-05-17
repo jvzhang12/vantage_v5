@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from vantage_v5.services.navigator import _normalize_control_panel
 from vantage_v5.services.navigator import _stabilize_decision
 from vantage_v5.services.navigator import NavigationDecision
@@ -25,6 +27,12 @@ def test_control_panel_normalization_validates_actions_and_protocol_kinds() -> N
                     "confidence": "0.91",
                     "reason": "  close the visible whiteboard  ",
                 },
+                {
+                    "type": "preserve_surface",
+                    "protocol_kind": "scenario_lab",
+                    "target": "study_plan",
+                    "reason": "  keep this artifact open  ",
+                },
             ],
             "working_memory_queries": [" email protocol ", "", "  scenario protocol  "],
             "response_call": {"type": "chat_response", "after_working_memory": True},
@@ -43,6 +51,12 @@ def test_control_panel_normalization_validates_actions_and_protocol_kinds() -> N
                 "target_id": "midterm-study-plan",
                 "confidence": 0.91,
                 "reason": "close the visible whiteboard",
+            },
+            {
+                "type": "preserve_surface",
+                "protocol_kind": None,
+                "target": "artifact",
+                "reason": "keep this artifact open",
             },
         ],
         "working_memory_queries": ["email protocol", "scenario protocol"],
@@ -184,6 +198,65 @@ def test_control_panel_fallback_does_not_open_for_normal_artifact_question() -> 
     assert decision.attention_selection is not None
     assert decision.attention_selection["surface_to_open"] is None
     assert all(action["type"] != "open_whiteboard" for action in decision.control_panel["actions"])
+
+
+@pytest.mark.parametrize(
+    "message,expected_target",
+    [
+        ("keep the whiteboard open", "whiteboard"),
+        ("leave the whiteboard open", "whiteboard"),
+        ("keep this artifact open", "artifact"),
+        ("leave the study plan open", "artifact"),
+        ("don't close the whiteboard", "whiteboard"),
+    ],
+)
+def test_control_panel_fallback_preserves_visible_surface_for_keep_open_language(
+    message: str,
+    expected_target: str,
+) -> None:
+    decision = apply_control_panel_open_intent_fallback(
+        NavigationDecision(
+            mode="chat",
+            confidence=0.8,
+            reason="Model selected unrelated context but did not request a surface action.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [{"type": "respond", "protocol_kind": None, "reason": "Keep answering in chat."}],
+                "working_memory_queries": [],
+                "response_call": None,
+            },
+            attention_selection={
+                "selected_ids": ["artifact:vantage-demo-one-page-brief"],
+                "primary_resource_id": "artifact:vantage-demo-one-page-brief",
+                "supporting_resource_ids": [],
+                "rejected_candidate_ids": [],
+                "surface_to_open": None,
+                "reason": "This artifact was selected as possible context.",
+                "confidence": 0.82,
+            },
+        ),
+        user_message=message,
+        attention_candidates=[
+            {
+                "id": "candidate-artifact:vantage-demo-one-page-brief",
+                "resource_id": "artifact:vantage-demo-one-page-brief",
+                "source": "artifact",
+                "kind": "artifact",
+                "app": "whiteboard",
+                "suggested_surface": "whiteboard",
+            },
+        ],
+    )
+
+    assert decision.attention_selection is not None
+    assert decision.attention_selection["primary_resource_id"] == "artifact:vantage-demo-one-page-brief"
+    assert decision.attention_selection["surface_to_open"] is None
+    assert all(action["type"] != "open_whiteboard" for action in decision.control_panel["actions"])
+    assert all(action["type"] != "close_surface" for action in decision.control_panel["actions"])
+    assert any(
+        action["type"] == "preserve_surface" and action["target"] == expected_target
+        for action in decision.control_panel["actions"]
+    )
 
 
 def test_stabilized_decision_keeps_simple_message_and_subject_line_drafts_in_chat() -> None:

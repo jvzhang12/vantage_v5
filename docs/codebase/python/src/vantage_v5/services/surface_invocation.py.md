@@ -7,7 +7,7 @@ Deterministic policy layer for deciding which Vantage surface should be summoned
 - Reframe Vantage around automatic context/application invocation instead of optional panels.
 - Classify turns into surface intents such as `durable_artifact`, `schedule_lookup`, `schedule_planning`, `task_focus`, `code_artifact`, or `chat_only`.
 - Return a public `surface_invocation` payload with the primary surface, supporting surfaces, write behavior, confidence, and product-facing reason.
-- Return a structured `surface_action` on close/hide/remove-from-view commands so the UI can hide the visible surface without deleting saved data.
+- Return a structured `surface_action` when Navigator/control-panel supplies a validated close-surface action so the UI can hide the visible surface without deleting saved data.
 - Override old timid whiteboard routing for durable work products so emails, essays, plans, code, outlines, proposals, and similar outputs draft directly into the whiteboard unless the user explicitly asks for chat-only or offer mode.
 
 ## Key Classes / Functions
@@ -21,7 +21,7 @@ Deterministic policy layer for deciding which Vantage surface should be summoned
 
 - Chat-only requests stay in chat when the user explicitly asks for that.
 - Visible artifact/Whiteboard follow-up questions about the current item, including pronoun-only summarize/explain/key-points prompts, stay in chat and keep the current view unless the user explicitly asks to draft, edit, write, create, save, open a whiteboard, or publish.
-- Close/hide/dismiss commands over a visible Whiteboard, artifact, Today/calendar, or task surface produce `intent="close_visible_surface"` with `write_behavior="none"` and a `close_visible_surface` action. `remove` is treated as close only when the user explicitly says it is from view/screen.
+- Structured Navigator/control-panel `close_surface` actions over a visible Whiteboard, artifact, Today/calendar, or task surface produce `intent="close_visible_surface"` with `write_behavior="none"` and a `close_visible_surface` action. Raw close/hide/remove wording alone stays chat/no-op unless the Navigator supplied that structured action.
 - Current-material questions that mention an item such as `this study plan` stay chat-first even when the item is selected but not yet visible; the noun `study plan` alone no longer implies a draft.
 - Schedule lookup requests summon `calendar_day`.
 - Schedule planning requests summon `calendar_day` with `task_focus` and `whiteboard` support.
@@ -33,4 +33,5 @@ Deterministic policy layer for deciding which Vantage surface should be summoned
 
 - The policy does not fetch calendar/task data yet; it produces the contract the UI and future providers can render from.
 - Explicit composer modes still win: `chat`, `offer`, and `draft` are respected.
+- Close-surface handling is intentionally validation-only: it maps trusted structured targets such as `whiteboard`, `artifact`, `today`, `calendar`, `task_focus`, or `current` to currently visible surfaces and never deletes saved data.
 - Scenario Lab remains the owner for branch/comparison artifacts, so the surface policy marks that path as handled elsewhere.

@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from vantage_v5.config import AppConfig
+from vantage_v5.services.artifact_actions import ArtifactActionPlan
 from vantage_v5.services.executor import GraphActionExecutor
 from vantage_v5.services.meta import MetaDecision
 from vantage_v5.services.meta import MetaService
@@ -1114,6 +1115,27 @@ def test_chat_close_visible_whiteboard_returns_close_action_without_writes(
     def _reply_should_not_run(self, **kwargs):
         raise AssertionError("Close visible surface should be handled before ChatService.reply().")
 
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.91,
+            reason="Navigator interpreted a visible-surface close request.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "close_surface",
+                        "protocol_kind": None,
+                        "target": "whiteboard",
+                        "reason": "The user asked to close the visible whiteboard.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", _reply_should_not_run)
 
     response = client.post(
@@ -1139,7 +1161,7 @@ def test_chat_close_visible_whiteboard_returns_close_action_without_writes(
         "target_id": artifact.id,
         "target_kind": "whiteboard",
         "title": "Midterm Study Plan",
-        "reason": "The user asked to remove the current visible surface from view without deleting saved data.",
+        "reason": "The user asked to close the visible whiteboard.",
     }
     assert payload["workspace_update"] is None
     assert payload["created_record"] is None
@@ -1159,6 +1181,27 @@ def test_chat_close_visible_today_returns_close_action_without_mutation(
     def _reply_should_not_run(self, **kwargs):
         raise AssertionError("Close visible surface should be handled before ChatService.reply().")
 
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.91,
+            reason="Navigator interpreted a visible-surface close request.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "close_surface",
+                        "protocol_kind": None,
+                        "target": "calendar",
+                        "reason": "The user asked to close the visible calendar.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", _reply_should_not_run)
 
     response = client.post(
@@ -1190,6 +1233,27 @@ def test_chat_close_visible_surface_with_no_surface_is_safe_noop(
     def _reply_should_not_run(self, **kwargs):
         raise AssertionError("Close visible surface no-op should be handled before ChatService.reply().")
 
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.91,
+            reason="Navigator interpreted a visible-surface close request.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "close_surface",
+                        "protocol_kind": None,
+                        "target": "whiteboard",
+                        "reason": "The user asked to close the visible whiteboard.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", _reply_should_not_run)
 
     response = client.post(
@@ -1205,6 +1269,99 @@ def test_chat_close_visible_surface_with_no_surface_is_safe_noop(
     assert payload["created_record"] is None
     assert payload["graph_action"] is None
     assert payload["artifact_actions"] == []
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "don't close the whiteboard",
+        "do not close this artifact",
+        "don't hide the study plan",
+        "please don't remove today from view",
+        "keep the whiteboard open",
+        "leave the calendar open",
+    ],
+)
+def test_chat_negated_close_text_without_control_action_does_not_close(
+    tmp_path: Path,
+    monkeypatch,
+    message: str,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    artifact = ArtifactStore(repo_root / "artifacts").create_artifact(
+        title="Midterm Study Plan",
+        card="Study plan for graph algorithms and priorities.",
+        body="# Midterm Study Plan\n\nPrioritize graph traversals and proof review.",
+    )
+    visible_artifacts = [
+        {
+            "id": artifact.id,
+            "kind": "whiteboard",
+            "title": artifact.title,
+            "summary": artifact.card,
+            "content": artifact.body,
+        }
+    ]
+    captured: dict[str, object] = {}
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.84,
+            reason="Navigator chose ordinary chat and did not press close_surface.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "respond",
+                        "protocol_kind": None,
+                        "reason": "The user did not ask to close the visible surface.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    def _reply(self, **kwargs):
+        captured["visible_artifacts"] = kwargs["visible_artifacts"]
+        return "Okay, I'll keep it open."
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler.compile_for_turn",
+        lambda self, **kwargs: ArtifactActionPlan(artifact_actions=[]),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(action="no_op", rationale="No write requested."),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": message,
+            "history": [],
+            "workspace_id": artifact.id,
+            "workspace_scope": "visible",
+            "workspace_content": artifact.body,
+            "visible_artifacts": visible_artifacts,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload.get("surface_action") is None
+    assert payload["surface_invocation"]["intent"] != "close_visible_surface"
+    assert payload["visible_artifacts"][0]["id"] == artifact.id
+    assert captured["visible_artifacts"][0]["id"] == artifact.id
+    assert payload["workspace_update"] is None
+    assert payload["created_record"] is None
+    assert payload["graph_action"] is None
+    assert payload["artifact_actions"] == []
+    assert (repo_root / "artifacts" / f"{artifact.id}.md").exists()
 
 
 def test_chat_uses_explicit_navigator_surface_open_intent(tmp_path: Path, monkeypatch) -> None:

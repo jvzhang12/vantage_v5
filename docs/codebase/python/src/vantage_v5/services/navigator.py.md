@@ -20,8 +20,9 @@ LLM-based turn interpreter for Vantage V5. It decides whether a chat turn should
 - The model now also returns a `control_panel` object with action button presses, requested working-memory queries, and the intended response call after context assembly. This is additive for now, but it is the migration target for removing scattered deterministic intent classifiers.
 - Explicit surface-opening authority lives here: `attention_selection.surface_to_open` should be present only when Navigator or a Navigator-owned control-panel fallback intends to open a UI surface, not merely because a selected resource advertises `suggested_surface` metadata.
 - The available control-panel actions include `apply_protocol`, which lets the Navigator choose reusable task guidance such as the Scenario Lab protocol before the response call.
+- The available control-panel actions include `close_surface`, which lets the Navigator mediate explicit close/hide/dismiss/remove-from-view intent for visible Whiteboard, artifact, Today/calendar, or task surfaces without deleting saved data.
 - Control-panel actions now include a nullable `protocol_kind` field. It should be `null` for non-protocol actions, and it is required for `apply_protocol` with one of `email`, `research_paper`, or `scenario_lab`.
-- Control-panel normalization now treats the model output as untrusted structured input: unsupported action types are dropped, `apply_protocol` actions must name a supported protocol kind, and non-protocol actions have `protocol_kind` reset to `null`.
+- Control-panel normalization now treats the model output as untrusted structured input: unsupported action types are dropped, `apply_protocol` actions must name a supported protocol kind, `close_surface` actions get normalized targets/confidence, and non-protocol actions have `protocol_kind` reset to `null`.
 - Those instructions now explicitly frame workspace scenario metadata as transparent facts about the currently open whiteboard rather than a second hidden continuity system, so reopening a saved branch does not by itself force a fresh Scenario Lab rerun.
 - Those instructions now explicitly tell the model to treat `pending_workspace_update` as live drafting context, so a short acceptance or continuation turn can flip a previous whiteboard offer into `whiteboard_mode="draft"` instead of repeating the invitation or misclassifying the turn as ordinary chat.
 - The prompt also now tells the model that if the active whiteboard already contains a live draft and the user is revising that work, it should choose `whiteboard_mode="draft"` rather than reopening or reoffering the whiteboard.
@@ -46,6 +47,7 @@ LLM-based turn interpreter for Vantage V5. It decides whether a chat turn should
 ## Notable Edge Cases
 
 - The service never writes files or opens workspaces directly; it only interprets the turn and now describes intended button presses in `control_panel`.
+- Close/hide/remove visible-surface semantics belong to the Navigator/control-panel action. Deterministic downstream layers validate and apply `close_surface`; they do not infer broad close intent from raw user text.
 - `apply_protocol` is only a structured request; the server and protocol service validate the protocol kind and assemble working memory later.
 - If `apply_protocol` omits `protocol_kind`, deterministic execution should not guess; the Navigator contract should be tightened instead so the model names the supported protocol explicitly.
 - Confidence is clamped into a `0.0` to `1.0` range.

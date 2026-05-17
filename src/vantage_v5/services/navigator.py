@@ -21,6 +21,7 @@ ALLOWED_CONTROL_PANEL_ACTIONS = {
     "inspect_context",
     "save_whiteboard",
     "publish_artifact",
+    "close_surface",
     "manage_experiment",
     "ask_clarification",
 }
@@ -214,6 +215,7 @@ class NavigatorService:
                 "inspect_context",
                 "save_whiteboard",
                 "publish_artifact",
+                "close_surface",
                 "manage_experiment",
                 "ask_clarification",
             ],
@@ -238,6 +240,10 @@ class NavigatorService:
                 "For email drafting, apply the email protocol when a reusable email protocol should guide the draft. "
                 "For research-paper drafting or revision, apply the research_paper protocol when that reusable protocol should guide the work. "
                 "Do not ask deterministic code to infer user intent later; put the interpretation into the control_panel. "
+                "When the user genuinely asks to close, hide, dismiss, or remove a visible surface from view, add a close_surface action with target set to whiteboard, artifact, calendar, today, task_focus, or current. "
+                "A close_surface action only hides the client-side visible surface/context; it must not imply deleting, saving, editing, mutating calendar/tasks, or clearing pinned context. "
+                "Do not add close_surface for negated or keep-open requests such as 'don't close the whiteboard', 'do not close this artifact', 'please don't remove today from view', 'keep the whiteboard open', or 'leave the calendar open'. "
+                "If close/hide intent is ambiguous, prefer respond/chat and do not add close_surface. "
                 "Scenario Lab is for structured comparison across alternative futures, plans, or options that should become durable scenario branches and a comparison artifact. "
                 "Use scenario_lab only when the user is clearly asking for comparative what-if reasoning, option analysis, or branchable alternatives. "
                 "The workspace payload may include scenario metadata when the currently open workspace is already a saved scenario branch. "
@@ -308,7 +314,13 @@ class NavigatorService:
                                                     "type": ["string", "null"],
                                                     "enum": ["email", "research_paper", "scenario_lab", None],
                                                 },
+                                                "target": {
+                                                    "type": ["string", "null"],
+                                                    "enum": ["whiteboard", "artifact", "calendar", "today", "task_focus", "current", None],
+                                                },
+                                                "target_id": {"type": ["string", "null"]},
                                                 "reason": {"type": ["string", "null"]},
+                                                "confidence": {"type": ["number", "null"]},
                                             },
                                             "required": ["type", "protocol_kind"],
                                         },
@@ -501,6 +513,19 @@ def _normalize_control_panel(value: object) -> dict[str, object]:
                 normalized_action["protocol_kind"] = protocol_kind
             else:
                 normalized_action["protocol_kind"] = None
+            if action_type == "close_surface":
+                target = _normalize_close_surface_target(
+                    action.get("target")
+                    or action.get("surface")
+                    or action.get("target_surface")
+                )
+                normalized_action["target"] = target or "current"
+                target_id = _normalize_reason(action.get("target_id") or action.get("surface_id"))
+                if target_id is not None:
+                    normalized_action["target_id"] = target_id
+                confidence = _normalize_confidence(action.get("confidence"))
+                if confidence is not None:
+                    normalized_action["confidence"] = confidence
             reason = _normalize_reason(action.get("reason"))
             if reason is not None:
                 normalized_action["reason"] = reason
@@ -560,6 +585,41 @@ def _normalize_attention_selection(value: object) -> dict[str, object] | None:
         "reason": _normalize_reason(value.get("reason")) or "",
         "confidence": confidence,
     }
+
+
+def _normalize_close_surface_target(value: object) -> str | None:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    aliases = {
+        "workspace": "whiteboard",
+        "draft": "whiteboard",
+        "document": "artifact",
+        "item": "artifact",
+        "study_plan": "artifact",
+        "plan": "artifact",
+        "schedule": "calendar",
+        "agenda": "calendar",
+        "day": "calendar",
+        "week": "calendar",
+        "today_briefing": "today",
+        "today_surface": "today",
+        "task": "task_focus",
+        "tasks": "task_focus",
+        "todo": "task_focus",
+        "to_do": "task_focus",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in {"whiteboard", "artifact", "calendar", "today", "task_focus", "current"}:
+        return normalized
+    return None
+
+
+def _normalize_confidence(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return None
 
 
 def _stabilize_decision(

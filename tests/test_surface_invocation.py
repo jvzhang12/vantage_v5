@@ -154,6 +154,24 @@ def test_surface_invocation_visible_artifact_explicit_whiteboard_draft_still_dra
 def test_surface_invocation_close_visible_whiteboard_returns_close_action() -> None:
     invocation = build_surface_invocation(
         user_message="close the whiteboard",
+        navigation=NavigationDecision(
+            mode="chat",
+            confidence=0.91,
+            reason="Navigator interpreted a visible-surface close request.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "close_surface",
+                        "protocol_kind": None,
+                        "target": "whiteboard",
+                        "reason": "The user asked to close the visible whiteboard.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        ),
         visible_artifacts=[
             {
                 "id": "midterm-study-plan",
@@ -175,13 +193,31 @@ def test_surface_invocation_close_visible_whiteboard_returns_close_action() -> N
         "target_id": "midterm-study-plan",
         "target_kind": "whiteboard",
         "title": "Midterm Study Plan",
-        "reason": "The user asked to remove the current visible surface from view without deleting saved data.",
+        "reason": "The user asked to close the visible whiteboard.",
     }
 
 
 def test_surface_invocation_close_calendar_targets_visible_today() -> None:
     invocation = build_surface_invocation(
         user_message="remove today from view",
+        navigation=NavigationDecision(
+            mode="chat",
+            confidence=0.91,
+            reason="Navigator interpreted a visible-surface close request.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "close_surface",
+                        "protocol_kind": None,
+                        "target": "today",
+                        "reason": "The user asked to remove Today from view.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        ),
         visible_artifacts=[
             {
                 "id": "today-2026-05-14",
@@ -193,18 +229,55 @@ def test_surface_invocation_close_calendar_targets_visible_today() -> None:
     payload = invocation.to_dict()
 
     assert payload["intent"] == "close_visible_surface"
-    assert payload["surface_action"]["target"] == "calendar"
+    assert payload["surface_action"]["target"] == "today"
     assert payload["surface_action"]["target_id"] == "today-2026-05-14"
     assert payload["surface_action"]["target_kind"] == "today_briefing"
 
 
 def test_surface_invocation_close_without_visible_surface_is_noop_action() -> None:
-    invocation = build_surface_invocation(user_message="close the whiteboard")
+    invocation = build_surface_invocation(
+        user_message="close the whiteboard",
+        navigation=NavigationDecision(
+            mode="chat",
+            confidence=0.91,
+            reason="Navigator interpreted a visible-surface close request.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "close_surface",
+                        "protocol_kind": None,
+                        "target": "whiteboard",
+                        "reason": "The user asked to close the visible whiteboard.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        ),
+    )
     payload = invocation.to_dict()
 
     assert payload["intent"] == "close_visible_surface"
     assert payload["surface_action"]["status"] == "no_visible_surface"
     assert invocation.resolved_whiteboard_mode(requested_mode="auto", current_mode="draft") == "chat"
+
+
+def test_surface_invocation_raw_close_text_without_navigator_action_stays_chat() -> None:
+    invocation = build_surface_invocation(
+        user_message="don't close the whiteboard",
+        visible_artifacts=[
+            {
+                "id": "midterm-study-plan",
+                "kind": "whiteboard",
+                "title": "Midterm Study Plan",
+            }
+        ],
+    )
+    payload = invocation.to_dict()
+
+    assert payload["intent"] != "close_visible_surface"
+    assert "surface_action" not in payload
 
 
 @pytest.mark.parametrize(

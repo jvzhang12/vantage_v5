@@ -99,20 +99,6 @@ EXPLICIT_WHITEBOARD_DRAFT_RE = re.compile(
     r"(?:(?:a|the)\s+)?(?:(?:fresh|new|blank|empty|shared)\s+)?whiteboard\b",
     re.IGNORECASE,
 )
-CLOSE_SURFACE_VERB_RE = re.compile(r"\b(?:close|hide|dismiss|remove)\b", re.IGNORECASE)
-CLOSE_SURFACE_TARGET_RE = re.compile(
-    r"\b(?:whiteboard|workspace|artifact|item|document|draft|plan|study plan|material|content|"
-    r"calendar|today|agenda|schedule|day|week|tasks?|to[-\s]?dos?|todo|current view|"
-    r"what i(?:'m| am) looking at|this|that|it)\b|"
-    r"\b(?:from|out of)\s+(?:view|sight|the screen)\b",
-    re.IGNORECASE,
-)
-CLOSE_SURFACE_REMOVE_VIEW_RE = re.compile(
-    r"\bremove\b.{0,80}\b(?:from|out of)\s+(?:view|sight|the screen)\b",
-    re.IGNORECASE,
-)
-
-
 @dataclass(frozen=True, slots=True)
 class InvokedSurface:
     kind: str
@@ -184,7 +170,7 @@ def build_surface_invocation(
     requested_mode = _clean(requested_whiteboard_mode).lower() or "auto"
     navigation_mode = _clean(getattr(navigation, "mode", "")).lower()
     visible_surface_kind = _visible_surface_kind(visible_artifacts)
-    close_action = _close_visible_surface_action(message, visible_artifacts)
+    close_action = _close_visible_surface_action_from_navigation(navigation, visible_artifacts)
     if close_action is not None:
         status = "closed_client_side" if close_action.get("status") != "no_visible_surface" else "no_visible_surface"
         return _invocation(
@@ -445,14 +431,15 @@ def _visible_surface_kind(visible_artifacts: list[dict[str, Any]] | None) -> str
     return None
 
 
-def _close_visible_surface_action(
-    message: str,
+def _close_visible_surface_action_from_navigation(
+    navigation: Any | None,
     visible_artifacts: list[dict[str, Any]] | None,
 ) -> dict[str, Any] | None:
-    if not _looks_like_close_surface_command(message, visible_artifacts):
+    control_action = _control_panel_close_action(navigation)
+    if control_action is None:
         return None
-    target = _close_target(message)
-    target_artifact = _matching_visible_artifact(message, visible_artifacts, target=target)
+    target = _close_target_from_action(control_action)
+    target_artifact = _matching_visible_artifact(visible_artifacts, target=target, target_id=_clean(control_action.get("target_id")))
     if target_artifact is None:
         return {
             "type": "close_visible_surface",
@@ -461,76 +448,76 @@ def _close_visible_surface_action(
             "target_id": None,
             "target_kind": target or "current",
             "title": None,
-            "reason": "The user asked to close a surface, but there is no matching visible surface in context.",
+            "reason": _clean(control_action.get("reason"))
+            or "The user asked to close a surface, but there is no matching visible surface in context.",
         }
     target_kind = _clean(target_artifact.get("kind")).lower() or target or "artifact"
     target_id = _clean(target_artifact.get("id")) or None
     title = _clean(target_artifact.get("title")) or None
-    return {
+    action = {
         "type": "close_visible_surface",
         "status": "requested",
         "target": target or _close_target_from_kind(target_kind),
         "target_id": target_id,
         "target_kind": target_kind,
         "title": title,
-        "reason": "The user asked to remove the current visible surface from view without deleting saved data.",
+        "reason": _clean(control_action.get("reason"))
+        or "The user asked to remove the current visible surface from view without deleting saved data.",
     }
+    confidence = control_action.get("confidence")
+    if isinstance(confidence, (int, float)):
+        action["confidence"] = float(confidence)
+    return action
 
 
-def _looks_like_close_surface_command(
-    message: str,
-    visible_artifacts: list[dict[str, Any]] | None,
-) -> bool:
-    verb = CLOSE_SURFACE_VERB_RE.search(message)
-    if not verb:
-        return False
-    if verb.group(0).lower() == "remove":
-        return bool(CLOSE_SURFACE_REMOVE_VIEW_RE.search(message))
-    if CLOSE_SURFACE_REMOVE_VIEW_RE.search(message):
-        return True
-    if CLOSE_SURFACE_TARGET_RE.search(message):
-        return True
-    return _message_mentions_visible_title(message, visible_artifacts)
-
-
-def _close_target(message: str) -> str | None:
-    if re.search(r"\b(?:whiteboard|workspace)\b", message, re.IGNORECASE):
-        return "whiteboard"
-    if re.search(r"\b(?:calendar|today|agenda|schedule|day|week)\b", message, re.IGNORECASE):
-        return "calendar"
-    if re.search(r"\b(?:tasks?|to[-\s]?dos?|todo)\b", message, re.IGNORECASE):
-        return "task"
-    if re.search(r"\b(?:artifact|item|document|draft|plan|study plan|material|content)\b", message, re.IGNORECASE):
-        return "artifact"
-    if re.search(r"\b(?:current view|what i(?:'m| am) looking at|this|that|it)\b", message, re.IGNORECASE):
-        return "current"
+def _control_panel_close_action(navigation: Any | None) -> dict[str, Any] | None:
+    control_panel = getattr(navigation, "control_panel", None)
+    if not isinstance(control_panel, dict):
+        return None
+    actions = control_panel.get("actions")
+    if not isinstance(actions, list):
+        return None
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        if _clean(action.get("type")).lower() == "close_surface":
+            return action
     return None
 
 
+def _close_target_from_action(action: dict[str, Any]) -> str:
+    target = _clean(action.get("target") or action.get("surface") or action.get("target_surface")).lower().replace("-", "_")
+    if target in {"task", "tasks"}:
+        return "task_focus"
+    if target in {"whiteboard", "artifact", "calendar", "today", "task_focus", "current"}:
+        return target
+    return "current"
+
+
 def _matching_visible_artifact(
-    message: str,
     visible_artifacts: list[dict[str, Any]] | None,
     *,
-    target: str | None,
+    target: str,
+    target_id: str | None,
 ) -> dict[str, Any] | None:
     artifacts = [artifact for artifact in visible_artifacts or [] if isinstance(artifact, dict)]
     if not artifacts:
         return None
+    if target_id:
+        for artifact in artifacts:
+            if _clean(artifact.get("id")) == target_id:
+                return artifact
     if target == "whiteboard":
         return _first_visible_kind(artifacts, {"whiteboard", "artifact"})
-    if target == "calendar":
+    if target in {"calendar", "today"}:
         return _first_visible_kind(artifacts, {"today_briefing", "calendar_day", "calendar_week"})
-    if target == "task":
+    if target == "task_focus":
         return _first_visible_kind(artifacts, {"task_focus"})
     if target == "artifact":
-        return (
-            _visible_artifact_matching_title(message, artifacts)
-            or _first_visible_kind(artifacts, {"whiteboard", "artifact"})
-            or artifacts[0]
-        )
+        return _first_visible_kind(artifacts, {"whiteboard", "artifact"})
     if target == "current":
         return artifacts[0]
-    return _visible_artifact_matching_title(message, artifacts) or artifacts[0]
+    return None
 
 
 def _first_visible_kind(artifacts: list[dict[str, Any]], kinds: set[str]) -> dict[str, Any] | None:
@@ -540,41 +527,9 @@ def _first_visible_kind(artifacts: list[dict[str, Any]], kinds: set[str]) -> dic
     return None
 
 
-def _message_mentions_visible_title(message: str, visible_artifacts: list[dict[str, Any]] | None) -> bool:
-    return _visible_artifact_matching_title(message, visible_artifacts or []) is not None
-
-
-def _visible_artifact_matching_title(
-    message: str,
-    artifacts: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    normalized_message = _normalized_words(message)
-    if not normalized_message:
-        return None
-    for artifact in artifacts:
-        title = _normalized_words(_clean(artifact.get("title")))
-        if not title:
-            continue
-        important_phrase = _important_title_phrase(title)
-        if title in normalized_message or bool(important_phrase and important_phrase in normalized_message):
-            return artifact
-    return None
-
-
-def _important_title_phrase(title_words: str) -> str:
-    words = [word for word in title_words.split() if len(word) > 2]
-    if len(words) <= 2:
-        return " ".join(words)
-    return " ".join(words[-2:])
-
-
-def _normalized_words(value: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", value.lower())).strip()
-
-
 def _close_target_from_kind(kind: str) -> str:
     if kind in {"today_briefing", "calendar_day", "calendar_week"}:
-        return "calendar"
+        return "today" if kind == "today_briefing" else "calendar"
     if kind == "task_focus":
         return "task"
     if kind == "whiteboard":

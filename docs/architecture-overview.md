@@ -49,6 +49,7 @@ Current implemented control-panel actions include:
 - `inspect_context`
 - `save_whiteboard`
 - `publish_artifact`
+- `close_surface`
 - `manage_experiment`
 - `ask_clarification`
 

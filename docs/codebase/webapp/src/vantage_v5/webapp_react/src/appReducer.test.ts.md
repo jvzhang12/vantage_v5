@@ -9,6 +9,7 @@ Vitest coverage for the React app reducer.
 ## Coverage
 
 - Chat success stores backend continuity history while the UI model keeps the latest answer.
+- `CHAT_START` marks chat busy, and both success and error paths clear that busy state.
 - Returned artifact surfaces become active and move the app into artifact view.
 - Navigator-selected saved artifacts with an explicit Whiteboard open directive, including artifacts selected behind an already-visible Today surface, become visible Whiteboard content, and that content is included in the next visible-artifact context without creating a separate persisted artifact surface.
 - Selected saved artifacts without `surface_to_open=whiteboard` or Whiteboard `open_only` remain context and do not foreground the Whiteboard.

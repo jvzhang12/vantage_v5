@@ -21,6 +21,7 @@ import {
   LatestAnswerCard,
   LoginScreen,
   NoticeRail,
+  PendingAnswerCard,
   TopBar,
 } from "./components/Core";
 import { artifactKindLabel } from "./capabilities";
@@ -304,7 +305,8 @@ export function App() {
           {showLatestAnswer && state.latestTurn ? (
             <LatestAnswerCard turn={state.latestTurn} onInspect={() => dispatch({ type: "SET_VIEW", view: "vantage" })} />
           ) : null}
-          {state.view === "chat" && !state.latestTurn ? <GreetingState /> : null}
+          {state.view !== "vantage" && state.busy ? <PendingAnswerCard /> : null}
+          {state.view === "chat" && !state.latestTurn && !state.busy ? <GreetingState /> : null}
           {state.view !== "vantage" ? <DraftSurfaceNotice turn={state.latestTurn} /> : null}
           {state.view !== "vantage" ? (
             <ArtifactActionNotice

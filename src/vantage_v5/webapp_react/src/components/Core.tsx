@@ -6,6 +6,7 @@ import {
   Eye,
   FileText,
   ListTodo,
+  LoaderCircle,
   Lock,
   LogOut,
   Save,
@@ -111,7 +112,7 @@ export function CommandComposer({
     onSubmit();
   }
   return (
-    <form className="composer-wrap" onSubmit={handleSubmit}>
+    <form aria-busy={busy} className="composer-wrap" onSubmit={handleSubmit}>
       <div className="composer-shell">
         <div className="composer-icon">
           <VantageGlyph size={32} />
@@ -127,8 +128,14 @@ export function CommandComposer({
         <button className="composer-context" type="button" title={contextLabel || "Visible context"}>
           <Sparkles size={16} />
         </button>
-        <button className="send-button" disabled={busy || !value.trim()} type="submit" title="Send">
-          <ArrowUp size={20} />
+        <button
+          aria-label={busy ? "Working" : "Send"}
+          className="send-button"
+          disabled={busy || !value.trim()}
+          type="submit"
+          title={busy ? "Working" : "Send"}
+        >
+          {busy ? <LoaderCircle className="send-button__spinner" size={20} /> : <ArrowUp size={20} />}
         </button>
       </div>
       <div className="privacy-line">
@@ -136,6 +143,18 @@ export function CommandComposer({
         <span>Your data stays private and secure.</span>
       </div>
     </form>
+  );
+}
+
+export function PendingAnswerCard() {
+  return (
+    <section className="latest-answer latest-answer--pending" aria-label="Pending Vantage answer" aria-live="polite">
+      <div className="latest-answer__top">
+        <VantageGlyph compact />
+        <span>Working</span>
+      </div>
+      <p>Vantage is thinking...</p>
+    </section>
   );
 }
 

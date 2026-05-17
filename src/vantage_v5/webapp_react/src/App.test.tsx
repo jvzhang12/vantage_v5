@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import type { NormalizedTurn } from "./types";
@@ -84,6 +84,61 @@ describe("App", () => {
       title: "Whiteboard",
       content: "",
       scope: "durable",
+    });
+  });
+
+  it("shows and clears a pending assistant state while chat is generating", async () => {
+    let resolveChat: (value: NormalizedTurn) => void = () => {};
+    api.sendChat.mockReturnValueOnce(new Promise<NormalizedTurn>((resolve) => {
+      resolveChat = resolve;
+    }));
+
+    render(<App />);
+
+    const composer = await screen.findByLabelText("Ask Vantage");
+    fireEvent.change(composer, { target: { value: "What does my day look like?" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByLabelText("Pending Vantage answer")).toBeTruthy();
+    expect(screen.getByText("Vantage is thinking...")).toBeTruthy();
+    expect((screen.getByLabelText("Working") as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      resolveChat(turn({
+        userMessage: "What does my day look like?",
+        assistantMessage: "You have one class and one open focus block.",
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Pending Vantage answer")).toBeNull();
+      expect(screen.getByText("You have one class and one open focus block.")).toBeTruthy();
+    });
+    expect((screen.getByLabelText("Send") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("clears the pending assistant state and shows the existing error UI when chat fails", async () => {
+    let rejectChat: (error: Error) => void = () => {};
+    api.sendChat.mockReturnValueOnce(new Promise<NormalizedTurn>((_resolve, reject) => {
+      rejectChat = reject;
+    }));
+
+    render(<App />);
+
+    const composer = await screen.findByLabelText("Ask Vantage");
+    fireEvent.change(composer, { target: { value: "Summarize this" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByText("Vantage is thinking...")).toBeTruthy();
+
+    await act(async () => {
+      rejectChat(new Error("Network went away"));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Pending Vantage answer")).toBeNull();
+      expect(screen.getByText("Chat failed")).toBeTruthy();
+      expect(screen.getByText("Network went away")).toBeTruthy();
     });
   });
 

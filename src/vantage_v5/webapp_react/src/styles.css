@@ -128,6 +128,10 @@
     @apply bg-cyan/[0.10] text-ivory disabled:cursor-not-allowed disabled:opacity-40;
   }
 
+  .send-button__spinner {
+    animation: vantage-spin 1s linear infinite;
+  }
+
   .privacy-line {
     @apply mt-5 flex items-center justify-center gap-2 text-sm text-ivory-muted;
   }
@@ -138,6 +142,12 @@
 
   .app-main--whiteboard .latest-answer {
     display: none;
+  }
+
+  .app-main--whiteboard .latest-answer--pending {
+    display: block;
+    order: -1;
+    flex-shrink: 0;
   }
 
   .latest-answer__top,
@@ -151,6 +161,23 @@
 
   .latest-answer__meta button {
     @apply ml-auto text-sm text-cyan hover:text-ivory;
+  }
+
+  .latest-answer--pending {
+    @apply border-cyan/20 bg-cyan/[0.045];
+  }
+
+  .latest-answer--pending p {
+    @apply text-ivory-muted;
+  }
+
+  @keyframes vantage-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .source-pill {

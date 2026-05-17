@@ -54,6 +54,17 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
 }
 
 describe("appReducer", () => {
+  it("marks chat requests busy until success or failure clears them", () => {
+    const busyState = appReducer(initialState, { type: "CHAT_START" });
+    const successState = appReducer(busyState, { type: "CHAT_SUCCESS", turn: turn() });
+    const errorState = appReducer(busyState, { type: "CHAT_ERROR", message: "No response" });
+
+    expect(busyState.busy).toBe(true);
+    expect(successState.busy).toBe(false);
+    expect(errorState.busy).toBe(false);
+    expect(errorState.notice?.title).toBe("Chat failed");
+  });
+
   it("stores backend history without rendering a user-prompt transcript model", () => {
     const state = appReducer(initialState, { type: "CHAT_SUCCESS", turn: turn() });
 

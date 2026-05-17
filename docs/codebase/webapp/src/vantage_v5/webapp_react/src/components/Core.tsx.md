@@ -11,5 +11,10 @@ Reusable core UI components for the React Vantage shell.
 
 ## Components
 
-- `AppShell`, `TopBar`, `VantageButton` behavior through the top-left button, `Profile` menu, `GreetingState`, `CommandComposer`, `LatestAnswerCard`, `SourcePill`, `NoticeRail`, `ConfirmDialog`, and `LoginScreen` with optional account creation plus an optional access-code field.
+- `AppShell`, `TopBar`, `VantageButton` behavior through the top-left button, `Profile` menu, `GreetingState`, `CommandComposer`, `PendingAnswerCard`, `LatestAnswerCard`, `SourcePill`, `NoticeRail`, `ConfirmDialog`, and `LoginScreen` with optional account creation plus an optional access-code field.
 - `VantageGlyph` wraps the static `VantageMark` SVG so brand surfaces share one triangle-frame, currentColor mark at compact or composer scale.
+
+## Notable Behavior
+
+- `CommandComposer` reflects in-flight chat requests by disabling input/send and showing a generic working spinner.
+- `PendingAnswerCard` shows the safe text `Vantage is thinking...` without exposing chain-of-thought or fabricated reasoning details.

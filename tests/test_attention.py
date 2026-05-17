@@ -469,6 +469,10 @@ def test_navigator_selection_opens_selected_saved_artifact_over_visible_today() 
             "confidence": 0.9,
         },
         candidates=candidates,
+        query_frame=build_query_frame(
+            "Can you find my exam preparation material about graphs and study priorities?",
+            today=date(2026, 5, 14),
+        ),
     )
     payload = apply_attention_surface_selection(
         {"intent": "general_chat", "primary_surface": "chat", "supporting_surfaces": [], "write_behavior": "none", "surfaces": []},
@@ -528,6 +532,10 @@ def test_navigator_selection_accepts_candidate_ids_and_prefers_source_artifact_c
             "confidence": 0.9,
         },
         candidates=candidates,
+        query_frame=build_query_frame(
+            "Can you find my exam preparation material about graphs and study priorities?",
+            today=date(2026, 5, 14),
+        ),
     )
 
     assert selection.fallback is False
@@ -636,6 +644,92 @@ def test_navigator_selection_keeps_selected_artifact_as_context_without_open_sig
     assert selection.selected_ids == ("concept:exam-preparation-strategy", "artifact:midterm-study-plan")
     assert selection.surface_to_open is None
 
+    artifact_primary_selection = normalize_navigator_selection(
+        {
+            "selected_ids": ["artifact:midterm-study-plan", "concept:exam-preparation-strategy"],
+            "primary_resource_id": "artifact:midterm-study-plan",
+            "reason": "Use the selected study plan as context.",
+            "confidence": 0.9,
+        },
+        candidates=candidates,
+        query_frame=build_query_frame(
+            "What should I review from this study plan?",
+            today=date(2026, 5, 14),
+        ),
+    )
+    payload = apply_attention_surface_selection(
+        {"intent": "general_chat", "primary_surface": "chat", "supporting_surfaces": [], "write_behavior": "none", "surfaces": []},
+        artifact_primary_selection,
+    )
+
+    assert artifact_primary_selection.primary_resource_id == "artifact:midterm-study-plan"
+    assert artifact_primary_selection.surface_to_open is None
+    assert payload["primary_surface"] == "chat"
+    assert payload["write_behavior"] == "none"
+
+
+def test_navigator_selection_preserves_explicit_derivative_artifact_primary() -> None:
+    candidates = (
+        _candidate(
+            resource_id="artifact:first-action-from-midterm-study-plan",
+            kind="artifact",
+            app="whiteboard",
+            source="artifact",
+            suggested_surface="whiteboard",
+            score=14.0,
+            title="First Action from Midterm Study Plan",
+            value_ref={"record_id": "first-action-from-midterm-study-plan", "comes_from": ["midterm-study-plan"]},
+        ),
+        _candidate(
+            resource_id="artifact:midterm-study-plan",
+            kind="artifact",
+            app="whiteboard",
+            source="artifact",
+            suggested_surface="whiteboard",
+            score=10.0,
+            title="Midterm Study Plan",
+            value_ref={"record_id": "midterm-study-plan"},
+        ),
+    )
+
+    selection = normalize_navigator_selection(
+        {
+            "selected_ids": ["artifact:first-action-from-midterm-study-plan", "artifact:midterm-study-plan"],
+            "primary_resource_id": "artifact:first-action-from-midterm-study-plan",
+            "reason": "The user asked for the first action from the selected study plan.",
+            "confidence": 0.9,
+        },
+        candidates=candidates,
+        query_frame=build_query_frame(
+            "What should I do first from this study plan?",
+            today=date(2026, 5, 14),
+        ),
+    )
+
+    assert selection.primary_resource_id == "artifact:first-action-from-midterm-study-plan"
+    assert selection.selected_ids[0] == "artifact:first-action-from-midterm-study-plan"
+    assert selection.supporting_resource_ids == ("artifact:midterm-study-plan",)
+    assert selection.surface_to_open is None
+
+    open_selection = normalize_navigator_selection(
+        {
+            "selected_ids": ["artifact:first-action-from-midterm-study-plan", "artifact:midterm-study-plan"],
+            "primary_resource_id": "artifact:first-action-from-midterm-study-plan",
+            "surface_to_open": "whiteboard",
+            "reason": "Open the selected first-action artifact.",
+            "confidence": 0.9,
+        },
+        candidates=candidates,
+        query_frame=build_query_frame(
+            "Open the first action from this study plan in the whiteboard.",
+            today=date(2026, 5, 14),
+        ),
+    )
+
+    assert open_selection.primary_resource_id == "artifact:first-action-from-midterm-study-plan"
+    assert open_selection.selected_ids[0] == "artifact:first-action-from-midterm-study-plan"
+    assert open_selection.surface_to_open == "whiteboard"
+
 
 def test_navigator_selection_infers_open_target_for_find_material_query() -> None:
     candidates = (
@@ -692,6 +786,12 @@ def test_navigator_selection_infers_open_target_for_find_material_query() -> Non
         "artifact:midterm-study-plan-2",
     )
     assert selection.surface_to_open == "whiteboard"
+    payload = apply_attention_surface_selection(
+        {"intent": "general_chat", "primary_surface": "chat", "supporting_surfaces": [], "write_behavior": "none", "surfaces": []},
+        selection,
+    )
+    assert payload["primary_surface"] == "whiteboard"
+    assert payload["write_behavior"] == "open_only"
 
 
 def test_attention_surface_selection_overrides_legacy_surface_choice() -> None:

@@ -68,6 +68,8 @@ RESOURCE_VALUE_LIMIT = 2800
 VECTOR_MATCH_THRESHOLD = 0.16
 VECTOR_BONUS_WEIGHT = 3.6
 DERIVATIVE_ARTIFACT_PENALTY = 1.2
+DERIVATIVE_ARTIFACT_TERMS = frozenset({"action", "first", "immediate", "next", "step"})
+DERIVATIVE_ARTIFACT_TITLE_TERMS = ("action", "first", "immediate", "next", "step")
 ATTENTION_STOPWORDS = {
     "about",
     "can",
@@ -569,12 +571,14 @@ def normalize_navigator_selection(
     if surface_to_open not in SURFACE_KINDS:
         surface_to_open = None
     infer_openable_source = _should_prefer_source_artifact(query_frame) if query_frame is not None else False
+    explicit_derivative_request = _has_explicit_derivative_request(query_frame) if query_frame is not None else False
     primary_resource_id = _preferred_primary_resource_id(
         primary_resource_id,
         selected_ids=selected_ids,
         candidates=candidates,
         requested_surface=surface_to_open,
         infer_openable_source=infer_openable_source,
+        explicit_derivative_request=explicit_derivative_request,
     )
     if primary_resource_id and primary_resource_id not in selected_ids and primary_resource_id in candidate_id_set:
         selected_ids = (primary_resource_id, *selected_ids)[:limit]
@@ -758,6 +762,7 @@ def _preferred_primary_resource_id(
     candidates: tuple[AttentionCandidate, ...],
     requested_surface: str | None = None,
     infer_openable_source: bool = False,
+    explicit_derivative_request: bool = False,
 ) -> str | None:
     if not primary_resource_id:
         return primary_resource_id
@@ -770,6 +775,7 @@ def _preferred_primary_resource_id(
         candidates=by_id,
         requested_surface=requested_surface,
         infer_openable_source=infer_openable_source,
+        explicit_derivative_request=explicit_derivative_request,
     )
     if preferred_open_target is not None:
         return preferred_open_target
@@ -796,12 +802,13 @@ def _preferred_openable_source_artifact(
     candidates: dict[str, AttentionCandidate],
     requested_surface: str | None,
     infer_openable_source: bool,
+    explicit_derivative_request: bool,
 ) -> str | None:
-    if primary is not None and primary.source == "artifact":
-        should_choose_open_target = True
-    elif requested_surface == "whiteboard":
-        should_choose_open_target = True
-    elif _is_visible_operational_candidate(primary):
+    if explicit_derivative_request:
+        return None
+    if primary is not None and _is_derivative_action_candidate(primary) and not infer_openable_source:
+        return None
+    if requested_surface == "whiteboard":
         should_choose_open_target = True
     elif infer_openable_source:
         should_choose_open_target = True
@@ -866,7 +873,7 @@ def _source_artifact_open_score(
 ) -> float:
     score = candidate.score / 1000.0
     title = _normalized_title(candidate.title)
-    if any(term in title for term in ("action", "first", "immediate", "next", "step")):
+    if any(term in title for term in DERIVATIVE_ARTIFACT_TITLE_TERMS):
         score -= 40.0
     comes_from = candidate.value_ref.get("comes_from")
     if isinstance(comes_from, list):
@@ -913,15 +920,15 @@ def _selection_surface_to_open(
     by_id = {candidate.resource_id: candidate for candidate in candidates}
     primary = by_id.get(primary_resource_id or "")
     selected = [by_id[item] for item in selected_ids if item in by_id]
-    selected_whiteboard = next((_candidate for _candidate in selected if _is_openable_whiteboard_candidate(_candidate)), None)
-    if selected_whiteboard is not None and (
-        _is_visible_operational_candidate(primary) or infer_openable_source
-    ):
-        return "whiteboard"
     if requested_surface:
         return requested_surface
+    selected_whiteboard = next((_candidate for _candidate in selected if _is_openable_whiteboard_candidate(_candidate)), None)
+    if selected_whiteboard is not None and infer_openable_source:
+        return "whiteboard"
     if primary is not None and primary.source != "visible_artifact":
         surface = primary.suggested_surface if primary.suggested_surface in SURFACE_KINDS else primary.kind
+        if primary.source == "artifact" and surface == "whiteboard":
+            return None
         return surface if surface in SURFACE_KINDS else None
     return None
 
@@ -930,13 +937,6 @@ def _is_openable_whiteboard_candidate(candidate: AttentionCandidate) -> bool:
     if candidate.source == "visible_artifact":
         return False
     return candidate.suggested_surface == "whiteboard" or candidate.app == "whiteboard" or candidate.kind == "whiteboard"
-
-
-def _is_visible_operational_candidate(candidate: AttentionCandidate | None) -> bool:
-    if candidate is None or candidate.source != "visible_artifact":
-        return False
-    surface = candidate.suggested_surface if candidate.suggested_surface in SURFACE_KINDS else candidate.kind
-    return surface in {"today_briefing", "calendar_day", "calendar_week", "task_focus"}
 
 
 def _temporal_references(message: str, *, today: date) -> list[TemporalReference]:
@@ -1399,14 +1399,7 @@ def _memory_trace_scope_penalty(
 
 
 def _should_prefer_source_artifact(query_frame: QueryFrame) -> bool:
-    explicit_derivative_terms = {
-        "action",
-        "first",
-        "immediate",
-        "next",
-        "step",
-    }
-    if set(query_frame.tokens) & explicit_derivative_terms:
+    if _has_explicit_derivative_request(query_frame):
         return False
     if not ({"read", "reopen"} & set(query_frame.operations)):
         return False
@@ -1416,12 +1409,28 @@ def _should_prefer_source_artifact(query_frame: QueryFrame) -> bool:
             "exam preparation",
             "find my",
             "find the",
+            "go back",
             "material",
             "materials",
+            "open my",
+            "open the",
             "pull up",
-            "study plan",
+            "reopen",
         )
     )
+
+
+def _has_explicit_derivative_request(query_frame: QueryFrame) -> bool:
+    return bool(set(query_frame.tokens) & DERIVATIVE_ARTIFACT_TERMS)
+
+
+def _is_derivative_action_candidate(candidate: AttentionCandidate | None) -> bool:
+    if candidate is None or candidate.source != "artifact":
+        return False
+    if not isinstance(candidate.value_ref.get("comes_from"), list):
+        return False
+    title = _normalized_title(candidate.title)
+    return any(term in title for term in DERIVATIVE_ARTIFACT_TITLE_TERMS)
 
 
 def _derivative_artifact_penalty(
@@ -1438,7 +1447,7 @@ def _derivative_artifact_penalty(
     if not any(str(parent_id).strip() in artifact_ids for parent_id in comes_from):
         return 0.0
     title = resource.title.lower()
-    if not any(term in title for term in ("action", "first", "immediate", "next", "step")):
+    if not any(term in title for term in DERIVATIVE_ARTIFACT_TITLE_TERMS):
         return 0.0
     return DERIVATIVE_ARTIFACT_PENALTY
 

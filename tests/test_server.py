@@ -1318,6 +1318,7 @@ def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(
                 "primary_resource_id": artifact_resource_id,
                 "supporting_resource_ids": [],
                 "rejected_candidate_ids": [],
+                "surface_to_open": "whiteboard",
                 "reason": "Open the selected study plan as the relevant material.",
                 "confidence": 0.9,
             },

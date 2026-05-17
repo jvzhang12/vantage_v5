@@ -29,6 +29,7 @@ from vantage_v5.services.turn_staging import initial_stage_progress
 from vantage_v5.services.turn_staging import stage_progress_event
 from vantage_v5.services.turn_staging import StageAuditResult
 from vantage_v5.services.turn_staging import TurnStage
+from vantage_v5.services.turn_plan import turn_plan_trace_payload
 from vantage_v5.services.vetting import anchor_selected_record_candidate
 from vantage_v5.services.vetting import build_continuity_hint
 from vantage_v5.services.vetting import resolve_selected_record_candidate
@@ -1274,6 +1275,10 @@ def build_final_response_trace_payload(
         "turn_interpretation": response_payload.get("turn_interpretation"),
         "semantic_frame": response_payload.get("semantic_frame"),
         "semantic_policy": response_payload.get("semantic_policy"),
+        "turn_plan": turn_plan_trace_payload(
+            request_payload=request_payload,
+            response_payload=response_payload,
+        ),
     }
 
 

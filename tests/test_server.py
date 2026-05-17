@@ -809,6 +809,8 @@ def test_chat_attaches_today_briefing_surface_for_day_planning(tmp_path: Path) -
     assert final_response["active_surface_id"] == payload["active_surface_id"]
     assert final_response["surface_payloads"] == payload["surface_payloads"]
     assert final_response["surface_invocation"] == payload["surface_invocation"]
+    assert final_response["turn_plan"]["ui_surface_action"]["surface"] == "calendar_day"
+    assert final_response["turn_plan"]["execution"]["surface_payload_policy"] == "build_operational_payload"
 
 
 def test_chat_attaches_task_focus_surface_for_task_only_prompt(tmp_path: Path) -> None:
@@ -1324,6 +1326,9 @@ def test_chat_attention_open_directive_prefers_source_artifact_over_opened_copy(
     assert final_response["graph_action"] is None
     assert final_response["created_record"] is None
     assert final_response["artifact_actions"] == []
+    assert final_response["turn_plan"]["retrieval"]["primary_resource_id"] == f"artifact:{source_artifact.id}"
+    assert final_response["turn_plan"]["ui_surface_action"]["mode"] == "open_only"
+    assert final_response["turn_plan"]["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "open_only_ui_handoff"
 
 
 def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(
@@ -8600,6 +8605,8 @@ def test_final_response_trace_caps_request_history(tmp_path: Path) -> None:
     final_response = _latest_trace_payload(repo_root)["final_response"]
     assert final_response["request"]["message"] == "Keep the trace history bounded."
     assert final_response["request"]["history"] == history[-6:]
+    assert final_response["turn_plan"]["request"]["message"] == "Keep the trace history bounded."
+    assert final_response["turn_plan"]["request"]["history_count"] == 6
 
 
 def test_transient_workspace_buffer_is_redacted_in_trace(tmp_path: Path, monkeypatch) -> None:
@@ -8637,6 +8644,7 @@ def test_transient_workspace_buffer_is_redacted_in_trace(tmp_path: Path, monkeyp
     assert final_response["graph_action"] is None
     assert final_response["created_record"] is None
     assert final_response["artifact_actions"] == []
+    assert final_response["turn_plan"]["request"]["workspace_content_supplied"] is True
 
 
 def test_experiment_mode_keeps_temporary_memory_isolated(tmp_path: Path) -> None:

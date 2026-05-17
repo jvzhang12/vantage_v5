@@ -43,6 +43,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - [src/vantage_v5/services/tasks.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/tasks.py.md)
 - [src/vantage_v5/services/turn_orchestrator.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_orchestrator.py.md)
 - [src/vantage_v5/services/turn_payloads.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_payloads.py.md)
+- [src/vantage_v5/services/turn_plan.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/turn_plan.py.md)
 - [src/vantage_v5/services/turn_staging.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_staging.py.md)
 - [src/vantage_v5/services/vetting.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/vetting.py.md)
 - [src/vantage_v5/services/whiteboard_routing.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/whiteboard_routing.py.md)
@@ -66,6 +67,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - `turn_orchestrator.py` coordinates one `/api/chat` turn across prepared context, Navigator, semantic policy, local actions, normal chat, Scenario Lab, and fallback.
 - `local_semantic_actions.py` owns deterministic local save/publish/clarification/experiment action execution once semantic policy has selected that path.
 - `turn_payloads.py` owns final backend payload normalization, `system_state`, and `activity`.
+- `turn_plan.py` owns the first internal observability-only TurnPlan DTO and builder, projecting finalized request/response fields into a trace summary without changing execution.
 - `turn_staging.py` owns public-safe staged turn contracts, progress/audit payload sanitization, and pure parsed-output audits for staged whiteboard draft/offer expectations.
 - `chat.py` owns the normal answer path: bounded retrieval, protocol candidate injection, vetting, model/fallback response, conservative meta writes, and Memory Trace creation.
 - `scenario_lab.py` owns comparative branch generation and persists branch workspaces plus a comparison artifact.
@@ -111,6 +113,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - [tests/test_surface_payloads.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_surface_payloads.py.md)
 - [tests/test_tasks.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_tasks.py.md)
 - [tests/test_turn_payloads.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_turn_payloads.py.md)
+- [tests/test_turn_plan.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_turn_plan.py.md)
 - [tests/test_turn_staging.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_turn_staging.py.md)
 - [tests/test_whiteboard_routing.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_whiteboard_routing.py.md)
 

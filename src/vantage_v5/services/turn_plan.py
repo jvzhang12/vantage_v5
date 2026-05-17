@@ -5,6 +5,7 @@ from typing import Any
 
 
 TURN_PLAN_VERSION = "turn_plan.v1"
+NO_WRITE_LEDGER_CATEGORIES = frozenset({"none", "open_only_no_write"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +235,54 @@ class SideEffectPolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class WriteLedgerEntry:
+    category: str
+    field_paths: tuple[str, ...]
+    status: str | None
+    target_kind: str | None
+    target_id: str | None
+    operation: str | None
+    requires_confirmation: bool | None
+    committed: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "category": self.category,
+            "field_paths": list(self.field_paths),
+            "status": self.status,
+            "target_kind": self.target_kind,
+            "target_id": self.target_id,
+            "operation": self.operation,
+            "requires_confirmation": self.requires_confirmation,
+            "committed": self.committed,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class WriteLedgerPlan:
+    categories: tuple[str, ...]
+    entries: tuple[WriteLedgerEntry, ...]
+    has_write_side_effects: bool
+    actual_write_effect_count: int
+    committed_write_count: int
+    proposed_write_count: int
+    no_write_reason: str | None
+    effect_field_paths: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "categories": list(self.categories),
+            "has_write_side_effects": self.has_write_side_effects,
+            "actual_write_effect_count": self.actual_write_effect_count,
+            "committed_write_count": self.committed_write_count,
+            "proposed_write_count": self.proposed_write_count,
+            "no_write_reason": self.no_write_reason,
+            "effect_field_paths": list(self.effect_field_paths),
+            "entries": [entry.to_dict() for entry in self.entries],
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ProtocolPlan:
     applied_protocol_kinds: tuple[str, ...]
     control_panel_actions: tuple[str, ...]
@@ -339,6 +388,7 @@ class TurnPlan:
     ui_surface_action: UiSurfaceActionPlan
     write_intent: WriteIntentPlan
     side_effect_policy: SideEffectPolicy
+    write_ledger: WriteLedgerPlan
     protocols: ProtocolPlan
     semantic: SemanticPlan
     execution: ExecutionPlan
@@ -355,6 +405,7 @@ class TurnPlan:
             "ui_surface_action": self.ui_surface_action.to_dict(),
             "write_intent": self.write_intent.to_dict(),
             "side_effect_policy": self.side_effect_policy.to_dict(),
+            "write_ledger": self.write_ledger.to_dict(),
             "protocols": self.protocols.to_dict(),
             "semantic": self.semantic.to_dict(),
             "execution": self.execution.to_dict(),
@@ -383,6 +434,7 @@ class TurnPlanBuilder:
         ui_surface_action = self._ui_surface_action_plan(response_payload, retrieval)
         write_intent = self._write_intent_plan(response_payload, ui_surface_action)
         side_effect_policy = self._side_effect_policy(response_payload, write_intent)
+        write_ledger = self._write_ledger_plan(response_payload, write_intent, ui_surface_action)
         route = self._route_plan(response_payload)
         protocols = self._protocol_plan(response_payload)
         semantic = self._semantic_plan(response_payload)
@@ -396,6 +448,7 @@ class TurnPlanBuilder:
             ui_surface_action=ui_surface_action,
             write_intent=write_intent,
             side_effect_policy=side_effect_policy,
+            write_ledger=write_ledger,
             semantic=semantic,
             execution=execution,
         )
@@ -408,6 +461,7 @@ class TurnPlanBuilder:
             ui_surface_action=ui_surface_action,
             write_intent=write_intent,
             side_effect_policy=side_effect_policy,
+            write_ledger=write_ledger,
             protocols=protocols,
             semantic=semantic,
             execution=execution,
@@ -685,6 +739,76 @@ class TurnPlanBuilder:
             ),
         )
 
+    def _write_ledger_plan(
+        self,
+        response_payload: dict[str, Any],
+        write_intent: WriteIntentPlan,
+        ui_surface_action: UiSurfaceActionPlan,
+    ) -> WriteLedgerPlan:
+        entries: list[WriteLedgerEntry] = []
+        invocation = _dict_or_empty(response_payload.get("surface_invocation"))
+        write_behavior = _normalized_write_behavior(invocation)
+        surface_action = _optional_dict(response_payload.get("surface_action"))
+
+        if write_behavior == "open_only":
+            entries.append(
+                WriteLedgerEntry(
+                    category="open_only_no_write",
+                    field_paths=("surface_invocation.write_behavior",),
+                    status="no_write",
+                    target_kind=ui_surface_action.target_resource_kind or ui_surface_action.surface,
+                    target_id=ui_surface_action.target_resource_id,
+                    operation="ui_open",
+                    requires_confirmation=None,
+                    committed=False,
+                )
+            )
+
+        workspace_update = _optional_dict(response_payload.get("workspace_update"))
+        if workspace_update is not None:
+            entries.append(_workspace_update_ledger_entry(workspace_update))
+
+        graph_action = _optional_dict(response_payload.get("graph_action"))
+        created_record = _optional_dict(response_payload.get("created_record"))
+        if graph_action is not None or created_record is not None:
+            entries.append(_record_write_ledger_entry(graph_action=graph_action, created_record=created_record))
+
+        for index, action in enumerate(_list_of_dicts(response_payload.get("artifact_actions"))):
+            entries.append(_artifact_action_ledger_entry(action, index=index))
+
+        if not entries:
+            entries.append(
+                WriteLedgerEntry(
+                    category="none",
+                    field_paths=(),
+                    status="no_write",
+                    target_kind=None,
+                    target_id=None,
+                    operation=None,
+                    requires_confirmation=None,
+                    committed=False,
+                )
+            )
+
+        categories = _dedupe(entry.category for entry in entries)
+        effect_entries = tuple(entry for entry in entries if entry.category not in NO_WRITE_LEDGER_CATEGORIES)
+        effect_field_paths = _dedupe(path for entry in effect_entries for path in entry.field_paths)
+        return WriteLedgerPlan(
+            categories=categories,
+            entries=tuple(entries),
+            has_write_side_effects=bool(effect_entries),
+            actual_write_effect_count=len(effect_entries),
+            committed_write_count=sum(1 for entry in effect_entries if entry.committed),
+            proposed_write_count=sum(1 for entry in effect_entries if not entry.committed),
+            no_write_reason=_write_ledger_no_write_reason(
+                entries=entries,
+                write_intent=write_intent,
+                surface_action=surface_action,
+                invocation=invocation,
+            ),
+            effect_field_paths=effect_field_paths,
+        )
+
     def _semantic_plan(self, response_payload: dict[str, Any]) -> SemanticPlan:
         semantic_frame = _dict_or_empty(response_payload.get("semantic_frame"))
         semantic_policy = _dict_or_empty(response_payload.get("semantic_policy"))
@@ -746,6 +870,7 @@ class TurnPlanBuilder:
         ui_surface_action: UiSurfaceActionPlan,
         write_intent: WriteIntentPlan,
         side_effect_policy: SideEffectPolicy,
+        write_ledger: WriteLedgerPlan,
         semantic: SemanticPlan,
         execution: ExecutionPlan,
     ) -> TurnPlanValidation:
@@ -759,7 +884,7 @@ class TurnPlanBuilder:
         control_actions = _control_panel_action_types(route.control_panel)
         active_surface_id = _optional_str(response_payload.get("active_surface_id"))
         surface_payloads = _list_of_dicts(response_payload.get("surface_payloads"))
-        write_side_effects = _write_side_effect_fields(response_payload)
+        write_side_effects = list(write_ledger.effect_field_paths)
         explicit_open_authority = bool(
             (retrieval.navigator_selection or {}).get("surface_to_open")
             or "open_whiteboard" in control_actions
@@ -1218,17 +1343,147 @@ def _has_explicit_write_authority(
     )
 
 
-def _write_side_effect_fields(response_payload: dict[str, Any]) -> list[str]:
-    fields: list[str] = []
-    if isinstance(response_payload.get("workspace_update"), dict):
-        fields.append("workspace_update")
-    if isinstance(response_payload.get("graph_action"), dict):
-        fields.append("graph_action")
-    if isinstance(response_payload.get("created_record"), dict):
-        fields.append("created_record")
-    if _list_of_dicts(response_payload.get("artifact_actions")):
-        fields.append("artifact_actions")
-    return fields
+def _workspace_update_ledger_entry(workspace_update: dict[str, Any]) -> WriteLedgerEntry:
+    status = _workspace_update_status(workspace_update)
+    category = _workspace_update_category(status)
+    return WriteLedgerEntry(
+        category=category,
+        field_paths=("workspace_update",),
+        status=status,
+        target_kind="whiteboard",
+        target_id=_optional_str(workspace_update.get("workspace_id") or workspace_update.get("id")),
+        operation=_optional_str(workspace_update.get("type") or workspace_update.get("operation")),
+        requires_confirmation=None,
+        committed=status in {"applied", "completed", "saved", "accepted"},
+    )
+
+
+def _workspace_update_category(status: str | None) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized in {"offered", "offer", "pending_offer", "whiteboard_offer"}:
+        return "pending_whiteboard_offer"
+    if normalized in {"draft", "draft_ready", "draft_whiteboard", "pending", "pending_draft", "whiteboard_draft"}:
+        return "pending_whiteboard_draft"
+    return "draft_snapshot_workspace_update"
+
+
+def _record_write_ledger_entry(
+    *,
+    graph_action: dict[str, Any] | None,
+    created_record: dict[str, Any] | None,
+) -> WriteLedgerEntry:
+    category = _record_write_category(graph_action=graph_action, created_record=created_record)
+    record = created_record or {}
+    action = graph_action or {}
+    field_paths: list[str] = []
+    if graph_action is not None:
+        field_paths.append("graph_action")
+    if created_record is not None:
+        field_paths.append("created_record")
+    return WriteLedgerEntry(
+        category=category,
+        field_paths=tuple(field_paths),
+        status=_optional_str(record.get("status") or action.get("status") or "committed"),
+        target_kind=_optional_str(record.get("source") or record.get("type") or record.get("kind")),
+        target_id=_optional_str(record.get("id") or action.get("record_id") or action.get("concept_id")),
+        operation=_optional_str(action.get("type") or action.get("action")),
+        requires_confirmation=None,
+        committed=True,
+    )
+
+
+def _record_write_category(
+    *,
+    graph_action: dict[str, Any] | None,
+    created_record: dict[str, Any] | None,
+) -> str:
+    record = created_record or {}
+    action = graph_action or {}
+    record_kind = str(
+        record.get("source")
+        or record.get("type")
+        or record.get("kind")
+        or record.get("record_type")
+        or ""
+    ).strip().lower()
+    action_kind = str(action.get("type") or action.get("action") or "").strip().lower()
+    record_id = str(record.get("id") or "").strip().lower()
+    if record_kind in {"memory", "saved_note"} or action_kind in {"create_memory", "upsert_memory", "save_memory"}:
+        return "memory_write"
+    if (
+        record_kind in {"artifact", "workspace", "whiteboard"}
+        or bool(record.get("artifact_lifecycle"))
+        or action_kind in {
+            "save_workspace_iteration_artifact",
+            "promote_workspace_to_artifact",
+            "create_artifact",
+            "publish_artifact",
+        }
+    ):
+        return "artifact_save_or_promotion"
+    if (
+        record_kind in {"concept", "protocol"}
+        or record_id.startswith("concept:")
+        or action_kind in {"create_concept", "upsert_concept", "upsert_protocol", "save_concept"}
+    ):
+        return "concept_write"
+    if action_kind.startswith(("calendar_", "task_")):
+        return "accepted_calendar_task_mutation"
+    return "concept_write"
+
+
+def _artifact_action_ledger_entry(action: dict[str, Any], *, index: int) -> WriteLedgerEntry:
+    artifact_kind = str(action.get("artifact_kind") or action.get("kind") or action.get("app") or "").strip().lower()
+    status = str(action.get("status") or "").strip().lower()
+    committed = status in {"accepted", "applied", "completed"}
+    if artifact_kind in {"calendar", "task", "tasks"}:
+        category = "accepted_calendar_task_mutation" if committed else "proposed_calendar_task_mutation"
+    else:
+        category = "artifact_save_or_promotion"
+    requires_confirmation = action.get("requires_confirmation")
+    return WriteLedgerEntry(
+        category=category,
+        field_paths=(f"artifact_actions[{index}]",),
+        status=_optional_str(status),
+        target_kind=artifact_kind or None,
+        target_id=_optional_str(action.get("target_id") or action.get("artifact_id") or action.get("id")),
+        operation=_optional_str(action.get("operation") or action.get("type") or action.get("intent")),
+        requires_confirmation=requires_confirmation if isinstance(requires_confirmation, bool) else None,
+        committed=committed,
+    )
+
+
+def _write_ledger_no_write_reason(
+    *,
+    entries: list[WriteLedgerEntry],
+    write_intent: WriteIntentPlan,
+    surface_action: dict[str, Any] | None,
+    invocation: dict[str, Any],
+) -> str | None:
+    if any(entry.category not in NO_WRITE_LEDGER_CATEGORIES for entry in entries):
+        return None
+    intent = _optional_str(invocation.get("intent"))
+    if surface_action is not None:
+        return "close_visible_surface"
+    if intent == "preserve_visible_surface":
+        return "preserve_visible_surface"
+    if write_intent.write_behavior == "open_only":
+        return "open_only_ui_handoff"
+    if intent in {"current_artifact_followup", "selected_material_question"}:
+        return "artifact_qna_chat_first"
+    return "no_write_effects"
+
+
+def _dedupe(values: Any) -> tuple[str, ...]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        ordered.append(text)
+    return tuple(ordered)
 
 
 def _has_deletion_semantics(response_payload: dict[str, Any]) -> bool:

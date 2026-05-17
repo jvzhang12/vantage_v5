@@ -71,6 +71,9 @@ def test_turn_plan_chat_only_qna() -> None:
     assert plan["request"]["turn_id"] == "trace-1"
     assert plan["ui_surface_action"]["surface"] == "none"
     assert plan["write_intent"]["kind"] == "none"
+    assert plan["write_ledger"]["categories"] == ["none"]
+    assert plan["write_ledger"]["has_write_side_effects"] is False
+    assert plan["write_ledger"]["no_write_reason"] == "no_write_effects"
     assert plan["write_intent"]["whiteboard_mode"] == "chat"
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is True
     assert plan["compatibility"]["present"]["surface_invocation"] is True
@@ -122,6 +125,9 @@ def test_turn_plan_saved_artifact_open_only() -> None:
     assert plan["ui_surface_action"]["target_resource_id"] == "artifact:midterm-study-plan"
     assert plan["ui_surface_action"]["authority"] == "navigator_selection"
     assert plan["write_intent"]["kind"] == "ui_open_only"
+    assert plan["write_ledger"]["categories"] == ["open_only_no_write"]
+    assert plan["write_ledger"]["actual_write_effect_count"] == 0
+    assert plan["write_ledger"]["no_write_reason"] == "open_only_ui_handoff"
     assert plan["side_effect_policy"]["allow_workspace_update"] is False
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is False
     assert plan["side_effect_policy"]["allow_artifact_actions"] is False
@@ -315,6 +321,8 @@ def test_turn_plan_explicit_whiteboard_draft() -> None:
     assert plan["ui_surface_action"]["surface"] == "whiteboard"
     assert plan["ui_surface_action"]["mode"] == "draft"
     assert plan["write_intent"]["kind"] == "whiteboard_draft"
+    assert plan["write_ledger"]["categories"] == ["pending_whiteboard_draft"]
+    assert plan["write_ledger"]["entries"][0]["field_paths"] == ["workspace_update"]
     assert plan["write_intent"]["explicit_user_intent"] is True
     assert plan["side_effect_policy"]["allow_workspace_update"] is True
     assert plan["side_effect_policy"]["allow_auto_workspace_iteration_artifact"] is True
@@ -376,6 +384,8 @@ def test_turn_plan_visible_artifact_qna_no_write_policy() -> None:
     assert plan["visible_context"]["response_visible_artifact_ids"] == ["artifact:midterm-study-plan"]
     assert plan["visible_context"]["workspace_in_model_context"] is True
     assert plan["write_intent"]["kind"] == "none"
+    assert plan["write_ledger"]["categories"] == ["none"]
+    assert plan["write_ledger"]["no_write_reason"] == "artifact_qna_chat_first"
     assert plan["side_effect_policy"]["allow_workspace_update"] is False
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is False
     assert plan["side_effect_policy"]["allow_artifact_actions"] is False
@@ -468,6 +478,91 @@ def test_turn_plan_visible_artifact_qna_with_explicit_save_does_not_warn() -> No
     assert "visible_artifact_qna_with_durable_write" not in _warning_codes(plan)
 
 
+def test_turn_plan_write_ledger_pending_offer() -> None:
+    plan = _plan(
+        message="Can you draft an email?",
+        response={
+            "surface_invocation": {
+                "intent": "durable_artifact",
+                "primary_surface": "whiteboard",
+                "write_behavior": "none",
+                "whiteboard_mode": "offer",
+                "resolved_whiteboard_mode": "offer",
+            },
+            "workspace_update": {
+                "type": "whiteboard_offer",
+                "status": "offered",
+                "summary": "Offer a whiteboard draft.",
+            },
+        },
+    )
+
+    assert plan["write_ledger"]["categories"] == ["pending_whiteboard_offer"]
+    assert plan["write_ledger"]["entries"][0]["status"] == "offered"
+    assert plan["write_ledger"]["proposed_write_count"] == 1
+
+
+def test_turn_plan_write_ledger_workspace_update_snapshot() -> None:
+    plan = _plan(
+        message="Save this workspace snapshot.",
+        response={
+            "workspace_update": {
+                "type": "save_snapshot",
+                "status": "saved",
+                "workspace_id": "draft-1",
+            },
+        },
+    )
+
+    assert plan["write_ledger"]["categories"] == ["draft_snapshot_workspace_update"]
+    assert plan["write_ledger"]["entries"][0]["committed"] is True
+    assert plan["write_ledger"]["entries"][0]["target_id"] == "draft-1"
+
+
+def test_turn_plan_write_ledger_artifact_save_or_promotion() -> None:
+    plan = _plan(
+        message="Publish this artifact.",
+        response={
+            "graph_action": {"type": "promote_workspace_to_artifact", "record_id": "midterm-study-plan"},
+            "created_record": {
+                "id": "midterm-study-plan",
+                "source": "artifact",
+                "artifact_lifecycle": "promoted_artifact",
+            },
+        },
+    )
+
+    assert plan["write_ledger"]["categories"] == ["artifact_save_or_promotion"]
+    assert plan["write_ledger"]["entries"][0]["field_paths"] == ["graph_action", "created_record"]
+    assert plan["write_ledger"]["committed_write_count"] == 1
+
+
+def test_turn_plan_write_ledger_concept_write() -> None:
+    plan = _plan(
+        message="Remember this as a concept.",
+        response={
+            "graph_action": {"action": "create_concept", "concept_id": "concept:study-cycle"},
+            "created_record": {"id": "concept:study-cycle", "type": "concept"},
+        },
+    )
+
+    assert plan["write_ledger"]["categories"] == ["concept_write"]
+    assert plan["write_ledger"]["entries"][0]["target_kind"] == "concept"
+
+
+def test_turn_plan_write_ledger_memory_write() -> None:
+    plan = _plan(
+        message="Remember that I prefer morning study blocks.",
+        response={
+            "graph_action": {"type": "create_memory", "record_id": "memory:morning-study"},
+            "created_record": {"id": "memory:morning-study", "source": "memory"},
+        },
+    )
+
+    assert plan["write_ledger"]["categories"] == ["memory_write"]
+    assert plan["write_ledger"]["entries"][0]["target_kind"] == "memory"
+
+
 def test_turn_plan_preserve_surface_no_write_policy() -> None:
     plan = _plan(
         message="leave the calendar open",
@@ -493,6 +588,8 @@ def test_turn_plan_preserve_surface_no_write_policy() -> None:
     assert plan["ui_surface_action"]["surface"] == "none"
     assert plan["ui_surface_action"]["mode"] == "preserve"
     assert plan["write_intent"]["kind"] == "none"
+    assert plan["write_ledger"]["categories"] == ["none"]
+    assert plan["write_ledger"]["no_write_reason"] == "preserve_visible_surface"
     assert plan["side_effect_policy"]["allow_workspace_update"] is False
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is False
     assert plan["side_effect_policy"]["allow_artifact_actions"] is False
@@ -610,6 +707,10 @@ def test_turn_plan_close_surface_with_writes_warns() -> None:
         "close_surface_with_write_side_effect",
         "close_surface_has_deletion_semantics",
     }.issubset(_warning_codes(plan))
+    assert plan["write_ledger"]["categories"] == [
+        "pending_whiteboard_draft",
+        "proposed_calendar_task_mutation",
+    ]
 
 
 def test_turn_plan_close_surface_reclassification_warns() -> None:
@@ -723,6 +824,44 @@ def test_turn_plan_calendar_mutation_must_be_proposal_only() -> None:
     )
 
     assert "mutation_without_confirmation" in _warning_codes(plan)
+    assert plan["write_ledger"]["categories"] == ["accepted_calendar_task_mutation"]
+    assert plan["write_ledger"]["entries"][0]["committed"] is True
+
+
+def test_turn_plan_write_ledger_proposed_calendar_task_mutation() -> None:
+    plan = _plan(
+        message="Move the event.",
+        response={
+            "surface_invocation": {
+                "intent": "calendar_mutation",
+                "primary_surface": "calendar_day",
+                "write_behavior": "proposal_only",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "artifact_actions": [
+                {
+                    "id": "action-1",
+                    "artifact_kind": "calendar",
+                    "operation": "move_event",
+                    "status": "proposed",
+                    "requires_confirmation": True,
+                },
+                {
+                    "id": "action-2",
+                    "artifact_kind": "task",
+                    "operation": "create_task",
+                    "status": "proposed",
+                    "requires_confirmation": True,
+                },
+            ],
+        },
+    )
+
+    assert plan["write_ledger"]["categories"] == ["proposed_calendar_task_mutation"]
+    assert plan["write_ledger"]["actual_write_effect_count"] == 2
+    assert plan["write_ledger"]["committed_write_count"] == 0
+    assert plan["write_ledger"]["proposed_write_count"] == 2
+    assert plan["validation"]["warnings"] == []
 
 
 def test_final_response_trace_payload_includes_turn_plan() -> None:
@@ -773,5 +912,6 @@ def test_final_response_trace_payload_includes_turn_plan() -> None:
     assert plan["retrieval"]["primary_resource_id"] == "artifact:midterm-study-plan"
     assert plan["ui_surface_action"]["surface"] == "whiteboard"
     assert plan["write_intent"]["kind"] == "ui_open_only"
+    assert plan["write_ledger"]["categories"] == ["open_only_no_write"]
     assert plan["validation"]["status"] == "ok"
     assert plan["validation"]["warnings"] == []

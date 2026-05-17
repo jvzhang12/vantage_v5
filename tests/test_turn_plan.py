@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from vantage_v5.services.chat import build_final_response_trace_payload
 from vantage_v5.services.turn_plan import TurnPlanBuilder
+from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 
 
 def _plan(
@@ -126,6 +127,40 @@ def test_turn_plan_saved_artifact_open_only() -> None:
     assert plan["side_effect_policy"]["allow_artifact_actions"] is False
     assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "open_only_ui_handoff"
     assert plan["validation"]["warnings"] == []
+
+
+def test_turn_plan_surface_authority_open_only_blocks_writes_and_payloads() -> None:
+    authority = build_turn_plan_surface_authority(
+        response_payload={
+            "navigator_selection": {
+                "selected_ids": ["artifact:midterm-study-plan"],
+                "primary_resource_id": "artifact:midterm-study-plan",
+                "surface_to_open": "whiteboard",
+            },
+            "selected_attention_resources": [
+                {
+                    "resource_id": "artifact:midterm-study-plan",
+                    "kind": "artifact",
+                    "suggested_surface": "whiteboard",
+                }
+            ],
+            "surface_invocation": {
+                "intent": "attention_selected_context",
+                "primary_surface": "whiteboard",
+                "write_behavior": "open_only",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+        }
+    )
+
+    assert authority.is_whiteboard_open_only is True
+    assert authority.is_close is False
+    assert authority.is_preserve is False
+    assert authority.suppress_auto_graph_writes is True
+    assert authority.blocks_artifact_actions is True
+    assert authority.surface_payload_policy == "none"
+    assert authority.ui_surface_action.target_resource_id == "artifact:midterm-study-plan"
 
 
 def test_turn_plan_selected_artifact_context_without_open_has_no_warning() -> None:
@@ -456,12 +491,73 @@ def test_turn_plan_preserve_surface_no_write_policy() -> None:
     )
 
     assert plan["ui_surface_action"]["surface"] == "none"
+    assert plan["ui_surface_action"]["mode"] == "preserve"
     assert plan["write_intent"]["kind"] == "none"
     assert plan["side_effect_policy"]["allow_workspace_update"] is False
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is False
     assert plan["side_effect_policy"]["allow_artifact_actions"] is False
     assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "preserve_visible_surface"
     assert plan["validation"]["warnings"] == []
+
+
+def test_turn_plan_surface_authority_preserve_short_circuits_surface_payloads() -> None:
+    authority = build_turn_plan_surface_authority(
+        response_payload={
+            "turn_interpretation": {
+                "control_panel": {
+                    "actions": [{"type": "preserve_surface", "target": "calendar"}],
+                },
+            },
+            "surface_invocation": {
+                "intent": "preserve_visible_surface",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+                "reason": "The user asked to keep the visible surface open.",
+            },
+        }
+    )
+
+    assert authority.is_preserve is True
+    assert authority.is_close is False
+    assert authority.suppress_auto_graph_writes is True
+    assert authority.blocks_artifact_actions is True
+    assert authority.surface_payload_policy == "none"
+    assert authority.ui_surface_action.target_resource_kind == "calendar"
+
+
+def test_turn_plan_surface_authority_close_uses_nested_surface_action() -> None:
+    authority = build_turn_plan_surface_authority(
+        response_payload={
+            "surface_invocation": {
+                "intent": "close_visible_surface",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+                "surface_action": {
+                    "type": "close_visible_surface",
+                    "status": "requested",
+                    "target": "whiteboard",
+                    "target_kind": "whiteboard",
+                    "target_id": "midterm-study-plan",
+                },
+            },
+        }
+    )
+
+    assert authority.is_close is True
+    assert authority.surface_action == {
+        "type": "close_visible_surface",
+        "status": "requested",
+        "target": "whiteboard",
+        "target_kind": "whiteboard",
+        "target_id": "midterm-study-plan",
+    }
+    assert authority.suppress_auto_graph_writes is True
+    assert authority.blocks_artifact_actions is True
+    assert authority.surface_payload_policy == "none"
 
 
 def test_turn_plan_preserve_surface_reclassification_warns() -> None:
@@ -581,6 +677,25 @@ def test_turn_plan_today_surface_payload_mismatch_warns() -> None:
     )
 
     assert "surface_payload_mismatch" in _warning_codes(plan)
+
+
+def test_turn_plan_surface_authority_operational_surface_builds_payloads() -> None:
+    authority = build_turn_plan_surface_authority(
+        response_payload={
+            "surface_invocation": {
+                "intent": "schedule_lookup",
+                "primary_surface": "calendar_day",
+                "write_behavior": "read_only",
+                "resolved_whiteboard_mode": "chat",
+            },
+        }
+    )
+
+    assert authority.is_close is False
+    assert authority.is_preserve is False
+    assert authority.is_whiteboard_open_only is False
+    assert authority.blocks_artifact_actions is False
+    assert authority.surface_payload_policy == "build_operational_payload"
 
 
 def test_turn_plan_calendar_mutation_must_be_proposal_only() -> None:

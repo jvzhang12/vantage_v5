@@ -1171,13 +1171,18 @@ def test_chat_close_visible_whiteboard_returns_close_action_without_writes(
     assert payload["surface_payloads"] == []
     assert payload["pinned_context_id"] == f"artifact:{artifact.id}"
     assert (repo_root / "artifacts" / f"{artifact.id}.md").exists()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["ui_surface_action"]["mode"] == "close"
+    assert final_response["turn_plan"]["ui_surface_action"]["surface"] == "whiteboard"
+    assert final_response["turn_plan"]["execution"]["artifact_action_policy"] == "disabled"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
 def test_chat_close_visible_today_returns_close_action_without_mutation(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    client, _ = _client(tmp_path, openai_api_key="test-key")
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
 
     def _reply_should_not_run(self, **kwargs):
         raise AssertionError("Close visible surface should be handled before ChatService.reply().")
@@ -1223,6 +1228,10 @@ def test_chat_close_visible_today_returns_close_action_without_mutation(
     assert payload["created_record"] is None
     assert payload["graph_action"] is None
     assert payload["artifact_actions"] == []
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["ui_surface_action"]["mode"] == "close"
+    assert final_response["turn_plan"]["ui_surface_action"]["target_resource_kind"] == "today_briefing"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
 def test_chat_close_visible_surface_with_no_surface_is_safe_noop(
@@ -1373,6 +1382,10 @@ def test_chat_negated_close_text_without_control_action_does_not_close(
     assert payload["graph_action"] is None
     assert payload["artifact_actions"] == []
     assert (repo_root / "artifacts" / f"{artifact.id}.md").exists()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["ui_surface_action"]["mode"] == "preserve"
+    assert final_response["turn_plan"]["execution"]["artifact_action_policy"] == "disabled"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
 def test_chat_preserve_calendar_open_does_not_foreground_calendar(
@@ -1457,6 +1470,11 @@ def test_chat_preserve_calendar_open_does_not_foreground_calendar(
     assert payload["artifact_actions"] == []
     assert payload["visible_artifacts"][0]["id"] == visible_today["id"]
     assert captured["visible_artifacts"][0]["id"] == visible_today["id"]
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["ui_surface_action"]["mode"] == "preserve"
+    assert final_response["turn_plan"]["ui_surface_action"]["target_resource_kind"] == "calendar"
+    assert final_response["turn_plan"]["execution"]["surface_payload_policy"] == "none"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
 def test_chat_uses_explicit_navigator_surface_open_intent(tmp_path: Path, monkeypatch) -> None:
@@ -1696,6 +1714,7 @@ def test_chat_attention_open_directive_prefers_source_artifact_over_opened_copy(
     assert final_response["artifact_actions"] == []
     assert final_response["turn_plan"]["retrieval"]["primary_resource_id"] == f"artifact:{source_artifact.id}"
     assert final_response["turn_plan"]["ui_surface_action"]["mode"] == "open_only"
+    assert final_response["turn_plan"]["execution"]["artifact_action_policy"] == "disabled"
     assert final_response["turn_plan"]["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "open_only_ui_handoff"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 

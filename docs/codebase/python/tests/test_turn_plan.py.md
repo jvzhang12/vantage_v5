@@ -1,16 +1,18 @@
 # `tests/test_turn_plan.py`
 
-Focused unit tests for internal TurnPlan observability.
+Focused unit tests for internal TurnPlan trace and surface-authority contracts.
 
 ## Purpose
 
 - Verify that `TurnPlanBuilder` projects finalized request/response fields into a stable internal plan without changing public payload behavior.
-- Cover the first TurnPlan slice independently from the full `/api/chat` execution path.
+- Verify that `build_turn_plan_surface_authority()` derives the execution-facing surface-action view used by the orchestrator and server for open-only, close, preserve, and operational-surface post-processing.
+- Cover the TurnPlan slices independently from the full `/api/chat` execution path.
 
 ## Coverage
 
 - Chat-only Q&A records no UI-open action and no write intent.
 - Saved artifact open-only turns record a Whiteboard UI action, selected artifact target, and no-write side-effect policy.
+- Surface-authority tests assert that Whiteboard `open_only`, nested close `surface_action` payloads, and preserve/no-op invocations suppress automatic graph writes and artifact actions, while calendar/task operational surfaces still allow payload construction.
 - Explicit Whiteboard draft turns record draft write intent and workspace-update allowance.
 - Today/calendar turns record read-only operational surface intent and surface-payload policy.
 - Visible artifact Q&A records chat-first/no-write policy.

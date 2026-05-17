@@ -63,8 +63,10 @@ from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.scenario_lab import ScenarioLabService
 from vantage_v5.services.search import ConceptSearchService
 from vantage_v5.services.surface_payloads import SurfacePayloadBuilder
+from vantage_v5.services.surface_payloads import SurfacePayloadResult
 from vantage_v5.services.surface_payloads import surface_assistant_message
 from vantage_v5.services.tasks import LocalTaskProvider
+from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 from vantage_v5.services.turn_payloads import attach_safe_turn_state
 from vantage_v5.services.turn_orchestrator import TurnOrchestrator
 from vantage_v5.services.turn_orchestrator import TurnOrchestratorHooks
@@ -887,16 +889,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 app_capabilities=app_capabilities,
             )
         )
-        open_only_handoff = _is_whiteboard_open_only_payload(payload)
-        close_surface_handoff = _has_close_surface_action(payload)
-        preserve_surface_handoff = _has_preserve_surface_invocation(payload)
+        surface_authority = build_turn_plan_surface_authority(response_payload=payload)
         action_visible_artifacts = [
             *(visible_artifacts or []),
             *_visible_artifacts_from_selected_attention(payload.get("selected_attention_resources")),
         ]
         action_plan = (
             ArtifactActionPlan(artifact_actions=[])
-            if open_only_handoff or close_surface_handoff or preserve_surface_handoff
+            if surface_authority.blocks_artifact_actions
             else _artifact_mutation_compiler_for_scope(
                 durable_scope,
                 app_capabilities=app_capabilities,
@@ -912,10 +912,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 action_plan.artifact_actions[0],
                 existing=payload.get("surface_invocation"),
             )
-        surface_result = _surface_payload_builder_for_scope(durable_scope).build_for_turn(
-            message=message,
-            surface_invocation=payload.get("surface_invocation"),
-        )
+        surface_authority = build_turn_plan_surface_authority(response_payload=payload)
+        if surface_authority.surface_payload_policy == "build_operational_payload":
+            surface_result = _surface_payload_builder_for_scope(durable_scope).build_for_turn(
+                message=message,
+                surface_invocation=surface_authority.surface_invocation,
+            )
+        else:
+            surface_result = SurfacePayloadResult(surface_payloads=[], active_surface_id=None)
         payload.update(surface_result.to_dict())
         surface_message = surface_assistant_message(surface_result.surface_payloads)
         if surface_message and not isinstance(payload.get("workspace_update"), dict) and not action_plan.assistant_message:
@@ -950,28 +954,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception:
             logger.exception("Failed to persist final chat response trace.")
         return final_payload
-
-    def _is_whiteboard_open_only_payload(payload: dict[str, Any]) -> bool:
-        invocation = payload.get("surface_invocation")
-        if not isinstance(invocation, dict):
-            return False
-        if str(invocation.get("write_behavior") or "").strip().lower() != "open_only":
-            return False
-        primary_surface = str(invocation.get("primary_surface") or "").strip().lower()
-        if primary_surface == "whiteboard":
-            return True
-        for surface in invocation.get("surfaces") or []:
-            if isinstance(surface, dict) and str(surface.get("kind") or "").strip().lower() == "whiteboard":
-                return True
-        return False
-
-    def _has_close_surface_action(payload: dict[str, Any]) -> bool:
-        action = payload.get("surface_action")
-        return isinstance(action, dict) and str(action.get("type") or "").strip() == "close_visible_surface"
-
-    def _has_preserve_surface_invocation(payload: dict[str, Any]) -> bool:
-        invocation = payload.get("surface_invocation")
-        return isinstance(invocation, dict) and str(invocation.get("intent") or "").strip() == "preserve_visible_surface"
 
     def _final_response_trace_dir(durable_scope: dict[str, Any], payload: dict[str, Any]) -> Path:
         experiment = payload.get("experiment") if isinstance(payload.get("experiment"), dict) else {}

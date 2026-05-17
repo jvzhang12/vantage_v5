@@ -19,6 +19,7 @@ from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.semantic_frame import build_semantic_frame
 from vantage_v5.services.semantic_policy import decide_semantic_policy
 from vantage_v5.services.surface_invocation import build_surface_invocation
+from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 from vantage_v5.services.turn_payloads import assemble_local_turn_payload
 from vantage_v5.services.turn_payloads import assemble_scenario_lab_fallback_payload
 from vantage_v5.services.turn_payloads import assemble_service_turn_payload
@@ -126,12 +127,23 @@ class TurnOrchestrator:
             attention_selection,
             selected_resources=selected_attention_resources,
         )
+        attention_state_payload = attention_payload(
+            turn=attention_turn,
+            selection=attention_selection,
+            selected_resources=selected_attention_resources,
+        )
+        surface_authority = build_turn_plan_surface_authority(
+            response_payload={
+                **attention_state_payload,
+                "surface_invocation": surface_invocation_payload,
+            }
+        )
         suppress_auto_graph_writes = False
-        if _is_preserve_surface_invocation(surface_invocation_payload):
+        if surface_authority.is_preserve:
             suppress_auto_graph_writes = True
             resolved_whiteboard_mode = "chat"
             surface_invocation_payload["whiteboard_mode"] = "chat"
-        elif _is_open_only_whiteboard_invocation(surface_invocation_payload):
+        elif surface_authority.is_whiteboard_open_only:
             suppress_auto_graph_writes = True
             if (
                 resolved_whiteboard_mode == "draft"
@@ -152,10 +164,11 @@ class TurnOrchestrator:
         surface_invocation_payload["resolved_whiteboard_mode"] = (
             resolved_whiteboard_mode if navigation.mode == "chat" else None
         )
-        attention_state_payload = attention_payload(
-            turn=attention_turn,
-            selection=attention_selection,
-            selected_resources=selected_attention_resources,
+        surface_authority = build_turn_plan_surface_authority(
+            response_payload={
+                **attention_state_payload,
+                "surface_invocation": surface_invocation_payload,
+            }
         )
         resolved_protocols = self.protocol_engine.resolve_for_turn(
             navigation=navigation,
@@ -205,7 +218,7 @@ class TurnOrchestrator:
             whiteboard_mode=resolved_whiteboard_mode if navigation.mode == "chat" else "chat",
             public_summary=navigation.reason,
         )
-        close_surface_action = _surface_close_action(surface_invocation_payload)
+        close_surface_action = surface_authority.surface_action if surface_authority.is_close else None
         if close_surface_action is not None:
             local_context = LocalTurnContext(
                 user_message=request.message,
@@ -371,6 +384,9 @@ class TurnOrchestrator:
         error: Exception,
         attention_state_payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        surface_authority = build_turn_plan_surface_authority(
+            response_payload={"surface_invocation": surface_invocation}
+        )
         turn = runtime["chat_service"].reply(
             message=request.message,
             workspace=workspace,
@@ -399,10 +415,7 @@ class TurnOrchestrator:
                 whiteboard_mode=resolved_whiteboard_mode,
                 public_summary="Scenario Lab fell back to a chat response.",
             ),
-            suppress_auto_graph_writes=(
-                _is_open_only_whiteboard_invocation(surface_invocation)
-                or _is_preserve_surface_invocation(surface_invocation)
-            ),
+            suppress_auto_graph_writes=surface_authority.suppress_auto_graph_writes,
         )
         payload = assemble_scenario_lab_fallback_payload(
             ScenarioLabFallbackParts(
@@ -431,33 +444,6 @@ class TurnOrchestrator:
         if trace_path:
             payload["_turn_trace_path"] = trace_path
         return payload
-
-
-def _is_open_only_whiteboard_invocation(surface_invocation: dict[str, Any]) -> bool:
-    if str(surface_invocation.get("write_behavior") or "").strip().lower() != "open_only":
-        return False
-    primary = str(surface_invocation.get("primary_surface") or "").strip().lower()
-    if primary == "whiteboard":
-        return True
-    for surface in surface_invocation.get("surfaces") or []:
-        if not isinstance(surface, dict):
-            continue
-        if str(surface.get("kind") or "").strip().lower() == "whiteboard":
-            return True
-    return False
-
-
-def _is_preserve_surface_invocation(surface_invocation: dict[str, Any]) -> bool:
-    return str(surface_invocation.get("intent") or "").strip().lower() == "preserve_visible_surface"
-
-
-def _surface_close_action(surface_invocation: dict[str, Any]) -> dict[str, Any] | None:
-    action = surface_invocation.get("surface_action") if isinstance(surface_invocation, dict) else None
-    if not isinstance(action, dict):
-        return None
-    if str(action.get("type") or "").strip() != "close_visible_surface":
-        return None
-    return action
 
 
 def _close_surface_assistant_message(action: dict[str, Any]) -> str:

@@ -123,6 +123,59 @@ class UiSurfaceActionPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnPlanSurfaceAuthority:
+    """Authoritative internal surface-action view derived from TurnPlan fields."""
+
+    ui_surface_action: UiSurfaceActionPlan
+    write_intent: WriteIntentPlan
+    side_effect_policy: SideEffectPolicy
+    surface_invocation: dict[str, Any]
+    surface_action: dict[str, Any] | None
+
+    @property
+    def is_close(self) -> bool:
+        return self.ui_surface_action.mode in {"close", "close_noop"}
+
+    @property
+    def is_preserve(self) -> bool:
+        return self.ui_surface_action.mode == "preserve"
+
+    @property
+    def is_whiteboard_open_only(self) -> bool:
+        return self.ui_surface_action.surface == "whiteboard" and self.ui_surface_action.mode == "open_only"
+
+    @property
+    def suppress_auto_graph_writes(self) -> bool:
+        return self.is_close or self.is_preserve or self.is_whiteboard_open_only
+
+    @property
+    def blocks_artifact_actions(self) -> bool:
+        return self.is_close or self.is_preserve or self.is_whiteboard_open_only
+
+    @property
+    def surface_payload_policy(self) -> str:
+        return (
+            "build_operational_payload"
+            if self.ui_surface_action.surface in {"calendar_day", "calendar_week", "task_focus", "today_briefing"}
+            else "none"
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ui_surface_action": self.ui_surface_action.to_dict(),
+            "write_intent": self.write_intent.to_dict(),
+            "side_effect_policy": self.side_effect_policy.to_dict(),
+            "surface_invocation": dict(self.surface_invocation),
+            "surface_action": dict(self.surface_action) if self.surface_action else None,
+            "execution": {
+                "suppress_auto_graph_writes": self.suppress_auto_graph_writes,
+                "artifact_action_policy": "disabled" if self.blocks_artifact_actions else "legacy_postprocess",
+                "surface_payload_policy": self.surface_payload_policy,
+            },
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class WriteIntentPlan:
     kind: str
     whiteboard_mode: str | None
@@ -316,7 +369,7 @@ class TurnPlan:
 
 
 class TurnPlanBuilder:
-    """Build an internal observability-only TurnPlan from finalized turn fields."""
+    """Build an internal TurnPlan from finalized turn fields."""
 
     def build(
         self,
@@ -450,7 +503,10 @@ class TurnPlanBuilder:
         response_payload: dict[str, Any],
         retrieval: RetrievalPlan,
     ) -> UiSurfaceActionPlan:
-        surface_action = _optional_dict(response_payload.get("surface_action"))
+        invocation = _dict_or_empty(response_payload.get("surface_invocation"))
+        surface_action = _optional_dict(response_payload.get("surface_action")) or _optional_dict(
+            invocation.get("surface_action")
+        )
         if surface_action is not None:
             target_kind = _optional_str(surface_action.get("target_kind") or surface_action.get("target"))
             return UiSurfaceActionPlan(
@@ -463,7 +519,17 @@ class TurnPlanBuilder:
                 requires_explicit_signal=True,
                 reason=_optional_str(surface_action.get("reason")),
             )
-        invocation = _dict_or_empty(response_payload.get("surface_invocation"))
+        if _optional_str(invocation.get("intent")) == "preserve_visible_surface":
+            return UiSurfaceActionPlan(
+                surface="none",
+                mode="preserve",
+                target_resource_id=None,
+                target_resource_kind=_preserve_surface_target_kind(response_payload),
+                active_surface_id=_optional_str(response_payload.get("active_surface_id")),
+                authority=_surface_authority(invocation, {}, "none"),
+                requires_explicit_signal=True,
+                reason=_optional_str(invocation.get("reason")),
+            )
         navigator_selection = retrieval.navigator_selection or {}
         nav_surface = _optional_str(navigator_selection.get("surface_to_open"))
         primary_surface = _optional_str(invocation.get("primary_surface"))
@@ -961,6 +1027,45 @@ def turn_plan_trace_payload(
     ).to_dict()
 
 
+def build_turn_plan_surface_authority(
+    *,
+    response_payload: dict[str, Any],
+) -> TurnPlanSurfaceAuthority:
+    """Build the internal TurnPlan surface-action contract from finalized fields.
+
+    This is intentionally narrower than full TurnPlan execution authority: it
+    centralizes open/close/preserve surface application while leaving write and
+    retrieval behavior on the existing paths for this migration slice.
+    """
+
+    payload = _with_nested_surface_action(response_payload)
+    builder = TurnPlanBuilder()
+    retrieval = builder._retrieval_plan(payload)
+    ui_surface_action = builder._ui_surface_action_plan(payload, retrieval)
+    write_intent = builder._write_intent_plan(payload, ui_surface_action)
+    side_effect_policy = builder._side_effect_policy(payload, write_intent)
+    surface_invocation = _dict_or_empty(payload.get("surface_invocation"))
+    surface_action = _optional_dict(payload.get("surface_action"))
+    return TurnPlanSurfaceAuthority(
+        ui_surface_action=ui_surface_action,
+        write_intent=write_intent,
+        side_effect_policy=side_effect_policy,
+        surface_invocation=surface_invocation,
+        surface_action=surface_action,
+    )
+
+
+def _with_nested_surface_action(response_payload: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(response_payload)
+    if isinstance(payload.get("surface_action"), dict):
+        return payload
+    invocation = _dict_or_empty(payload.get("surface_invocation"))
+    action = _optional_dict(invocation.get("surface_action"))
+    if action is not None:
+        payload["surface_action"] = action
+    return payload
+
+
 def _turn_id(response_payload: dict[str, Any]) -> str | None:
     memory_trace = response_payload.get("memory_trace_record")
     if isinstance(memory_trace, dict):
@@ -1035,6 +1140,17 @@ def _resource_kind_for_id(resource_id: str | None, selected_resources: tuple[dic
                 return _optional_str(resource.get("kind") or resource.get("suggested_surface"))
         if ":" in resource_id:
             return resource_id.split(":", 1)[0]
+    return None
+
+
+def _preserve_surface_target_kind(response_payload: dict[str, Any]) -> str | None:
+    interpretation = _dict_or_empty(response_payload.get("turn_interpretation"))
+    control_panel = _dict_or_empty(interpretation.get("control_panel"))
+    for action in _list_of_dicts(control_panel.get("actions")):
+        action_type = str(action.get("type") or action.get("action") or "").strip()
+        if action_type != "preserve_surface":
+            continue
+        return _optional_str(action.get("target") or action.get("surface") or action.get("target_surface"))
     return None
 
 

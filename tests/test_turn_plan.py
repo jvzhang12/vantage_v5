@@ -128,6 +128,38 @@ def test_turn_plan_saved_artifact_open_only() -> None:
     assert plan["validation"]["warnings"] == []
 
 
+def test_turn_plan_selected_artifact_context_without_open_has_no_warning() -> None:
+    plan = _plan(
+        message="Can you use the saved material as context?",
+        response={
+            "navigator_selection": {
+                "selected_ids": ["artifact:midterm-study-plan"],
+                "primary_resource_id": "artifact:midterm-study-plan",
+                "surface_to_open": None,
+            },
+            "selected_attention_resources": [
+                {
+                    "resource_id": "artifact:midterm-study-plan",
+                    "title": "Midterm Study Plan",
+                    "kind": "artifact",
+                    "suggested_surface": "whiteboard",
+                }
+            ],
+            "surface_invocation": {
+                "intent": "chat_only",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+        },
+    )
+
+    assert plan["retrieval"]["selected_resource_ids"] == ["artifact:midterm-study-plan"]
+    assert plan["ui_surface_action"]["surface"] == "none"
+    assert plan["validation"]["warnings"] == []
+
+
 def test_turn_plan_open_only_with_writes_warns() -> None:
     plan = _plan(
         message="Show me the saved Midterm Study Plan",
@@ -158,7 +190,66 @@ def test_turn_plan_open_only_with_writes_warns() -> None:
         },
     )
 
-    assert "open_only_has_write_side_effects" in _warning_codes(plan)
+    assert "open_only_with_write_side_effect" in _warning_codes(plan)
+
+
+def test_turn_plan_open_only_requires_selected_openable_target() -> None:
+    plan = _plan(
+        message="Show me the saved study plan.",
+        response={
+            "navigator_selection": {
+                "selected_ids": ["concept:study-plan"],
+                "primary_resource_id": "concept:study-plan",
+                "surface_to_open": "whiteboard",
+            },
+            "selected_attention_resources": [
+                {
+                    "resource_id": "concept:study-plan",
+                    "kind": "concept",
+                    "suggested_surface": "whiteboard",
+                }
+            ],
+            "surface_invocation": {
+                "intent": "attention_selected_context",
+                "primary_surface": "whiteboard",
+                "write_behavior": "open_only",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+        },
+    )
+
+    assert "saved_artifact_open_target_not_selected" in _warning_codes(plan)
+
+
+def test_turn_plan_open_target_conflict_warns() -> None:
+    plan = _plan(
+        message="Open the saved Midterm Study Plan.",
+        response={
+            "navigator_selection": {
+                "selected_ids": ["artifact:midterm-study-plan"],
+                "primary_resource_id": "artifact:midterm-study-plan",
+                "surface_to_open": "whiteboard",
+            },
+            "selected_attention_resources": [
+                {
+                    "resource_id": "artifact:midterm-study-plan",
+                    "kind": "artifact",
+                    "suggested_surface": "whiteboard",
+                }
+            ],
+            "surface_invocation": {
+                "intent": "attention_selected_context",
+                "primary_surface": "whiteboard",
+                "target_resource_id": "artifact:other-plan",
+                "write_behavior": "open_only",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+        },
+    )
+
+    assert "ui_open_target_conflicts_with_selected_primary" in _warning_codes(plan)
 
 
 def test_turn_plan_explicit_whiteboard_draft() -> None:
@@ -281,7 +372,33 @@ def test_turn_plan_visible_artifact_qna_with_write_warns() -> None:
         },
     )
 
-    assert "artifact_qna_has_write_side_effects" in _warning_codes(plan)
+    assert "visible_artifact_qna_with_durable_write" in _warning_codes(plan)
+
+
+def test_turn_plan_selected_artifact_qna_with_durable_write_warns() -> None:
+    plan = _plan(
+        message="Can you summarize this study plan?",
+        response={
+            "selected_attention_resources": [
+                {
+                    "resource_id": "artifact:midterm-study-plan",
+                    "kind": "artifact",
+                    "suggested_surface": "whiteboard",
+                }
+            ],
+            "surface_invocation": {
+                "intent": "chat_only",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "graph_action": {"action": "create_concept"},
+            "created_record": {"id": "concept:study-plan-summary"},
+        },
+    )
+
+    assert "visible_artifact_qna_with_durable_write" in _warning_codes(plan)
 
 
 def test_turn_plan_visible_artifact_qna_with_explicit_save_does_not_warn() -> None:
@@ -313,7 +430,7 @@ def test_turn_plan_visible_artifact_qna_with_explicit_save_does_not_warn() -> No
         },
     )
 
-    assert "artifact_qna_has_write_side_effects" not in _warning_codes(plan)
+    assert "visible_artifact_qna_with_durable_write" not in _warning_codes(plan)
 
 
 def test_turn_plan_preserve_surface_no_write_policy() -> None:
@@ -394,9 +511,29 @@ def test_turn_plan_close_surface_with_writes_warns() -> None:
     )
 
     assert {
-        "close_surface_has_write_side_effects",
+        "close_surface_with_write_side_effect",
         "close_surface_has_deletion_semantics",
     }.issubset(_warning_codes(plan))
+
+
+def test_turn_plan_close_surface_reclassification_warns() -> None:
+    plan = _plan(
+        message="close the calendar",
+        response={
+            "surface_action": {"type": "close_visible_surface", "status": "requested", "target": "calendar"},
+            "surface_invocation": {
+                "intent": "close_visible_surface",
+                "primary_surface": "calendar_day",
+                "write_behavior": "read_only",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "active_surface_id": "today-2026-05-13",
+            "surface_payloads": [{"id": "today-2026-05-13", "kind": "today_briefing"}],
+        },
+    )
+
+    assert "close_surface_reclassified" in _warning_codes(plan)
 
 
 def test_turn_plan_selected_context_open_without_authority_warns() -> None:
@@ -425,7 +562,7 @@ def test_turn_plan_selected_context_open_without_authority_warns() -> None:
         },
     )
 
-    assert "selected_context_without_open_authority" in _warning_codes(plan)
+    assert "selected_context_open_without_authority" in _warning_codes(plan)
 
 
 def test_turn_plan_today_surface_payload_mismatch_warns() -> None:
@@ -443,7 +580,7 @@ def test_turn_plan_today_surface_payload_mismatch_warns() -> None:
         },
     )
 
-    assert "active_surface_payload_mismatch" in _warning_codes(plan)
+    assert "surface_payload_mismatch" in _warning_codes(plan)
 
 
 def test_turn_plan_calendar_mutation_must_be_proposal_only() -> None:
@@ -470,7 +607,7 @@ def test_turn_plan_calendar_mutation_must_be_proposal_only() -> None:
         },
     )
 
-    assert "calendar_task_mutation_not_proposal_only" in _warning_codes(plan)
+    assert "mutation_without_confirmation" in _warning_codes(plan)
 
 
 def test_final_response_trace_payload_includes_turn_plan() -> None:

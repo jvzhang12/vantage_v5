@@ -700,17 +700,19 @@ class TurnPlanBuilder:
             or "open_calendar" in control_actions
             or "open_surface" in control_actions
         )
+        invocation_target_resource_id = _surface_target_resource_id(invocation)
 
         if (
             retrieval.selected_resource_ids
-            and ui_surface_action.surface == "whiteboard"
+            and ui_surface_action.surface not in {"none", "chat"}
             and ui_surface_action.mode in {"open_only", "foreground_existing"}
             and not explicit_open_authority
+            and (intent == "attention_selected_context" or ui_surface_action.surface == "whiteboard")
         ):
             warnings.append(
                 _validation_warning(
-                    "selected_context_without_open_authority",
-                    "Selected context is foregrounding Whiteboard without an explicit Navigator/control-plane open signal.",
+                    "selected_context_open_without_authority",
+                    "Selected context is foregrounding a UI surface without an explicit Navigator/control-plane open signal.",
                     [
                         "retrieval.selected_resource_ids",
                         "navigator_selection.surface_to_open",
@@ -723,9 +725,53 @@ class TurnPlanBuilder:
         if write_behavior == "open_only" and write_side_effects:
             warnings.append(
                 _validation_warning(
-                    "open_only_has_write_side_effects",
+                    "open_only_with_write_side_effect",
                     "A UI-only open handoff carried write side effects.",
                     ["surface_invocation.write_behavior", *write_side_effects],
+                )
+            )
+
+        material_open = (
+            ui_surface_action.surface == "whiteboard"
+            and ui_surface_action.mode in {"open_only", "foreground_existing"}
+            and (explicit_open_authority or write_behavior == "open_only")
+        )
+        if material_open:
+            selected_targets = set(retrieval.selected_resource_ids)
+            selected_targets.update(_navigator_selected_ids(retrieval.navigator_selection))
+            target = ui_surface_action.target_resource_id
+            if (
+                target is None
+                or not _is_openable_resource_id(target)
+                or (selected_targets and target not in selected_targets)
+            ):
+                warnings.append(
+                    _validation_warning(
+                        "saved_artifact_open_target_not_selected",
+                        "A Whiteboard open handoff did not target a selected openable artifact/workspace resource.",
+                        [
+                            "navigator_selection.primary_resource_id",
+                            "navigator_selection.selected_ids",
+                            "selected_attention_resources",
+                            "surface_invocation.primary_surface",
+                            "surface_invocation.write_behavior",
+                        ],
+                    )
+                )
+        if (
+            invocation_target_resource_id
+            and retrieval.primary_resource_id
+            and invocation_target_resource_id != retrieval.primary_resource_id
+            and ui_surface_action.surface == "whiteboard"
+        ):
+            warnings.append(
+                _validation_warning(
+                    "ui_open_target_conflicts_with_selected_primary",
+                    "The UI open target conflicts with the selected primary resource.",
+                    [
+                        "navigator_selection.primary_resource_id",
+                        "surface_invocation.target_resource_id",
+                    ],
                 )
             )
 
@@ -770,10 +816,36 @@ class TurnPlanBuilder:
 
         close_surface = action_type == "close_visible_surface" or intent == "close_visible_surface"
         if close_surface:
+            if (
+                primary_surface != "chat"
+                or ui_surface_action.mode in {
+                    "open_only",
+                    "read_only",
+                    "draft",
+                    "proposal_only",
+                    "artifact_branching",
+                    "foreground_existing",
+                }
+                or active_surface_id is not None
+                or surface_payloads
+            ):
+                warnings.append(
+                    _validation_warning(
+                        "close_surface_reclassified",
+                        "A close-visible-surface intent was reclassified into an open/foreground surface result.",
+                        [
+                            "surface_action",
+                            "surface_invocation.primary_surface",
+                            "surface_invocation.write_behavior",
+                            "active_surface_id",
+                            "surface_payloads",
+                        ],
+                    )
+                )
             if write_side_effects:
                 warnings.append(
                     _validation_warning(
-                        "close_surface_has_write_side_effects",
+                        "close_surface_with_write_side_effect",
                         "A close-visible-surface intent carried write side effects.",
                         ["surface_action", *write_side_effects],
                     )
@@ -788,14 +860,24 @@ class TurnPlanBuilder:
                 )
 
         artifact_qna = intent in {"current_artifact_followup", "selected_material_question"}
+        artifact_context_chat = artifact_qna or (
+            route.mode == "chat"
+            and primary_surface == "chat"
+            and write_behavior == "none"
+            and (
+                bool(visible_context.incoming_visible_artifact_ids)
+                or bool(visible_context.response_visible_artifact_ids)
+                or any(_is_openable_resource_id(resource_id) for resource_id in retrieval.selected_resource_ids)
+            )
+        )
         if (
-            artifact_qna
+            artifact_context_chat
             and write_side_effects
             and not _has_explicit_write_authority(route, write_intent, semantic)
         ):
             warnings.append(
                 _validation_warning(
-                    "artifact_qna_has_write_side_effects",
+                    "visible_artifact_qna_with_durable_write",
                     "A chat-first visible/selected artifact Q&A turn carried durable write side effects without explicit write authority.",
                     ["surface_invocation.intent", *write_side_effects],
                 )
@@ -834,7 +916,7 @@ class TurnPlanBuilder:
             if active_surface_id and surface_payloads and active_surface_id not in surface_payload_ids:
                 warnings.append(
                     _validation_warning(
-                        "active_surface_payload_mismatch",
+                        "surface_payload_mismatch",
                         "The active operational surface id does not match returned surface payloads.",
                         ["active_surface_id", "surface_payloads"],
                     )
@@ -842,7 +924,7 @@ class TurnPlanBuilder:
             if active_surface_id and not surface_payloads:
                 warnings.append(
                     _validation_warning(
-                        "active_surface_missing_payload",
+                        "surface_payload_mismatch",
                         "An operational active surface id was returned without a matching surface payload.",
                         ["active_surface_id", "surface_payloads"],
                     )
@@ -850,7 +932,7 @@ class TurnPlanBuilder:
             if surface_payloads and not active_surface_id:
                 warnings.append(
                     _validation_warning(
-                        "surface_payload_without_active_surface",
+                        "surface_payload_mismatch",
                         "Operational surface payloads were returned without an active surface id.",
                         ["active_surface_id", "surface_payloads"],
                     )
@@ -859,7 +941,7 @@ class TurnPlanBuilder:
         for field in _calendar_task_mutation_fields(response_payload):
             warnings.append(
                 _validation_warning(
-                    "calendar_task_mutation_not_proposal_only",
+                    "mutation_without_confirmation",
                     "A calendar/task mutation was not represented as a proposal-only action requiring confirmation.",
                     [field, "surface_invocation.write_behavior"],
                 )
@@ -974,6 +1056,27 @@ def _control_panel_action_types(control_panel: dict[str, Any]) -> set[str]:
         )
         if action_type
     }
+
+
+def _navigator_selected_ids(navigator_selection: dict[str, Any] | None) -> set[str]:
+    if not navigator_selection:
+        return set()
+    selected: set[str] = set()
+    primary = _optional_str(navigator_selection.get("primary_resource_id"))
+    if primary:
+        selected.add(primary)
+    selected_ids = navigator_selection.get("selected_ids")
+    if isinstance(selected_ids, list):
+        selected.update(str(item).strip() for item in selected_ids if str(item).strip())
+    return selected
+
+
+def _surface_target_resource_id(invocation: dict[str, Any]) -> str | None:
+    return _optional_str(
+        invocation.get("target_resource_id")
+        or invocation.get("target_id")
+        or invocation.get("resource_id")
+    )
 
 
 def _has_explicit_write_authority(

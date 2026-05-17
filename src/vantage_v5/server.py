@@ -888,13 +888,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             )
         )
         open_only_handoff = _is_whiteboard_open_only_payload(payload)
+        close_surface_handoff = _has_close_surface_action(payload)
         action_visible_artifacts = [
             *(visible_artifacts or []),
             *_visible_artifacts_from_selected_attention(payload.get("selected_attention_resources")),
         ]
         action_plan = (
             ArtifactActionPlan(artifact_actions=[])
-            if open_only_handoff
+            if open_only_handoff or close_surface_handoff
             else _artifact_mutation_compiler_for_scope(
                 durable_scope,
                 app_capabilities=app_capabilities,
@@ -962,6 +963,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if isinstance(surface, dict) and str(surface.get("kind") or "").strip().lower() == "whiteboard":
                 return True
         return False
+
+    def _has_close_surface_action(payload: dict[str, Any]) -> bool:
+        action = payload.get("surface_action")
+        return isinstance(action, dict) and str(action.get("type") or "").strip() == "close_visible_surface"
 
     def _final_response_trace_dir(durable_scope: dict[str, Any], payload: dict[str, Any]) -> Path:
         experiment = payload.get("experiment") if isinstance(payload.get("experiment"), dict) else {}

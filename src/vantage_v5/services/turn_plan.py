@@ -423,6 +423,19 @@ class TurnPlanBuilder:
         response_payload: dict[str, Any],
         retrieval: RetrievalPlan,
     ) -> UiSurfaceActionPlan:
+        surface_action = _optional_dict(response_payload.get("surface_action"))
+        if surface_action is not None:
+            target_kind = _optional_str(surface_action.get("target_kind") or surface_action.get("target"))
+            return UiSurfaceActionPlan(
+                surface=target_kind or "current",
+                mode="close" if surface_action.get("status") != "no_visible_surface" else "close_noop",
+                target_resource_id=_optional_str(surface_action.get("target_id")),
+                target_resource_kind=target_kind,
+                active_surface_id=_optional_str(response_payload.get("active_surface_id")),
+                authority="surface_action",
+                requires_explicit_signal=True,
+                reason=_optional_str(surface_action.get("reason")),
+            )
         invocation = _dict_or_empty(response_payload.get("surface_invocation"))
         navigator_selection = retrieval.navigator_selection or {}
         nav_surface = _optional_str(navigator_selection.get("surface_to_open"))
@@ -520,11 +533,14 @@ class TurnPlanBuilder:
         write_intent: WriteIntentPlan,
     ) -> SideEffectPolicy:
         invocation = _dict_or_empty(response_payload.get("surface_invocation"))
+        surface_action = _optional_dict(response_payload.get("surface_action"))
         intent = _optional_str(invocation.get("intent"))
         artifact_qna = intent in {"current_artifact_followup", "selected_material_question"}
         open_only = write_intent.write_behavior == "open_only"
         suppress_reason = None
-        if open_only:
+        if surface_action is not None:
+            suppress_reason = "close_visible_surface"
+        elif open_only:
             suppress_reason = "open_only_ui_handoff"
         elif artifact_qna:
             suppress_reason = "artifact_qna_chat_first"

@@ -29,6 +29,7 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
     learnedItems: [],
     memoryTraceRecord: null,
     surfaceInvocation: null,
+    surfaceAction: null,
     surfacePayloads: [],
     activeSurfaceId: null,
     artifactActions: [],
@@ -341,6 +342,80 @@ describe("appReducer", () => {
     expect(removed.activeSurfaceId).toBeNull();
     expect(activeSurface(removed)).toBeNull();
     expect(removed.surfacePayloads).toHaveLength(1);
+  });
+
+  it("applies backend close actions to hide a visible whiteboard without clearing the saved content", () => {
+    const visibleState = {
+      ...initialState,
+      view: "whiteboard" as const,
+      workspace: {
+        ...initialState.workspace,
+        id: "midterm-study-plan",
+        title: "Midterm Study Plan",
+        content: "# Midterm Study Plan\n\nPrioritize graph traversals.",
+      },
+    };
+    const state = appReducer(visibleState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "close the whiteboard",
+        assistantMessage: "Closed Midterm Study Plan from view.",
+        surfaceAction: {
+          type: "close_visible_surface",
+          status: "requested",
+          target: "whiteboard",
+          targetId: "midterm-study-plan",
+          targetKind: "whiteboard",
+          title: "Midterm Study Plan",
+          reason: "The user asked to close the visible whiteboard.",
+        },
+      }),
+    });
+    const visibleArtifacts = buildVisibleArtifacts({
+      activeSurface: activeSurface(state),
+      workspace: state.workspace,
+      view: state.view,
+    });
+
+    expect(state.view).toBe("chat");
+    expect(state.workspace.content).toContain("Prioritize graph traversals");
+    expect(visibleArtifacts).toHaveLength(0);
+  });
+
+  it("applies backend close actions to hide active calendar surfaces without deleting cached payloads", () => {
+    const surface = {
+      id: "today-2026-05-14",
+      kind: "today_briefing" as const,
+      title: "Today",
+      summary: "1 scheduled event",
+      sourceRefs: [],
+      data: { calendar: { events: [{ title: "Algorithms lab" }] } },
+    };
+    const artifactState = appReducer(initialState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({ surfacePayloads: [surface], activeSurfaceId: surface.id }),
+    });
+    const state = appReducer(artifactState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "close the calendar",
+        assistantMessage: "Closed Today from view.",
+        surfaceAction: {
+          type: "close_visible_surface",
+          status: "requested",
+          target: "calendar",
+          targetId: surface.id,
+          targetKind: "today_briefing",
+          title: "Today",
+          reason: "The user asked to close the visible calendar.",
+        },
+      }),
+    });
+
+    expect(state.view).toBe("chat");
+    expect(state.activeSurfaceId).toBeNull();
+    expect(activeSurface(state)).toBeNull();
+    expect(state.surfacePayloads).toHaveLength(1);
   });
 
   it("merges artifact action results and refreshed surfaces", () => {

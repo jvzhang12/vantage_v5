@@ -9,5 +9,5 @@ React TypeScript DTO normalizers.
 
 ## Coverage
 
-- Turn payloads, answer basis, response mode, recall/learned items, surface invocation, surface payloads, source refs, workspace updates, context budget, activity, semantic policy/frame, visible artifacts, and write/action records.
+- Turn payloads, answer basis, response mode, recall/learned items, surface invocation, close/hide surface actions, surface payloads, source refs, workspace updates, context budget, activity, semantic policy/frame, visible artifacts, and write/action records.
 - Maps legacy `Best Guess` labels to the product-facing `Intuitive Answer` label.

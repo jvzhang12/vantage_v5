@@ -69,6 +69,7 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
       trigger: "deterministic_policy",
       policyVersion: "surface-invocation-v1",
     },
+    surfaceAction: null,
     surfacePayloads: [todaySurface],
     activeSurfaceId: todaySurface.id,
     artifactActions: [],

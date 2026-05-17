@@ -152,6 +152,16 @@ export interface SurfaceInvocation {
   policyVersion: string;
 }
 
+export interface SurfaceAction {
+  type: string;
+  status: string;
+  target: string;
+  targetId: string;
+  targetKind: string;
+  title: string;
+  reason: string;
+}
+
 export interface AnswerBasis {
   kind: string;
   label: string;
@@ -341,6 +351,7 @@ export interface NormalizedTurn {
   learnedItems: RecallItem[];
   memoryTraceRecord: RecallItem | null;
   surfaceInvocation: SurfaceInvocation | null;
+  surfaceAction: SurfaceAction | null;
   surfacePayloads: SurfacePayload[];
   activeSurfaceId: string | null;
   artifactActions: ArtifactAction[];

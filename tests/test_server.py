@@ -1091,6 +1091,122 @@ def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_
     assert "active-study-cycle-for-algorithm-exam-preparation" not in concept_ids_after
 
 
+def test_chat_close_visible_whiteboard_returns_close_action_without_writes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    artifact = ArtifactStore(repo_root / "artifacts").create_artifact(
+        title="Midterm Study Plan",
+        card="Study plan for graph algorithms and priorities.",
+        body="# Midterm Study Plan\n\nPrioritize graph traversals and proof review.",
+    )
+    visible_artifacts = [
+        {
+            "id": artifact.id,
+            "kind": "whiteboard",
+            "title": artifact.title,
+            "summary": artifact.card,
+            "content": artifact.body,
+        }
+    ]
+
+    def _reply_should_not_run(self, **kwargs):
+        raise AssertionError("Close visible surface should be handled before ChatService.reply().")
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", _reply_should_not_run)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "close the whiteboard",
+            "history": [],
+            "workspace_id": artifact.id,
+            "workspace_scope": "visible",
+            "workspace_content": artifact.body,
+            "visible_artifacts": visible_artifacts,
+            "pinned_context_id": f"artifact:{artifact.id}",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "Closed Midterm Study Plan from view."
+    assert payload["surface_action"] == {
+        "type": "close_visible_surface",
+        "status": "requested",
+        "target": "whiteboard",
+        "target_id": artifact.id,
+        "target_kind": "whiteboard",
+        "title": "Midterm Study Plan",
+        "reason": "The user asked to remove the current visible surface from view without deleting saved data.",
+    }
+    assert payload["workspace_update"] is None
+    assert payload["created_record"] is None
+    assert payload["graph_action"] is None
+    assert payload["artifact_actions"] == []
+    assert payload["surface_payloads"] == []
+    assert payload["pinned_context_id"] == f"artifact:{artifact.id}"
+    assert (repo_root / "artifacts" / f"{artifact.id}.md").exists()
+
+
+def test_chat_close_visible_today_returns_close_action_without_mutation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+
+    def _reply_should_not_run(self, **kwargs):
+        raise AssertionError("Close visible surface should be handled before ChatService.reply().")
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", _reply_should_not_run)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "close the calendar",
+            "history": [],
+            "visible_artifacts": [_today_calendar_artifact()],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "Closed Today from view."
+    assert payload["surface_action"]["target"] == "calendar"
+    assert payload["surface_action"]["target_kind"] == "today_briefing"
+    assert payload["workspace_update"] is None
+    assert payload["created_record"] is None
+    assert payload["graph_action"] is None
+    assert payload["artifact_actions"] == []
+
+
+def test_chat_close_visible_surface_with_no_surface_is_safe_noop(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+
+    def _reply_should_not_run(self, **kwargs):
+        raise AssertionError("Close visible surface no-op should be handled before ChatService.reply().")
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService.reply", _reply_should_not_run)
+
+    response = client.post(
+        "/api/chat",
+        json={"message": "close the whiteboard", "history": [], "visible_artifacts": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "I don't see a visible surface to close."
+    assert payload["surface_action"]["status"] == "no_visible_surface"
+    assert payload["workspace_update"] is None
+    assert payload["created_record"] is None
+    assert payload["graph_action"] is None
+    assert payload["artifact_actions"] == []
+
+
 def test_chat_uses_explicit_navigator_surface_open_intent(tmp_path: Path, monkeypatch) -> None:
     client, _ = _client(tmp_path)
 

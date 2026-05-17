@@ -330,6 +330,7 @@ def assemble_local_turn_payload(
         pinned_context_id=parts.pinned_context_id,
         pinned_context=parts.pinned_context,
     )
+    _attach_surface_action(payload, parts.surface_invocation)
     return attach_safe_turn_state(payload)
 
 
@@ -345,6 +346,7 @@ def assemble_service_turn_payload(
     payload["semantic_frame"] = parts.semantic_frame
     payload["semantic_policy"] = parts.semantic_policy
     payload["surface_invocation"] = parts.surface_invocation
+    _attach_surface_action(payload, parts.surface_invocation)
     payload["workspace"] = assemble_workspace_payload_for_turn(
         payload.get("workspace"),
         workspace=parts.workspace,
@@ -502,6 +504,7 @@ def assemble_scenario_lab_fallback_payload(
     payload["semantic_frame"] = parts.semantic_frame
     payload["semantic_policy"] = parts.semantic_policy
     payload["surface_invocation"] = parts.surface_invocation
+    _attach_surface_action(payload, parts.surface_invocation)
     payload["workspace"] = assemble_workspace_payload_for_turn(
         payload.get("workspace"),
         workspace=parts.workspace,
@@ -616,6 +619,14 @@ def finalize_turn_payload(
     return payload
 
 
+def _attach_surface_action(payload: dict[str, Any], surface_invocation: Any) -> None:
+    if not isinstance(surface_invocation, dict):
+        return
+    action = surface_invocation.get("surface_action")
+    if isinstance(action, dict):
+        payload["surface_action"] = action
+
+
 def _record_list(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
@@ -657,6 +668,7 @@ def safe_system_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "inspect_context",
             "save_whiteboard",
             "publish_artifact",
+            "close_surface",
             "manage_experiment",
             "ask_clarification",
         ],
@@ -678,6 +690,7 @@ def safe_system_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "selected_record": _safe_context_reference(payload.get("selected_record")),
         "pending_workspace_update": _safe_pending_workspace_reference(payload.get("workspace_update")),
         "surface_invocation": _safe_surface_invocation_reference(payload.get("surface_invocation")),
+        "surface_action": _safe_surface_action_reference(payload.get("surface_action")),
         "query_frame": _safe_query_frame_reference(payload.get("query_frame")),
         "attention_candidates": _safe_attention_candidates_reference(payload.get("attention_candidates")),
         "navigator_selection": _safe_navigator_selection_reference(payload.get("navigator_selection")),
@@ -735,6 +748,7 @@ def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
     response_mode = payload.get("response_mode") if isinstance(payload.get("response_mode"), dict) else {}
     answer_basis = payload.get("answer_basis") if isinstance(payload.get("answer_basis"), dict) else {}
     surface_invocation = payload.get("surface_invocation") if isinstance(payload.get("surface_invocation"), dict) else {}
+    surface_action = payload.get("surface_action") if isinstance(payload.get("surface_action"), dict) else {}
     navigator_selection = payload.get("navigator_selection") if isinstance(payload.get("navigator_selection"), dict) else {}
     mode = _activity_kind(payload)
     summary = _first_safe_activity_summary(
@@ -771,6 +785,21 @@ def safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 }
             ]
             if surface_invocation and surface_invocation.get("primary_surface") != "chat"
+            else []
+        ),
+        *(
+            [
+                {
+                    "id": "surface_action",
+                    "label": "Updated visible surface",
+                    "status": "completed",
+                    "summary": _safe_activity_summary(
+                        surface_action.get("reason"),
+                        "Visible surface state updated.",
+                    ),
+                }
+            ]
+            if surface_action
             else []
         ),
         {
@@ -1060,6 +1089,20 @@ def _safe_surface_invocation_reference(value: Any) -> dict[str, Any] | None:
         "whiteboard_mode": value.get("whiteboard_mode"),
         "resolved_whiteboard_mode": value.get("resolved_whiteboard_mode"),
         "capability_refs": value.get("capability_refs") if isinstance(value.get("capability_refs"), list) else [],
+    }
+
+
+def _safe_surface_action_reference(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "type": value.get("type"),
+        "status": value.get("status"),
+        "target": value.get("target"),
+        "target_id": value.get("target_id"),
+        "target_kind": value.get("target_kind"),
+        "title": value.get("title"),
+        "reason": value.get("reason"),
     }
 
 

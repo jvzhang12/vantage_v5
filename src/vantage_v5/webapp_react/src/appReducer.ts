@@ -153,6 +153,51 @@ function nextViewForTurn(turn: NormalizedTurn, state: AppState): ViewKind {
   return "chat";
 }
 
+function applySurfaceAction(state: AppState, turn: NormalizedTurn): AppState {
+  const action = turn.surfaceAction;
+  if (!action || action.type !== "close_visible_surface" || action.status === "no_visible_surface") {
+    return state;
+  }
+  const target = action.target || "current";
+  const targetKind = action.targetKind || "";
+  const targetId = action.targetId || "";
+  const closeWhiteboard = (
+    target === "whiteboard"
+    || targetKind === "whiteboard"
+    || (target === "artifact" && state.view === "whiteboard")
+    || (target === "current" && state.view === "whiteboard")
+    || (targetId && targetId === state.workspace.id)
+  );
+  const closeActiveSurface = (
+    target === "calendar"
+    || target === "task"
+    || targetKind === "today_briefing"
+    || targetKind === "calendar_day"
+    || targetKind === "calendar_week"
+    || targetKind === "task_focus"
+    || (target === "artifact" && state.view === "artifact")
+    || (target === "current" && state.view === "artifact")
+    || (targetId && targetId === state.activeSurfaceId)
+  );
+
+  let nextState = state;
+  if (closeActiveSurface) {
+    nextState = {
+      ...nextState,
+      activeSurfaceId: null,
+      latestTurn: nextState.latestTurn ? { ...nextState.latestTurn, activeSurfaceId: null } : null,
+      view: nextState.view === "artifact" ? "chat" : nextState.view,
+    };
+  }
+  if (closeWhiteboard) {
+    nextState = {
+      ...nextState,
+      view: nextState.view === "whiteboard" ? "chat" : nextState.view,
+    };
+  }
+  return nextState;
+}
+
 function mergeArtifactActions(existing: ArtifactAction[], updates: ArtifactAction[]): ArtifactAction[] {
   if (!updates.length) {
     return existing;
@@ -221,7 +266,7 @@ export function appReducer(state: AppState, action: Action): AppState {
           dirty: turn.workspaceUpdate?.content ? true : selectedResource ? false : state.workspace.dirty,
         },
       };
-      return {
+      const updatedState = {
         ...nextState,
         busy: false,
         composerValue: "",
@@ -232,6 +277,7 @@ export function appReducer(state: AppState, action: Action): AppState {
         ],
         view: nextViewForTurn(turn, nextState),
       };
+      return applySurfaceAction(updatedState, turn);
     }
     case "CHAT_ERROR":
       return {

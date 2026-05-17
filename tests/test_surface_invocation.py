@@ -151,6 +151,62 @@ def test_surface_invocation_visible_artifact_explicit_whiteboard_draft_still_dra
     assert invocation.whiteboard_mode == "draft"
 
 
+def test_surface_invocation_close_visible_whiteboard_returns_close_action() -> None:
+    invocation = build_surface_invocation(
+        user_message="close the whiteboard",
+        visible_artifacts=[
+            {
+                "id": "midterm-study-plan",
+                "kind": "whiteboard",
+                "title": "Midterm Study Plan",
+            }
+        ],
+    )
+    payload = invocation.to_dict()
+
+    assert payload["intent"] == "close_visible_surface"
+    assert payload["primary_surface"] == "chat"
+    assert payload["whiteboard_mode"] == "chat"
+    assert payload["write_behavior"] == "none"
+    assert payload["surface_action"] == {
+        "type": "close_visible_surface",
+        "status": "requested",
+        "target": "whiteboard",
+        "target_id": "midterm-study-plan",
+        "target_kind": "whiteboard",
+        "title": "Midterm Study Plan",
+        "reason": "The user asked to remove the current visible surface from view without deleting saved data.",
+    }
+
+
+def test_surface_invocation_close_calendar_targets_visible_today() -> None:
+    invocation = build_surface_invocation(
+        user_message="remove today from view",
+        visible_artifacts=[
+            {
+                "id": "today-2026-05-14",
+                "kind": "today_briefing",
+                "title": "Today",
+            }
+        ],
+    )
+    payload = invocation.to_dict()
+
+    assert payload["intent"] == "close_visible_surface"
+    assert payload["surface_action"]["target"] == "calendar"
+    assert payload["surface_action"]["target_id"] == "today-2026-05-14"
+    assert payload["surface_action"]["target_kind"] == "today_briefing"
+
+
+def test_surface_invocation_close_without_visible_surface_is_noop_action() -> None:
+    invocation = build_surface_invocation(user_message="close the whiteboard")
+    payload = invocation.to_dict()
+
+    assert payload["intent"] == "close_visible_surface"
+    assert payload["surface_action"]["status"] == "no_visible_surface"
+    assert invocation.resolved_whiteboard_mode(requested_mode="auto", current_mode="draft") == "chat"
+
+
 @pytest.mark.parametrize(
     "message",
     [

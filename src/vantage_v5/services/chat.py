@@ -1265,6 +1265,7 @@ def build_final_response_trace_payload(
         "selected_attention_resources": response_payload.get("selected_attention_resources") or [],
         "navigator_selection": response_payload.get("navigator_selection"),
         "surface_invocation": response_payload.get("surface_invocation"),
+        "surface_action": response_payload.get("surface_action"),
         "active_surface_id": response_payload.get("active_surface_id"),
         "surface_payloads": response_payload.get("surface_payloads") or [],
         "workspace_update": response_payload.get("workspace_update"),

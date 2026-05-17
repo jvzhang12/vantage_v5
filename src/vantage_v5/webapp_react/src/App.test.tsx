@@ -45,6 +45,7 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
     learnedItems: [],
     memoryTraceRecord: null,
     surfaceInvocation: null,
+    surfaceAction: null,
     surfacePayloads: [],
     activeSurfaceId: null,
     artifactActions: [],
@@ -194,5 +195,80 @@ describe("App", () => {
       expect(screen.getByText("Start with graph traversals, then spend the next block on proof review.")).toBeTruthy();
     });
     expect((screen.getByLabelText("Whiteboard content") as HTMLTextAreaElement).value).toContain("Prioritize graph traversals");
+  });
+
+  it("stops sending visible whiteboard context after a backend close action hides it", async () => {
+    const selectedArtifact = {
+      id: "selected-artifact-midterm-study-plan",
+      resourceId: "artifact:midterm-study-plan",
+      kind: "artifact",
+      app: "whiteboard",
+      title: "Midterm Study Plan",
+      summary: "Exam preparation material about graphs and study priorities.",
+      source: "artifact",
+      content: "# Midterm Study Plan\n\nPrioritize graph traversals and proof review.",
+      data: {},
+      timestamps: {},
+      suggestedSurface: "whiteboard",
+      whySelected: "The user asked for the study plan.",
+    };
+    api.sendChat
+      .mockResolvedValueOnce(turn({
+        userMessage: "Open Midterm Study Plan",
+        assistantMessage: "Opened Midterm Study Plan.",
+        selectedAttentionResources: [selectedArtifact],
+        navigatorSelection: {
+          selectedIds: [selectedArtifact.resourceId],
+          primaryResourceId: selectedArtifact.resourceId,
+          supportingResourceIds: [],
+          rejectedCandidateIds: [],
+          surfaceToOpen: "whiteboard",
+          reason: "Open the matching saved artifact in the whiteboard.",
+          confidence: 0.9,
+          fallback: false,
+        },
+      }))
+      .mockResolvedValueOnce(turn({
+        userMessage: "close the whiteboard",
+        assistantMessage: "Closed Midterm Study Plan from view.",
+        surfaceAction: {
+          type: "close_visible_surface",
+          status: "requested",
+          target: "whiteboard",
+          targetId: "midterm-study-plan",
+          targetKind: "whiteboard",
+          title: "Midterm Study Plan",
+          reason: "The user asked to close the visible whiteboard.",
+        },
+      }))
+      .mockResolvedValueOnce(turn({
+        userMessage: "What now?",
+        assistantMessage: "We can continue in chat.",
+      }));
+
+    render(<App />);
+
+    const composer = await screen.findByLabelText("Ask Vantage");
+    fireEvent.change(composer, { target: { value: "Open Midterm Study Plan" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByLabelText("Whiteboard content")).toBeTruthy();
+
+    fireEvent.change(composer, { target: { value: "close the whiteboard" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Whiteboard content")).toBeNull();
+      expect(screen.getByText("Closed Midterm Study Plan from view.")).toBeTruthy();
+    });
+
+    fireEvent.change(composer, { target: { value: "What now?" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(api.sendChat).toHaveBeenCalledTimes(3);
+    });
+    expect(api.sendChat.mock.calls[2][0].workspaceScope).toBe("excluded");
+    expect(api.sendChat.mock.calls[2][0].visibleArtifacts).toEqual([]);
   });
 });

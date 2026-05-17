@@ -19,7 +19,7 @@ Implements the first-pass Attention resource and selection layer for Vantage.
 - Hybrid ranking adds `retrieval_scores` to each candidate, including deterministic score, temporal score, semantic vector similarity, vector bonus, and final hybrid score.
 - `AttentionTurn.select()` normalizes the Navigator's selection or chooses a small deterministic fallback set. Selection normalization accepts either public resource ids or compact candidate ids. Source-artifact normalization is limited to saved-material/open-material lookup turns, while explicit derivative/action/step selections and explicit opened-copy selections outside those lookup turns keep their selected resource primary.
 - `attention_payload()` exposes `query_frame`, `attention_candidates`, `navigator_selection`, and `selected_attention_resources` for `/api/chat`, `system_state`, and the Vantage receipt. Candidate and selected-resource DTOs now carry `scope`, `durability`, and `is_canonical` directly rather than requiring consumers to infer product provenance from `source_status.store`.
-- `apply_attention_surface_selection()` applies explicit Navigator `attention_selection.surface_to_open` choices to the existing surface payload. Generic selected resources and `suggested_surface` metadata alone remain context and do not foreground UI.
+- `apply_attention_surface_selection()` applies explicit Navigator `attention_selection.surface_to_open` choices to the existing surface payload while respecting hard intents such as chat-only, current-artifact follow-up, Scenario Lab, and close-visible-surface. Generic selected resources and `suggested_surface` metadata alone remain context and do not foreground UI.
 
 ## Important Boundaries
 

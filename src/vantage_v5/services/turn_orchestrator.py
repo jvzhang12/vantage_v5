@@ -22,6 +22,9 @@ from vantage_v5.services.surface_invocation import build_surface_invocation
 from vantage_v5.services.turn_payloads import assemble_local_turn_payload
 from vantage_v5.services.turn_payloads import assemble_scenario_lab_fallback_payload
 from vantage_v5.services.turn_payloads import assemble_service_turn_payload
+from vantage_v5.services.turn_payloads import build_local_turn_parts
+from vantage_v5.services.turn_payloads import LocalTurnBodyParts
+from vantage_v5.services.turn_payloads import LocalTurnContext
 from vantage_v5.services.turn_payloads import ScenarioLabFallbackParts
 from vantage_v5.services.turn_payloads import ServiceTurnPayloadParts
 from vantage_v5.services.turn_payloads import TurnInterpretationParts
@@ -198,6 +201,35 @@ class TurnOrchestrator:
             whiteboard_mode=resolved_whiteboard_mode if navigation.mode == "chat" else "chat",
             public_summary=navigation.reason,
         )
+        close_surface_action = _surface_close_action(surface_invocation_payload)
+        if close_surface_action is not None:
+            local_context = LocalTurnContext(
+                user_message=request.message,
+                history=request.history,
+                workspace=context.workspace,
+                workspace_scope=context.normalized_workspace_scope,
+                runtime_scope=context.runtime["scope"],
+                transient_workspace=context.transient_workspace,
+                semantic_frame=semantic_frame,
+                semantic_policy=semantic_policy,
+                pinned_context_id=request.pinned_context_id,
+                pinned_context=context.pinned_context,
+                experiment=self.local_semantic_actions.session_info(context.session),
+                surface_invocation=surface_invocation_payload,
+            )
+            payload = assemble_local_turn_payload(
+                build_local_turn_parts(
+                    local_context,
+                    turn_body=LocalTurnBodyParts(
+                        assistant_message=_close_surface_assistant_message(close_surface_action),
+                        mode="local_action",
+                    ),
+                    turn_interpretation=turn_interpretation_parts,
+                    turn_stage=turn_stage,
+                )
+            )
+            payload.update(attention_state_payload)
+            return payload
         local_semantic_parts = self.local_semantic_actions.build_turn_parts(
             LocalSemanticTurnContext(
                 runtime=context.runtime,
@@ -406,6 +438,25 @@ def _is_open_only_whiteboard_invocation(surface_invocation: dict[str, Any]) -> b
         if str(surface.get("kind") or "").strip().lower() == "whiteboard":
             return True
     return False
+
+
+def _surface_close_action(surface_invocation: dict[str, Any]) -> dict[str, Any] | None:
+    action = surface_invocation.get("surface_action") if isinstance(surface_invocation, dict) else None
+    if not isinstance(action, dict):
+        return None
+    if str(action.get("type") or "").strip() != "close_visible_surface":
+        return None
+    return action
+
+
+def _close_surface_assistant_message(action: dict[str, Any]) -> str:
+    if action.get("status") == "no_visible_surface":
+        return "I don't see a visible surface to close."
+    title = str(action.get("title") or "").strip()
+    target = str(action.get("target") or action.get("target_kind") or "surface").strip().replace("_", " ")
+    if title:
+        return f"Closed {title} from view."
+    return f"Closed the {target} from view."
 
 
 def _safe_scenario_lab_error_message(error: Exception) -> str:

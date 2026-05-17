@@ -18,5 +18,6 @@ Internal TurnPlan observability DTOs for Vantage chat turns.
 
 - Selected attention resources are compacted for TurnPlan traces; full resource content is not duplicated inside the plan.
 - Whiteboard `open_only` is recorded as a UI-only action and a no-write side-effect policy, but this module does not enforce that policy.
+- Final `surface_action` close directives are recorded as UI surface actions with a no-write side-effect policy, but this module remains observability-only and does not apply the close.
 - Visible/selected artifact Q&A is recorded as chat-first/no-write policy when the existing `surface_invocation.intent` already says the turn was a current-artifact or selected-material follow-up.
 - Public compatibility fields remain unchanged; TurnPlan records where existing fields such as `navigator_selection`, `surface_invocation`, `workspace_update`, `graph_action`, `created_record`, and `artifact_actions` appeared in the final response.

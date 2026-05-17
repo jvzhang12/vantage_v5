@@ -19,3 +19,4 @@ Unit tests for the Attention + Navigator selection service.
 - Operational indexing for calendar day/week and task focus resources.
 - Deterministic Attention fallback selects high-signal resources when the model is unavailable without treating `suggested_surface` metadata as a UI-open directive.
 - Surface-selection regression coverage where only explicit Navigator `surface_to_open` opens a surface; saved/open-material lookup phrases can still prefer the source artifact as selected context, but the UI-open intent is now supplied by Navigator/control-panel fallback rather than Attention.
+- Hard surface intents such as chat-only and close-visible-surface are not overwritten by explicit Navigator-selected attention surfaces.

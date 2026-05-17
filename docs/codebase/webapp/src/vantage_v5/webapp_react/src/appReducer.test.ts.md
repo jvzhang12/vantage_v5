@@ -13,3 +13,4 @@ Vitest coverage for the React app reducer.
 - Returned artifact surfaces become active and move the app into artifact view.
 - Navigator-selected saved artifacts with an explicit Whiteboard open directive, including artifacts selected behind an already-visible Today surface, become visible Whiteboard content, and that content is included in the next visible-artifact context without creating a separate persisted artifact surface.
 - Selected saved artifacts without `surface_to_open=whiteboard` or Whiteboard `open_only` remain context and do not foreground the Whiteboard.
+- Backend close-visible-surface actions hide an open Whiteboard or active Today/calendar surface without clearing saved workspace content or cached surface payloads.

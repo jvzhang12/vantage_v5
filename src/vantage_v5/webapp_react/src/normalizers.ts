@@ -22,6 +22,7 @@ import type {
   SemanticPolicy,
   SourceRef,
   SelectedAttentionResource,
+  SurfaceAction,
   SurfaceInvocation,
   SurfaceInvocationSurface,
   SurfacePayload,
@@ -256,6 +257,22 @@ export function normalizeSurfaceInvocation(value: unknown): SurfaceInvocation | 
     capabilityRefs: stringList(record.capability_refs || record.capabilityRefs),
     trigger: text(record.trigger),
     policyVersion: text(record.policy_version || record.policyVersion),
+  };
+}
+
+export function normalizeSurfaceAction(value: unknown): SurfaceAction | null {
+  const record = asRecord(value);
+  if (!Object.keys(record).length) {
+    return null;
+  }
+  return {
+    type: text(record.type),
+    status: text(record.status),
+    target: text(record.target),
+    targetId: text(record.target_id || record.targetId),
+    targetKind: text(record.target_kind || record.targetKind),
+    title: text(record.title),
+    reason: text(record.reason),
   };
 }
 
@@ -619,6 +636,7 @@ export function normalizeTurnPayload(payload: unknown): NormalizedTurn {
     learnedItems: normalizeRecallItems(record.learned || (record.created_record ? [record.created_record] : [])),
     memoryTraceRecord: normalizeRecallItems(record.memory_trace_record ? [record.memory_trace_record] : [])[0] || null,
     surfaceInvocation: normalizeSurfaceInvocation(record.surface_invocation || record.surfaceInvocation),
+    surfaceAction: normalizeSurfaceAction(record.surface_action || record.surfaceAction),
     surfacePayloads: normalizeSurfacePayloads(record.surface_payloads || record.surfacePayloads),
     activeSurfaceId: text(record.active_surface_id || record.activeSurfaceId) || null,
     artifactActions: normalizeArtifactActions(record.artifact_actions || record.artifactActions),

@@ -8573,6 +8573,27 @@ def test_chat_trace_files_do_not_overwrite_same_second_turns(tmp_path: Path, mon
     }
 
 
+def test_final_response_trace_caps_request_history(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path)
+    history = [
+        {"role": "user" if index % 2 == 0 else "assistant", "content": f"Earlier turn {index}"}
+        for index in range(10)
+    ]
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Keep the trace history bounded.",
+            "history": history,
+        },
+    )
+
+    assert response.status_code == 200
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["request"]["message"] == "Keep the trace history bounded."
+    assert final_response["request"]["history"] == history[-6:]
+
+
 def test_transient_workspace_buffer_is_redacted_in_trace(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path)
 

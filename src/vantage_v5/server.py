@@ -988,7 +988,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return {
             "message": message,
             "user_message": message,
-            "history": history,
+            "history": history[-6:],
             "workspace_id": workspace_id,
             "workspace_scope": workspace_scope,
             "workspace_content_supplied": workspace_content is not None,

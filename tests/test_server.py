@@ -812,6 +812,7 @@ def test_chat_attaches_today_briefing_surface_for_day_planning(tmp_path: Path) -
     assert final_response["surface_invocation"] == payload["surface_invocation"]
     assert final_response["turn_plan"]["ui_surface_action"]["surface"] == "calendar_day"
     assert final_response["turn_plan"]["execution"]["surface_payload_policy"] == "build_operational_payload"
+    assert final_response["turn_plan"]["validation"]["status"] == "ok"
 
 
 def test_chat_attaches_task_focus_surface_for_task_only_prompt(tmp_path: Path) -> None:
@@ -1696,6 +1697,7 @@ def test_chat_attention_open_directive_prefers_source_artifact_over_opened_copy(
     assert final_response["turn_plan"]["retrieval"]["primary_resource_id"] == f"artifact:{source_artifact.id}"
     assert final_response["turn_plan"]["ui_surface_action"]["mode"] == "open_only"
     assert final_response["turn_plan"]["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "open_only_ui_handoff"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
 def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(

@@ -264,6 +264,19 @@ class CompatibilityPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnPlanValidation:
+    warnings: tuple[dict[str, Any], ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        warnings = [dict(warning) for warning in self.warnings]
+        return {
+            "status": "ok" if not warnings else "warning",
+            "warning_count": len(warnings),
+            "warnings": warnings,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class TurnPlan:
     version: str
     request: TurnPlanRequest
@@ -277,6 +290,7 @@ class TurnPlan:
     semantic: SemanticPlan
     execution: ExecutionPlan
     compatibility: CompatibilityPlan
+    validation: TurnPlanValidation
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -292,6 +306,7 @@ class TurnPlan:
             "semantic": self.semantic.to_dict(),
             "execution": self.execution.to_dict(),
             "compatibility": self.compatibility.to_dict(),
+            "validation": self.validation.to_dict(),
             "authority": {
                 "retrieval": self.retrieval.authority,
                 "ui_surface_action": self.ui_surface_action.authority,
@@ -320,6 +335,17 @@ class TurnPlanBuilder:
         semantic = self._semantic_plan(response_payload)
         execution = self._execution_plan(response_payload, write_intent, side_effect_policy, ui_surface_action)
         compatibility = self._compatibility_plan(response_payload, write_intent)
+        validation = self._validation_plan(
+            response_payload=response_payload,
+            route=route,
+            retrieval=retrieval,
+            visible_context=visible_context,
+            ui_surface_action=ui_surface_action,
+            write_intent=write_intent,
+            side_effect_policy=side_effect_policy,
+            semantic=semantic,
+            execution=execution,
+        )
         return TurnPlan(
             version=TURN_PLAN_VERSION,
             request=request,
@@ -333,6 +359,7 @@ class TurnPlanBuilder:
             semantic=semantic,
             execution=execution,
             compatibility=compatibility,
+            validation=validation,
         )
 
     def _request_plan(self, request_payload: dict[str, Any], response_payload: dict[str, Any]) -> TurnPlanRequest:
@@ -643,6 +670,203 @@ class TurnPlanBuilder:
             artifact_actions=len(_list_of_dicts(response_payload.get("artifact_actions"))),
         )
 
+    def _validation_plan(
+        self,
+        *,
+        response_payload: dict[str, Any],
+        route: RoutePlan,
+        retrieval: RetrievalPlan,
+        visible_context: VisibleContextPlan,
+        ui_surface_action: UiSurfaceActionPlan,
+        write_intent: WriteIntentPlan,
+        side_effect_policy: SideEffectPolicy,
+        semantic: SemanticPlan,
+        execution: ExecutionPlan,
+    ) -> TurnPlanValidation:
+        warnings: list[dict[str, Any]] = []
+        invocation = _dict_or_empty(response_payload.get("surface_invocation"))
+        intent = _optional_str(invocation.get("intent"))
+        primary_surface = _optional_str(invocation.get("primary_surface")) or "chat"
+        write_behavior = write_intent.write_behavior
+        surface_action = _optional_dict(response_payload.get("surface_action"))
+        action_type = _optional_str(surface_action.get("type")) if surface_action else None
+        control_actions = _control_panel_action_types(route.control_panel)
+        active_surface_id = _optional_str(response_payload.get("active_surface_id"))
+        surface_payloads = _list_of_dicts(response_payload.get("surface_payloads"))
+        write_side_effects = _write_side_effect_fields(response_payload)
+        explicit_open_authority = bool(
+            (retrieval.navigator_selection or {}).get("surface_to_open")
+            or "open_whiteboard" in control_actions
+            or "open_calendar" in control_actions
+            or "open_surface" in control_actions
+        )
+
+        if (
+            retrieval.selected_resource_ids
+            and ui_surface_action.surface == "whiteboard"
+            and ui_surface_action.mode in {"open_only", "foreground_existing"}
+            and not explicit_open_authority
+        ):
+            warnings.append(
+                _validation_warning(
+                    "selected_context_without_open_authority",
+                    "Selected context is foregrounding Whiteboard without an explicit Navigator/control-plane open signal.",
+                    [
+                        "retrieval.selected_resource_ids",
+                        "navigator_selection.surface_to_open",
+                        "surface_invocation.primary_surface",
+                        "surface_invocation.write_behavior",
+                    ],
+                )
+            )
+
+        if write_behavior == "open_only" and write_side_effects:
+            warnings.append(
+                _validation_warning(
+                    "open_only_has_write_side_effects",
+                    "A UI-only open handoff carried write side effects.",
+                    ["surface_invocation.write_behavior", *write_side_effects],
+                )
+            )
+
+        preserve_surface = intent == "preserve_visible_surface" or "preserve_surface" in control_actions
+        if preserve_surface:
+            if (
+                primary_surface != "chat"
+                or ui_surface_action.surface != "none"
+                or write_behavior != "none"
+                or active_surface_id is not None
+                or surface_payloads
+            ):
+                warnings.append(
+                    _validation_warning(
+                        "preserve_surface_reclassified",
+                        "A preserve/no-op surface intent was reclassified into a foreground/open surface result.",
+                        [
+                            "turn_interpretation.control_panel.actions",
+                            "surface_invocation.primary_surface",
+                            "surface_invocation.write_behavior",
+                            "active_surface_id",
+                            "surface_payloads",
+                        ],
+                    )
+                )
+            if surface_action is not None:
+                warnings.append(
+                    _validation_warning(
+                        "preserve_surface_has_surface_action",
+                        "A preserve/no-op surface intent also emitted a surface action.",
+                        ["turn_interpretation.control_panel.actions", "surface_action"],
+                    )
+                )
+            if write_side_effects:
+                warnings.append(
+                    _validation_warning(
+                        "preserve_surface_has_write_side_effects",
+                        "A preserve/no-op surface intent carried write side effects.",
+                        ["turn_interpretation.control_panel.actions", *write_side_effects],
+                    )
+                )
+
+        close_surface = action_type == "close_visible_surface" or intent == "close_visible_surface"
+        if close_surface:
+            if write_side_effects:
+                warnings.append(
+                    _validation_warning(
+                        "close_surface_has_write_side_effects",
+                        "A close-visible-surface intent carried write side effects.",
+                        ["surface_action", *write_side_effects],
+                    )
+                )
+            if _has_deletion_semantics(response_payload):
+                warnings.append(
+                    _validation_warning(
+                        "close_surface_has_deletion_semantics",
+                        "A close-visible-surface intent included deletion-like artifact action semantics.",
+                        ["surface_action", "artifact_actions"],
+                    )
+                )
+
+        artifact_qna = intent in {"current_artifact_followup", "selected_material_question"}
+        if (
+            artifact_qna
+            and write_side_effects
+            and not _has_explicit_write_authority(route, write_intent, semantic)
+        ):
+            warnings.append(
+                _validation_warning(
+                    "artifact_qna_has_write_side_effects",
+                    "A chat-first visible/selected artifact Q&A turn carried durable write side effects without explicit write authority.",
+                    ["surface_invocation.intent", *write_side_effects],
+                )
+            )
+
+        if (
+            side_effect_policy.actual_workspace_update
+            and write_intent.kind not in {"whiteboard_draft", "whiteboard_offer", "scenario_branching"}
+            and not write_intent.explicit_user_intent
+        ):
+            warnings.append(
+                _validation_warning(
+                    "workspace_update_without_write_intent",
+                    "A workspace update appeared without a draft/offer/write intent.",
+                    ["workspace_update", "write_intent.kind", "write_intent.explicit_user_intent"],
+                )
+            )
+
+        if (
+            (write_behavior == "draft_only" or write_intent.whiteboard_mode == "draft")
+            and (ui_surface_action.surface != "whiteboard" or write_intent.kind != "whiteboard_draft")
+        ):
+            warnings.append(
+                _validation_warning(
+                    "draft_intent_surface_mismatch",
+                    "A draft/write intent did not align with a Whiteboard draft plan.",
+                    ["surface_invocation", "ui_surface_action", "write_intent"],
+                )
+            )
+
+        operational_surface = ui_surface_action.surface in {"calendar_day", "calendar_week", "today_briefing", "task_focus"}
+        if operational_surface:
+            surface_payload_ids = {
+                item_id for item_id in (_item_id(payload) for payload in surface_payloads) if item_id
+            }
+            if active_surface_id and surface_payloads and active_surface_id not in surface_payload_ids:
+                warnings.append(
+                    _validation_warning(
+                        "active_surface_payload_mismatch",
+                        "The active operational surface id does not match returned surface payloads.",
+                        ["active_surface_id", "surface_payloads"],
+                    )
+                )
+            if active_surface_id and not surface_payloads:
+                warnings.append(
+                    _validation_warning(
+                        "active_surface_missing_payload",
+                        "An operational active surface id was returned without a matching surface payload.",
+                        ["active_surface_id", "surface_payloads"],
+                    )
+                )
+            if surface_payloads and not active_surface_id:
+                warnings.append(
+                    _validation_warning(
+                        "surface_payload_without_active_surface",
+                        "Operational surface payloads were returned without an active surface id.",
+                        ["active_surface_id", "surface_payloads"],
+                    )
+                )
+
+        for field in _calendar_task_mutation_fields(response_payload):
+            warnings.append(
+                _validation_warning(
+                    "calendar_task_mutation_not_proposal_only",
+                    "A calendar/task mutation was not represented as a proposal-only action requiring confirmation.",
+                    [field, "surface_invocation.write_behavior"],
+                )
+            )
+
+        return TurnPlanValidation(warnings=tuple(warnings))
+
 
 def turn_plan_trace_payload(
     *,
@@ -739,6 +963,97 @@ def _control_panel_has_write_action(interpretation: dict[str, Any]) -> bool:
         if action_type in {"draft_whiteboard", "save_whiteboard", "publish_artifact"}:
             return True
     return False
+
+
+def _control_panel_action_types(control_panel: dict[str, Any]) -> set[str]:
+    return {
+        action_type
+        for action_type in (
+            str(action.get("type") or action.get("action") or "").strip()
+            for action in _list_of_dicts(control_panel.get("actions"))
+        )
+        if action_type
+    }
+
+
+def _has_explicit_write_authority(
+    route: RoutePlan,
+    write_intent: WriteIntentPlan,
+    semantic: SemanticPlan,
+) -> bool:
+    if write_intent.explicit_user_intent and write_intent.kind in {
+        "whiteboard_draft",
+        "whiteboard_offer",
+        "scenario_branching",
+    }:
+        return True
+    if _control_panel_action_types(route.control_panel).intersection(
+        {"draft_whiteboard", "save_whiteboard", "publish_artifact"}
+    ):
+        return True
+    semantic_action = str(semantic.semantic_action or "").strip().lower()
+    policy_action = str(semantic.policy_action_type or "").strip().lower()
+    return bool(
+        semantic_action in {"save", "publish", "remember", "learn", "create_concept", "create_artifact"}
+        or policy_action in {"save_whiteboard", "publish_artifact", "create_concept", "create_artifact"}
+    )
+
+
+def _write_side_effect_fields(response_payload: dict[str, Any]) -> list[str]:
+    fields: list[str] = []
+    if isinstance(response_payload.get("workspace_update"), dict):
+        fields.append("workspace_update")
+    if isinstance(response_payload.get("graph_action"), dict):
+        fields.append("graph_action")
+    if isinstance(response_payload.get("created_record"), dict):
+        fields.append("created_record")
+    if _list_of_dicts(response_payload.get("artifact_actions")):
+        fields.append("artifact_actions")
+    return fields
+
+
+def _has_deletion_semantics(response_payload: dict[str, Any]) -> bool:
+    workspace_update = _optional_dict(response_payload.get("workspace_update"))
+    if workspace_update and _looks_delete_like(workspace_update.get("type") or workspace_update.get("status")):
+        return True
+    graph_action = _optional_dict(response_payload.get("graph_action"))
+    if graph_action and _looks_delete_like(graph_action.get("action") or graph_action.get("type")):
+        return True
+    return any(
+        _looks_delete_like(action.get("operation") or action.get("type") or action.get("intent"))
+        for action in _list_of_dicts(response_payload.get("artifact_actions"))
+    )
+
+
+def _calendar_task_mutation_fields(response_payload: dict[str, Any]) -> list[str]:
+    invocation = _dict_or_empty(response_payload.get("surface_invocation"))
+    write_behavior = _normalized_write_behavior(invocation)
+    warnings: list[str] = []
+    for index, action in enumerate(_list_of_dicts(response_payload.get("artifact_actions"))):
+        artifact_kind = str(action.get("artifact_kind") or action.get("kind") or action.get("app") or "").strip().lower()
+        if artifact_kind not in {"calendar", "task", "tasks"}:
+            continue
+        status = str(action.get("status") or "").strip().lower()
+        requires_confirmation = action.get("requires_confirmation")
+        if write_behavior != "proposal_only" or status in {"accepted", "applied", "completed"} or requires_confirmation is False:
+            warnings.append(f"artifact_actions[{index}]")
+    return warnings
+
+
+def _looks_delete_like(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return text in {"delete", "deleted", "remove", "removed", "cancel", "cancelled", "canceled"} or text.startswith(
+        ("delete_", "remove_", "cancel_")
+    )
+
+
+def _validation_warning(code: str, message: str, fields: list[str]) -> dict[str, Any]:
+    return {
+        "code": code,
+        "severity": "warning",
+        "message": message,
+        "fields": fields,
+    }
 
 
 def _workspace_update_status(workspace_update: dict[str, Any] | None) -> str | None:

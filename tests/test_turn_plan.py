@@ -56,6 +56,13 @@ def _plan(
     ).to_dict()
 
 
+def _warning_codes(plan: dict) -> set[str]:
+    return {
+        str(warning.get("code"))
+        for warning in plan["validation"]["warnings"]
+    }
+
+
 def test_turn_plan_chat_only_qna() -> None:
     plan = _plan(message="Can you answer in chat?")
 
@@ -66,6 +73,7 @@ def test_turn_plan_chat_only_qna() -> None:
     assert plan["write_intent"]["whiteboard_mode"] == "chat"
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is True
     assert plan["compatibility"]["present"]["surface_invocation"] is True
+    assert plan["validation"]["warnings"] == []
 
 
 def test_turn_plan_saved_artifact_open_only() -> None:
@@ -117,6 +125,40 @@ def test_turn_plan_saved_artifact_open_only() -> None:
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is False
     assert plan["side_effect_policy"]["allow_artifact_actions"] is False
     assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "open_only_ui_handoff"
+    assert plan["validation"]["warnings"] == []
+
+
+def test_turn_plan_open_only_with_writes_warns() -> None:
+    plan = _plan(
+        message="Show me the saved Midterm Study Plan",
+        response={
+            "navigator_selection": {
+                "selected_ids": ["artifact:midterm-study-plan"],
+                "primary_resource_id": "artifact:midterm-study-plan",
+                "surface_to_open": "whiteboard",
+            },
+            "selected_attention_resources": [
+                {
+                    "resource_id": "artifact:midterm-study-plan",
+                    "kind": "artifact",
+                    "suggested_surface": "whiteboard",
+                }
+            ],
+            "surface_invocation": {
+                "intent": "attention_selected_context",
+                "primary_surface": "whiteboard",
+                "write_behavior": "open_only",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "workspace_update": {"type": "draft_whiteboard", "status": "draft_ready"},
+            "graph_action": {"action": "create_concept"},
+            "created_record": {"id": "concept:study-plan"},
+            "artifact_actions": [{"id": "action-1", "artifact_kind": "calendar", "status": "proposed"}],
+        },
+    )
+
+    assert "open_only_has_write_side_effects" in _warning_codes(plan)
 
 
 def test_turn_plan_explicit_whiteboard_draft() -> None:
@@ -152,6 +194,7 @@ def test_turn_plan_explicit_whiteboard_draft() -> None:
     assert plan["side_effect_policy"]["allow_auto_workspace_iteration_artifact"] is True
     assert plan["side_effect_policy"]["actual"]["workspace_update"] is True
     assert plan["execution"]["chat_whiteboard_mode"] == "draft"
+    assert plan["validation"]["warnings"] == []
 
 
 def test_turn_plan_today_calendar_surface() -> None:
@@ -176,6 +219,7 @@ def test_turn_plan_today_calendar_surface() -> None:
     assert plan["ui_surface_action"]["target_resource_id"] == "today-2026-05-13"
     assert plan["execution"]["surface_payload_policy"] == "build_operational_payload"
     assert plan["side_effect_policy"]["allow_calendar_task_mutation"] is False
+    assert plan["validation"]["warnings"] == []
 
 
 def test_turn_plan_visible_artifact_qna_no_write_policy() -> None:
@@ -210,6 +254,66 @@ def test_turn_plan_visible_artifact_qna_no_write_policy() -> None:
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is False
     assert plan["side_effect_policy"]["allow_artifact_actions"] is False
     assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "artifact_qna_chat_first"
+    assert plan["validation"]["warnings"] == []
+
+
+def test_turn_plan_visible_artifact_qna_with_write_warns() -> None:
+    visible_artifact = {
+        "id": "artifact:midterm-study-plan",
+        "kind": "whiteboard",
+        "title": "Midterm Study Plan",
+    }
+    plan = _plan(
+        message="Can you summarize this study plan?",
+        request={"visible_artifacts": [visible_artifact], "workspace_scope": "visible"},
+        response={
+            "surface_invocation": {
+                "intent": "current_artifact_followup",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "visible_artifacts": [visible_artifact],
+            "workspace": {"context_scope": "visible"},
+            "graph_action": {"action": "create_concept"},
+            "created_record": {"id": "concept:study-plan-summary"},
+        },
+    )
+
+    assert "artifact_qna_has_write_side_effects" in _warning_codes(plan)
+
+
+def test_turn_plan_visible_artifact_qna_with_explicit_save_does_not_warn() -> None:
+    visible_artifact = {
+        "id": "artifact:midterm-study-plan",
+        "kind": "whiteboard",
+        "title": "Midterm Study Plan",
+    }
+    plan = _plan(
+        message="Save this as a concept.",
+        request={"visible_artifacts": [visible_artifact], "workspace_scope": "visible"},
+        response={
+            "surface_invocation": {
+                "intent": "current_artifact_followup",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "visible_artifacts": [visible_artifact],
+            "workspace": {"context_scope": "visible"},
+            "turn_interpretation": {
+                "resolved_whiteboard_mode": "chat",
+                "control_panel": {"actions": [{"type": "save_whiteboard"}]},
+            },
+            "semantic_policy": {"semantic_action": "save"},
+            "graph_action": {"action": "create_concept"},
+            "created_record": {"id": "concept:study-plan-summary"},
+        },
+    )
+
+    assert "artifact_qna_has_write_side_effects" not in _warning_codes(plan)
 
 
 def test_turn_plan_preserve_surface_no_write_policy() -> None:
@@ -240,6 +344,133 @@ def test_turn_plan_preserve_surface_no_write_policy() -> None:
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is False
     assert plan["side_effect_policy"]["allow_artifact_actions"] is False
     assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "preserve_visible_surface"
+    assert plan["validation"]["warnings"] == []
+
+
+def test_turn_plan_preserve_surface_reclassification_warns() -> None:
+    plan = _plan(
+        message="leave the calendar open",
+        response={
+            "turn_interpretation": {
+                "resolved_whiteboard_mode": "chat",
+                "control_panel": {
+                    "actions": [{"type": "preserve_surface", "target": "calendar"}],
+                },
+            },
+            "surface_invocation": {
+                "intent": "preserve_visible_surface",
+                "primary_surface": "calendar_day",
+                "write_behavior": "open_only",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "surface_action": {"type": "close_visible_surface"},
+            "active_surface_id": "today-2026-05-13",
+            "surface_payloads": [{"id": "today-2026-05-13", "kind": "today_briefing"}],
+        },
+    )
+
+    assert {
+        "preserve_surface_reclassified",
+        "preserve_surface_has_surface_action",
+    }.issubset(_warning_codes(plan))
+
+
+def test_turn_plan_close_surface_with_writes_warns() -> None:
+    plan = _plan(
+        message="close the whiteboard",
+        response={
+            "surface_action": {"type": "close_visible_surface", "status": "requested"},
+            "surface_invocation": {
+                "intent": "close_visible_surface",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "workspace_update": {"type": "draft_whiteboard"},
+            "artifact_actions": [{"artifact_kind": "calendar", "operation": "delete_event"}],
+        },
+    )
+
+    assert {
+        "close_surface_has_write_side_effects",
+        "close_surface_has_deletion_semantics",
+    }.issubset(_warning_codes(plan))
+
+
+def test_turn_plan_selected_context_open_without_authority_warns() -> None:
+    plan = _plan(
+        message="Can you summarize this study plan?",
+        response={
+            "navigator_selection": {
+                "selected_ids": ["artifact:midterm-study-plan"],
+                "primary_resource_id": "artifact:midterm-study-plan",
+                "surface_to_open": None,
+            },
+            "selected_attention_resources": [
+                {
+                    "resource_id": "artifact:midterm-study-plan",
+                    "kind": "artifact",
+                    "suggested_surface": "whiteboard",
+                }
+            ],
+            "surface_invocation": {
+                "intent": "attention_selected_context",
+                "primary_surface": "whiteboard",
+                "write_behavior": "open_only",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+        },
+    )
+
+    assert "selected_context_without_open_authority" in _warning_codes(plan)
+
+
+def test_turn_plan_today_surface_payload_mismatch_warns() -> None:
+    plan = _plan(
+        message="What does my day look like?",
+        response={
+            "surface_invocation": {
+                "intent": "schedule_lookup",
+                "primary_surface": "calendar_day",
+                "write_behavior": "read_only",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "active_surface_id": "today-2026-05-13",
+            "surface_payloads": [{"id": "today-2026-05-14", "kind": "today_briefing"}],
+        },
+    )
+
+    assert "active_surface_payload_mismatch" in _warning_codes(plan)
+
+
+def test_turn_plan_calendar_mutation_must_be_proposal_only() -> None:
+    plan = _plan(
+        message="Move the event.",
+        response={
+            "surface_invocation": {
+                "intent": "calendar_mutation",
+                "primary_surface": "calendar_day",
+                "write_behavior": "read_only",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "active_surface_id": "today-2026-05-13",
+            "surface_payloads": [{"id": "today-2026-05-13", "kind": "today_briefing"}],
+            "artifact_actions": [
+                {
+                    "id": "action-1",
+                    "artifact_kind": "calendar",
+                    "operation": "move_event",
+                    "status": "accepted",
+                    "requires_confirmation": False,
+                }
+            ],
+        },
+    )
+
+    assert "calendar_task_mutation_not_proposal_only" in _warning_codes(plan)
 
 
 def test_final_response_trace_payload_includes_turn_plan() -> None:
@@ -290,3 +521,5 @@ def test_final_response_trace_payload_includes_turn_plan() -> None:
     assert plan["retrieval"]["primary_resource_id"] == "artifact:midterm-study-plan"
     assert plan["ui_surface_action"]["surface"] == "whiteboard"
     assert plan["write_intent"]["kind"] == "ui_open_only"
+    assert plan["validation"]["status"] == "ok"
+    assert plan["validation"]["warnings"] == []

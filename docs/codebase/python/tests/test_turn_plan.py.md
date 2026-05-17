@@ -15,4 +15,5 @@ Focused unit tests for internal TurnPlan observability.
 - Today/calendar turns record read-only operational surface intent and surface-payload policy.
 - Visible artifact Q&A records chat-first/no-write policy.
 - Preserve-visible-surface turns record no UI-open action and no-write side-effect policy.
-- Final response trace payloads include `final_response.turn_plan`.
+- Validation coverage verifies clean turns produce no warnings and contradictory finalized payloads warn for open-only writes, visible-artifact Q&A writes, preserve reclassification, close writes/deletes, selected context opening without authority, operational surface payload mismatch, and non-proposal calendar/task mutation.
+- Final response trace payloads include `final_response.turn_plan.validation`.

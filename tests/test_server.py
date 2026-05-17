@@ -132,6 +132,14 @@ def _basic_auth_header(username: str, password: str) -> dict[str, str]:
     return {"Authorization": f"Basic {token}"}
 
 
+def _latest_trace_payload(repo_root: Path) -> dict[str, object]:
+    trace_paths = sorted((repo_root / "traces").glob("chat-turn-*.json"))
+    if not trace_paths:
+        trace_paths = sorted((repo_root / "traces").glob("chat-final-response-*.json"))
+    assert trace_paths
+    return json.loads(trace_paths[-1].read_text(encoding="utf-8"))
+
+
 def _today_calendar_artifact() -> dict[str, object]:
     return {
         "id": "today-2026-05-14",
@@ -775,7 +783,7 @@ def test_chat_attaches_today_briefing_surface_for_day_planning(tmp_path: Path) -
             {"id": "midterm-review", "title": "Midterm Review", "priority": "high", "duration_minutes": 90},
         ],
     )
-    client, _ = _client(tmp_path, calendar_events_path=calendar_events_path, tasks_path=tasks_path)
+    client, repo_root = _client(tmp_path, calendar_events_path=calendar_events_path, tasks_path=tasks_path)
 
     response = client.post(
         "/api/chat",
@@ -794,6 +802,13 @@ def test_chat_attaches_today_briefing_surface_for_day_planning(tmp_path: Path) -
     assert surface["data"]["calendar"]["summary"]["event_count"] == 1
     assert surface["data"]["tasks"]["summary"]["must_do_today_count"] == 2
     assert surface["data"]["suggestions"]
+
+    trace_payload = _latest_trace_payload(repo_root)
+    final_response = trace_payload["final_response"]
+    assert final_response["user_message"] == "Tell me about what I have planned for today on 2026-05-13."
+    assert final_response["active_surface_id"] == payload["active_surface_id"]
+    assert final_response["surface_payloads"] == payload["surface_payloads"]
+    assert final_response["surface_invocation"] == payload["surface_invocation"]
 
 
 def test_chat_attaches_task_focus_surface_for_task_only_prompt(tmp_path: Path) -> None:
@@ -1291,6 +1306,16 @@ def test_chat_attention_open_directive_prefers_source_artifact_over_opened_copy(
     assert payload["selected_attention_resources"][0]["title"] == "Midterm Study Plan"
     assert "Practice BFS" in payload["selected_attention_resources"][0]["content"]
     assert captured["whiteboard_mode"] == "chat"
+
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["request"]["message"] == "Can you find my exam preparation material about graphs and study priorities?"
+    assert final_response["navigator_selection"] == payload["navigator_selection"]
+    assert final_response["surface_invocation"] == payload["surface_invocation"]
+    assert final_response["selected_attention_resources"] == payload["selected_attention_resources"]
+    assert final_response["workspace_update"] is None
+    assert final_response["graph_action"] is None
+    assert final_response["created_record"] is None
+    assert final_response["artifact_actions"] == []
 
 
 def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(
@@ -8576,6 +8601,13 @@ def test_transient_workspace_buffer_is_redacted_in_trace(tmp_path: Path, monkeyp
     assert trace_payload["workspace_is_transient"] is True
     assert trace_payload["workspace_excerpt"] is None
     assert trace_payload["turn"]["workspace"]["content"] is None
+    final_response = trace_payload["final_response"]
+    assert final_response["request"]["message"] == "What do you think of the current whiteboard?"
+    assert final_response["request"]["workspace_content_supplied"] is True
+    assert final_response["workspace_update"] is None
+    assert final_response["graph_action"] is None
+    assert final_response["created_record"] is None
+    assert final_response["artifact_actions"] == []
 
 
 def test_experiment_mode_keeps_temporary_memory_isolated(tmp_path: Path) -> None:

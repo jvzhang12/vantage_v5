@@ -129,6 +129,7 @@ class ChatTurn:
     stage_progress: list[dict] | None = None
     stage_audit: dict | None = None
     selected_attention_resources: list[dict] | None = None
+    trace_path: str | None = None
 
     def to_body_parts(self) -> ChatTurnBodyParts:
         return ChatTurnBodyParts(
@@ -621,7 +622,7 @@ class ChatService:
             stage_audit=stage_audit.to_dict() if stage_audit is not None else None,
             selected_attention_resources=selected_attention_resources,
         )
-        self._trace_turn(
+        trace_path = self._trace_turn(
             turn,
             workspace,
             history,
@@ -635,6 +636,7 @@ class ChatService:
             workspace_scope=workspace_scope,
             visible_artifacts=visible_artifacts,
         )
+        turn.trace_path = str(trace_path)
         return turn
 
     def _openai_reply_with_stage(
@@ -1104,7 +1106,7 @@ class ChatService:
         workspace_is_transient: bool = False,
         workspace_scope: str = "excluded",
         visible_artifacts: list[dict[str, Any]] | None = None,
-    ) -> None:
+    ) -> Path:
         self.traces_dir.mkdir(parents=True, exist_ok=True)
         trace_path = self._next_trace_path()
         turn_payload = turn.to_dict()
@@ -1132,6 +1134,7 @@ class ChatService:
             ),
             encoding="utf-8",
         )
+        return trace_path
 
     def _next_trace_path(self) -> Path:
         timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -1215,6 +1218,89 @@ class ChatService:
         }
         payload.update(parse_memory_trace_metadata(record))
         return payload
+
+
+def persist_final_chat_response_trace(
+    *,
+    traces_dir: Path,
+    request_payload: dict[str, Any],
+    response_payload: dict[str, Any],
+    trace_path: str | Path | None = None,
+) -> Path:
+    traces_dir.mkdir(parents=True, exist_ok=True)
+    target_path = _coerce_trace_path(trace_path)
+    if target_path is None or not target_path.exists():
+        target_path = _next_final_response_trace_path(traces_dir)
+
+    existing: dict[str, Any] = {}
+    if target_path.exists():
+        try:
+            loaded = json.loads(target_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            loaded = {}
+        if isinstance(loaded, dict):
+            existing = loaded
+    existing["final_response"] = build_final_response_trace_payload(
+        request_payload=request_payload,
+        response_payload=response_payload,
+    )
+    existing["final_response_recorded_at"] = datetime.now(tz=UTC).isoformat()
+    target_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+    return target_path
+
+
+def build_final_response_trace_payload(
+    *,
+    request_payload: dict[str, Any],
+    response_payload: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "request": _json_safe_trace_value(request_payload),
+        "user_message": request_payload.get("message") or request_payload.get("user_message"),
+        "assistant_message": response_payload.get("assistant_message"),
+        "mode": response_payload.get("mode"),
+        "response_mode": response_payload.get("response_mode"),
+        "answer_basis": response_payload.get("answer_basis"),
+        "selected_attention_resources": response_payload.get("selected_attention_resources") or [],
+        "navigator_selection": response_payload.get("navigator_selection"),
+        "surface_invocation": response_payload.get("surface_invocation"),
+        "active_surface_id": response_payload.get("active_surface_id"),
+        "surface_payloads": response_payload.get("surface_payloads") or [],
+        "workspace_update": response_payload.get("workspace_update"),
+        "graph_action": response_payload.get("graph_action"),
+        "created_record": response_payload.get("created_record"),
+        "artifact_actions": response_payload.get("artifact_actions") or [],
+        "visible_artifacts": response_payload.get("visible_artifacts") or [],
+        "turn_interpretation": response_payload.get("turn_interpretation"),
+        "semantic_frame": response_payload.get("semantic_frame"),
+        "semantic_policy": response_payload.get("semantic_policy"),
+    }
+
+
+def _coerce_trace_path(value: str | Path | None) -> Path | None:
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    return Path(raw)
+
+
+def _next_final_response_trace_path(traces_dir: Path) -> Path:
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
+    base = traces_dir / f"chat-final-response-{timestamp}.json"
+    if not base.exists():
+        return base
+    index = 2
+    while True:
+        candidate = traces_dir / f"chat-final-response-{timestamp}-{index}.json"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def _json_safe_trace_value(value: Any) -> Any:
+    return json.loads(json.dumps(value, default=str))
 
 
 def _fallback_draft_request(

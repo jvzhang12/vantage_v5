@@ -33,6 +33,7 @@ from vantage_v5.services.calendar import LocalCalendarProvider
 from vantage_v5.services.calendar import resolve_calendar_date
 from vantage_v5.services.capabilities import build_app_capability_manifest
 from vantage_v5.services.chat import ChatService
+from vantage_v5.services.chat import persist_final_chat_response_trace
 from vantage_v5.services.context_engine import ChatTurnRequestContext
 from vantage_v5.services.context_engine import ContextEngine
 from vantage_v5.services.context_engine import ContextEngineHooks
@@ -923,7 +924,30 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             durable_scope,
             workspace_payload=payload.get("workspace") if isinstance(payload.get("workspace"), dict) else None,
         )
-        return attach_safe_turn_state(payload)
+        trace_path = payload.pop("_turn_trace_path", None)
+        final_payload = attach_safe_turn_state(payload)
+        try:
+            persist_final_chat_response_trace(
+                traces_dir=_final_response_trace_dir(durable_scope, final_payload),
+                trace_path=trace_path,
+                request_payload=_chat_final_trace_request_payload(
+                    message=message,
+                    history=history,
+                    workspace_id=workspace_id,
+                    workspace_scope=workspace_scope,
+                    workspace_content=workspace_content,
+                    whiteboard_mode=whiteboard_mode,
+                    pinned_context_id=pinned_context_id,
+                    memory_intent=memory_intent,
+                    pending_workspace_update=pending_workspace_update,
+                    visible_artifacts=visible_artifacts,
+                    force_pending_workspace_update=force_pending_workspace_update,
+                ),
+                response_payload=final_payload,
+            )
+        except Exception:
+            logger.exception("Failed to persist final chat response trace.")
+        return final_payload
 
     def _is_whiteboard_open_only_payload(payload: dict[str, Any]) -> bool:
         invocation = payload.get("surface_invocation")
@@ -938,6 +962,43 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if isinstance(surface, dict) and str(surface.get("kind") or "").strip().lower() == "whiteboard":
                 return True
         return False
+
+    def _final_response_trace_dir(durable_scope: dict[str, Any], payload: dict[str, Any]) -> Path:
+        experiment = payload.get("experiment") if isinstance(payload.get("experiment"), dict) else {}
+        if experiment.get("active"):
+            session = durable_scope["experiment_manager"].get_active_session()
+            if session is not None:
+                return session.traces_dir
+        return Path(durable_scope["traces_dir"])
+
+    def _chat_final_trace_request_payload(
+        *,
+        message: str,
+        history: list[dict[str, str]],
+        workspace_id: str | None,
+        workspace_scope: str,
+        workspace_content: str | None,
+        whiteboard_mode: str,
+        pinned_context_id: str | None,
+        memory_intent: str,
+        pending_workspace_update: dict[str, Any] | None,
+        visible_artifacts: list[dict[str, Any]] | None,
+        force_pending_workspace_update: bool,
+    ) -> dict[str, Any]:
+        return {
+            "message": message,
+            "user_message": message,
+            "history": history,
+            "workspace_id": workspace_id,
+            "workspace_scope": workspace_scope,
+            "workspace_content_supplied": workspace_content is not None,
+            "whiteboard_mode": whiteboard_mode,
+            "pinned_context_id": pinned_context_id,
+            "memory_intent": memory_intent,
+            "pending_workspace_update": pending_workspace_update,
+            "visible_artifacts": visible_artifacts or [],
+            "force_pending_workspace_update": force_pending_workspace_update,
+        }
 
     def _visible_artifacts_from_selected_attention(value: Any) -> list[dict[str, Any]]:
         artifacts: list[dict[str, Any]] = []

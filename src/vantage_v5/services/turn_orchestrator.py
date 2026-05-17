@@ -303,6 +303,9 @@ class TurnOrchestrator:
             )
         )
         payload.update(attention_state_payload)
+        trace_path = getattr(turn, "trace_path", None)
+        if trace_path:
+            payload["_turn_trace_path"] = trace_path
         return payload
 
     def _scenario_lab_fallback_payload(
@@ -379,6 +382,9 @@ class TurnOrchestrator:
         )
         if attention_state_payload:
             payload.update(attention_state_payload)
+        trace_path = getattr(turn, "trace_path", None)
+        if trace_path:
+            payload["_turn_trace_path"] = trace_path
         return payload
 
 

@@ -14,4 +14,5 @@ Focused unit tests for internal TurnPlan observability.
 - Explicit Whiteboard draft turns record draft write intent and workspace-update allowance.
 - Today/calendar turns record read-only operational surface intent and surface-payload policy.
 - Visible artifact Q&A records chat-first/no-write policy.
+- Preserve-visible-surface turns record no UI-open action and no-write side-effect policy.
 - Final response trace payloads include `final_response.turn_plan`.

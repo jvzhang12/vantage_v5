@@ -281,6 +281,61 @@ def test_surface_invocation_raw_close_text_without_navigator_action_stays_chat()
 
 
 @pytest.mark.parametrize(
+    "message,target",
+    [
+        ("leave the calendar open", "calendar"),
+        ("keep the calendar open", "calendar"),
+        ("keep today open", "today"),
+        ("leave today open", "today"),
+        ("keep the whiteboard open", "whiteboard"),
+        ("leave the study plan open", "artifact"),
+    ],
+)
+def test_surface_invocation_preserve_surface_short_circuits_raw_classification(
+    message: str,
+    target: str,
+) -> None:
+    invocation = build_surface_invocation(
+        user_message=message,
+        navigation=NavigationDecision(
+            mode="chat",
+            confidence=0.86,
+            reason="Navigator chose to preserve the visible surface.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "preserve_surface",
+                        "protocol_kind": None,
+                        "target": target,
+                        "reason": "The user asked to keep the current surface open.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        ),
+        visible_artifacts=[
+            {
+                "id": "today-2026-05-14" if target in {"calendar", "today"} else "midterm-study-plan",
+                "kind": "today_briefing" if target in {"calendar", "today"} else "whiteboard",
+                "title": "Today" if target in {"calendar", "today"} else "Midterm Study Plan",
+            }
+        ],
+    )
+    payload = invocation.to_dict()
+
+    assert payload["intent"] == "preserve_visible_surface"
+    assert payload["primary_surface"] == "chat"
+    assert payload["supporting_surfaces"] == []
+    assert payload["write_behavior"] == "none"
+    assert payload["whiteboard_mode"] == "chat"
+    assert payload["surfaces"][0]["status"] == "kept_current_view"
+    assert "surface_action" not in payload
+    assert invocation.resolved_whiteboard_mode(requested_mode="auto", current_mode="draft") == "chat"
+
+
+@pytest.mark.parametrize(
     "message",
     [
         "What should I do first from this study plan?",

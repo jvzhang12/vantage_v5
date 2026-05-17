@@ -1355,7 +1355,10 @@ def test_chat_negated_close_text_without_control_action_does_not_close(
     payload = response.json()
     assert payload.get("surface_action") is None
     assert payload["surface_invocation"]["intent"] != "close_visible_surface"
+    assert payload["surface_invocation"]["primary_surface"] == "chat"
     assert payload["surface_invocation"]["write_behavior"] != "open_only"
+    assert payload["active_surface_id"] is None
+    assert payload["surface_payloads"] == []
     navigator_selection = payload.get("navigator_selection")
     assert navigator_selection is None or navigator_selection.get("surface_to_open") is None
     control_actions = payload["turn_interpretation"]["control_panel"]["actions"]
@@ -1369,6 +1372,90 @@ def test_chat_negated_close_text_without_control_action_does_not_close(
     assert payload["graph_action"] is None
     assert payload["artifact_actions"] == []
     assert (repo_root / "artifacts" / f"{artifact.id}.md").exists()
+
+
+def test_chat_preserve_calendar_open_does_not_foreground_calendar(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    unrelated = ArtifactStore(repo_root / "artifacts").create_artifact(
+        title="Vantage Demo One-Page Brief",
+        card="A demo brief that should remain context only.",
+        body="# Vantage Demo One-Page Brief\n\nThis should not replace the visible surface.",
+    )
+    visible_today = _today_calendar_artifact()
+    captured: dict[str, object] = {}
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.88,
+            reason="Navigator interpreted a keep-open request for the visible calendar.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "preserve_surface",
+                        "protocol_kind": None,
+                        "target": "calendar",
+                        "reason": "The user asked to leave the visible calendar open.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+            attention_selection={
+                "selected_ids": [f"artifact:{unrelated.id}"],
+                "primary_resource_id": f"artifact:{unrelated.id}",
+                "supporting_resource_ids": [],
+                "rejected_candidate_ids": [],
+                "surface_to_open": "whiteboard",
+                "reason": "This artifact is unrelated context and must not open during preserve.",
+                "confidence": 0.8,
+            },
+        )
+
+    def _reply(self, **kwargs):
+        captured["visible_artifacts"] = kwargs["visible_artifacts"]
+        return "I'll leave it open."
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("Preserve turns should suppress graph writes.")),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler.compile_for_turn",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("Preserve turns should skip artifact mutations.")),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "leave the calendar open",
+            "history": [],
+            "visible_artifacts": [visible_today],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload.get("surface_action") is None
+    assert payload["surface_invocation"]["intent"] == "preserve_visible_surface"
+    assert payload["surface_invocation"]["primary_surface"] == "chat"
+    assert payload["surface_invocation"]["write_behavior"] == "none"
+    assert payload["navigator_selection"]["surface_to_open"] is None
+    assert payload["active_surface_id"] is None
+    assert payload["surface_payloads"] == []
+    assert payload["workspace_update"] is None
+    assert payload["created_record"] is None
+    assert payload["graph_action"] is None
+    assert payload["artifact_actions"] == []
+    assert payload["visible_artifacts"][0]["id"] == visible_today["id"]
+    assert captured["visible_artifacts"][0]["id"] == visible_today["id"]
 
 
 def test_chat_uses_explicit_navigator_surface_open_intent(tmp_path: Path, monkeypatch) -> None:

@@ -536,10 +536,13 @@ class TurnPlanBuilder:
         surface_action = _optional_dict(response_payload.get("surface_action"))
         intent = _optional_str(invocation.get("intent"))
         artifact_qna = intent in {"current_artifact_followup", "selected_material_question"}
+        preserve_surface = intent == "preserve_visible_surface"
         open_only = write_intent.write_behavior == "open_only"
         suppress_reason = None
         if surface_action is not None:
             suppress_reason = "close_visible_surface"
+        elif preserve_surface:
+            suppress_reason = "preserve_visible_surface"
         elif open_only:
             suppress_reason = "open_only_ui_handoff"
         elif artifact_qna:

@@ -63,7 +63,13 @@ TEMPORAL_RE = re.compile(
 )
 ENTITY_RE = re.compile(r"\"([^\"]+)\"|'([^']+)'|\b([A-Z][A-Za-z0-9]*(?:\s+[A-Z0-9][A-Za-z0-9]*){0,5})\b")
 SURFACE_KINDS = {"today_briefing", "calendar_day", "calendar_week", "task_focus", "whiteboard"}
-HARD_SURFACE_INTENTS = {"chat_only", "scenario_comparison", "current_artifact_followup", "close_visible_surface"}
+HARD_SURFACE_INTENTS = {
+    "chat_only",
+    "scenario_comparison",
+    "current_artifact_followup",
+    "close_visible_surface",
+    "preserve_visible_surface",
+}
 RESOURCE_VALUE_LIMIT = 2800
 VECTOR_MATCH_THRESHOLD = 0.16
 VECTOR_BONUS_WEIGHT = 3.6

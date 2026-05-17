@@ -962,6 +962,33 @@ def test_attention_surface_selection_respects_close_surface_guard() -> None:
     assert "selection_authority" not in payload
 
 
+def test_attention_surface_selection_respects_preserve_surface_guard() -> None:
+    selection = NavigatorSelection(
+        selected_ids=("calendar_day:2026-05-14",),
+        primary_resource_id="calendar_day:2026-05-14",
+        supporting_resource_ids=(),
+        rejected_candidate_ids=(),
+        surface_to_open="calendar_day",
+        reason="Calendar was relevant, but the user asked to keep the current surface open.",
+        confidence=0.87,
+    )
+
+    payload = apply_attention_surface_selection(
+        {
+            "intent": "preserve_visible_surface",
+            "primary_surface": "chat",
+            "supporting_surfaces": [],
+            "write_behavior": "none",
+        },
+        selection,
+    )
+
+    assert payload["primary_surface"] == "chat"
+    assert payload["intent"] == "preserve_visible_surface"
+    assert payload["write_behavior"] == "none"
+    assert "selection_authority" not in payload
+
+
 def _candidate(
     *,
     resource_id: str,

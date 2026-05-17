@@ -127,7 +127,11 @@ class TurnOrchestrator:
             selected_resources=selected_attention_resources,
         )
         suppress_auto_graph_writes = False
-        if _is_open_only_whiteboard_invocation(surface_invocation_payload):
+        if _is_preserve_surface_invocation(surface_invocation_payload):
+            suppress_auto_graph_writes = True
+            resolved_whiteboard_mode = "chat"
+            surface_invocation_payload["whiteboard_mode"] = "chat"
+        elif _is_open_only_whiteboard_invocation(surface_invocation_payload):
             suppress_auto_graph_writes = True
             if (
                 resolved_whiteboard_mode == "draft"
@@ -395,7 +399,10 @@ class TurnOrchestrator:
                 whiteboard_mode=resolved_whiteboard_mode,
                 public_summary="Scenario Lab fell back to a chat response.",
             ),
-            suppress_auto_graph_writes=_is_open_only_whiteboard_invocation(surface_invocation),
+            suppress_auto_graph_writes=(
+                _is_open_only_whiteboard_invocation(surface_invocation)
+                or _is_preserve_surface_invocation(surface_invocation)
+            ),
         )
         payload = assemble_scenario_lab_fallback_payload(
             ScenarioLabFallbackParts(
@@ -438,6 +445,10 @@ def _is_open_only_whiteboard_invocation(surface_invocation: dict[str, Any]) -> b
         if str(surface.get("kind") or "").strip().lower() == "whiteboard":
             return True
     return False
+
+
+def _is_preserve_surface_invocation(surface_invocation: dict[str, Any]) -> bool:
+    return str(surface_invocation.get("intent") or "").strip().lower() == "preserve_visible_surface"
 
 
 def _surface_close_action(surface_invocation: dict[str, Any]) -> dict[str, Any] | None:

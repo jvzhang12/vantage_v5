@@ -212,6 +212,36 @@ def test_turn_plan_visible_artifact_qna_no_write_policy() -> None:
     assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "artifact_qna_chat_first"
 
 
+def test_turn_plan_preserve_surface_no_write_policy() -> None:
+    plan = _plan(
+        message="leave the calendar open",
+        response={
+            "turn_interpretation": {
+                "resolved_whiteboard_mode": "chat",
+                "control_panel": {
+                    "actions": [{"type": "preserve_surface", "target": "calendar"}],
+                },
+            },
+            "surface_invocation": {
+                "intent": "preserve_visible_surface",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+                "reason": "The user asked to keep the current visible surface open.",
+                "trigger": "deterministic_policy",
+            },
+        },
+    )
+
+    assert plan["ui_surface_action"]["surface"] == "none"
+    assert plan["write_intent"]["kind"] == "none"
+    assert plan["side_effect_policy"]["allow_workspace_update"] is False
+    assert plan["side_effect_policy"]["allow_auto_graph_write"] is False
+    assert plan["side_effect_policy"]["allow_artifact_actions"] is False
+    assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "preserve_visible_surface"
+
+
 def test_final_response_trace_payload_includes_turn_plan() -> None:
     final_response = build_final_response_trace_payload(
         request_payload={

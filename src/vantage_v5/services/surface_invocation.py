@@ -185,6 +185,19 @@ def build_surface_invocation(
             status=status,
             surface_action=close_action,
         )
+    preserve_action = _control_panel_surface_action(navigation, "preserve_surface")
+    if preserve_action is not None:
+        return _invocation(
+            intent="preserve_visible_surface",
+            primary=SURFACE_CHAT,
+            supporting=(),
+            write_behavior="none",
+            reason=_clean(preserve_action.get("reason"))
+            or "The user asked to keep the current visible surface unchanged.",
+            confidence=_action_confidence(preserve_action, default=0.86),
+            whiteboard_mode="chat",
+            status="kept_current_view",
+        )
     if navigation_mode == "scenario_lab":
         return _invocation(
             intent="scenario_comparison",
@@ -435,7 +448,7 @@ def _close_visible_surface_action_from_navigation(
     navigation: Any | None,
     visible_artifacts: list[dict[str, Any]] | None,
 ) -> dict[str, Any] | None:
-    control_action = _control_panel_close_action(navigation)
+    control_action = _control_panel_surface_action(navigation, "close_surface")
     if control_action is None:
         return None
     target = _close_target_from_action(control_action)
@@ -470,7 +483,7 @@ def _close_visible_surface_action_from_navigation(
     return action
 
 
-def _control_panel_close_action(navigation: Any | None) -> dict[str, Any] | None:
+def _control_panel_surface_action(navigation: Any | None, action_type: str) -> dict[str, Any] | None:
     control_panel = getattr(navigation, "control_panel", None)
     if not isinstance(control_panel, dict):
         return None
@@ -480,9 +493,16 @@ def _control_panel_close_action(navigation: Any | None) -> dict[str, Any] | None
     for action in actions:
         if not isinstance(action, dict):
             continue
-        if _clean(action.get("type")).lower() == "close_surface":
+        if _clean(action.get("type")).lower() == action_type:
             return action
     return None
+
+
+def _action_confidence(action: dict[str, Any], *, default: float) -> float:
+    confidence = action.get("confidence")
+    if isinstance(confidence, (int, float)):
+        return max(0.0, min(1.0, float(confidence)))
+    return default
 
 
 def _close_target_from_action(action: dict[str, Any]) -> str:

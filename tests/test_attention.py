@@ -548,7 +548,7 @@ def test_navigator_selection_accepts_candidate_ids_and_prefers_source_artifact_c
     assert selection.surface_to_open == "whiteboard"
 
 
-def test_navigator_selection_prefers_source_artifact_over_concept_and_opened_copy() -> None:
+def test_navigator_selection_preserves_explicit_opened_copy_outside_material_lookup() -> None:
     candidates = (
         _candidate(
             resource_id="concept:exam-preparation-strategy",
@@ -597,11 +597,11 @@ def test_navigator_selection_prefers_source_artifact_over_concept_and_opened_cop
         candidates=candidates,
     )
 
-    assert selection.primary_resource_id == "artifact:midterm-study-plan"
-    assert selection.selected_ids[0] == "artifact:midterm-study-plan"
+    assert selection.primary_resource_id == "artifact:midterm-study-plan-2"
+    assert selection.selected_ids[0] == "artifact:midterm-study-plan-2"
     assert selection.supporting_resource_ids == (
         "concept:exam-preparation-strategy",
-        "artifact:midterm-study-plan-2",
+        "artifact:midterm-study-plan",
     )
     assert selection.surface_to_open == "whiteboard"
 
@@ -666,6 +666,29 @@ def test_navigator_selection_keeps_selected_artifact_as_context_without_open_sig
     assert artifact_primary_selection.surface_to_open is None
     assert payload["primary_surface"] == "chat"
     assert payload["write_behavior"] == "none"
+
+    summarize_selection = normalize_navigator_selection(
+        {
+            "selected_ids": ["artifact:midterm-study-plan", "concept:exam-preparation-strategy"],
+            "primary_resource_id": "artifact:midterm-study-plan",
+            "reason": "Use the selected study plan as context.",
+            "confidence": 0.9,
+        },
+        candidates=candidates,
+        query_frame=build_query_frame(
+            "Can you summarize this study plan?",
+            today=date(2026, 5, 14),
+        ),
+    )
+    summarize_payload = apply_attention_surface_selection(
+        {"intent": "general_chat", "primary_surface": "chat", "supporting_surfaces": [], "write_behavior": "none", "surfaces": []},
+        summarize_selection,
+    )
+
+    assert summarize_selection.primary_resource_id == "artifact:midterm-study-plan"
+    assert summarize_selection.surface_to_open is None
+    assert summarize_payload["primary_surface"] == "chat"
+    assert summarize_payload["write_behavior"] == "none"
 
 
 def test_navigator_selection_preserves_explicit_derivative_artifact_primary() -> None:
@@ -765,33 +788,65 @@ def test_navigator_selection_infers_open_target_for_find_material_query() -> Non
         ),
     )
 
-    selection = normalize_navigator_selection(
-        {
-            "selected_ids": ["concept:exam-preparation-strategy", "artifact:midterm-study-plan-2"],
-            "primary_resource_id": "concept:exam-preparation-strategy",
-            "reason": "Use both as context.",
-            "confidence": 0.9,
-        },
-        candidates=candidates,
-        query_frame=build_query_frame(
-            "Can you find my exam preparation material about graphs and study priorities?",
-            today=date(2026, 5, 14),
-        ),
-    )
+    for message in (
+        "Can you find my exam preparation material about graphs and study priorities?",
+        "Show me the saved Midterm Study Plan",
+        "Look at the saved Midterm Study Plan",
+        "Open the Midterm Study Plan",
+    ):
+        selection = normalize_navigator_selection(
+            {
+                "selected_ids": ["concept:exam-preparation-strategy", "artifact:midterm-study-plan-2"],
+                "primary_resource_id": "concept:exam-preparation-strategy",
+                "reason": "Use both as context.",
+                "confidence": 0.9,
+            },
+            candidates=candidates,
+            query_frame=build_query_frame(
+                message,
+                today=date(2026, 5, 14),
+            ),
+        )
 
-    assert selection.primary_resource_id == "artifact:midterm-study-plan"
-    assert selection.selected_ids == (
-        "artifact:midterm-study-plan",
-        "concept:exam-preparation-strategy",
-        "artifact:midterm-study-plan-2",
+        assert selection.primary_resource_id == "artifact:midterm-study-plan"
+        assert selection.selected_ids == (
+            "artifact:midterm-study-plan",
+            "concept:exam-preparation-strategy",
+            "artifact:midterm-study-plan-2",
+        )
+        assert selection.surface_to_open == "whiteboard"
+        payload = apply_attention_surface_selection(
+            {"intent": "general_chat", "primary_surface": "chat", "supporting_surfaces": [], "write_behavior": "none", "surfaces": []},
+            selection,
+        )
+        assert payload["primary_surface"] == "whiteboard"
+        assert payload["write_behavior"] == "open_only"
+
+
+def test_attention_surface_selection_forces_open_only_over_drafty_base() -> None:
+    selection = NavigatorSelection(
+        selected_ids=("artifact:midterm-study-plan",),
+        primary_resource_id="artifact:midterm-study-plan",
+        supporting_resource_ids=(),
+        rejected_candidate_ids=(),
+        surface_to_open="whiteboard",
+        reason="Navigator selected the saved study plan as a Whiteboard open target.",
+        confidence=0.92,
     )
-    assert selection.surface_to_open == "whiteboard"
     payload = apply_attention_surface_selection(
-        {"intent": "general_chat", "primary_surface": "chat", "supporting_surfaces": [], "write_behavior": "none", "surfaces": []},
+        {
+            "intent": "durable_artifact",
+            "primary_surface": "whiteboard",
+            "supporting_surfaces": [],
+            "write_behavior": "draft_only",
+            "surfaces": [{"kind": "whiteboard", "role": "primary", "status": "summoned"}],
+        },
         selection,
     )
+
     assert payload["primary_surface"] == "whiteboard"
     assert payload["write_behavior"] == "open_only"
+    assert payload["selection_authority"] == "attention_navigator"
 
 
 def test_attention_surface_selection_overrides_legacy_surface_choice() -> None:

@@ -122,11 +122,15 @@ class TurnOrchestrator:
             suppress_auto_graph_writes = True
             if (
                 resolved_whiteboard_mode == "draft"
-                and self.whiteboard_routing.should_continue_current_whiteboard_draft(
-                    request.message,
-                    context.workspace,
+                and (
+                    self.whiteboard_routing.is_explicit_whiteboard_draft_request(request.message)
+                    or self.whiteboard_routing.should_continue_current_whiteboard_draft(
+                        request.message,
+                        context.workspace,
+                    )
                 )
             ):
+                suppress_auto_graph_writes = False
                 surface_invocation_payload["write_behavior"] = "draft_only"
                 surface_invocation_payload["whiteboard_mode"] = "draft"
             else:

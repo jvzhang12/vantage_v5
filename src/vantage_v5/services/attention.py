@@ -649,6 +649,12 @@ def apply_attention_surface_selection(
         return payload
     if str(payload.get("intent") or "").strip().lower() in HARD_SURFACE_INTENTS:
         return payload
+    existing_write_behavior = str(payload.get("write_behavior") or "").strip().lower()
+    if surface == "whiteboard" and existing_write_behavior == "draft_only" and not _selection_has_saved_artifact(
+        selection,
+        selected_resources=selected_resources,
+    ):
+        return payload
 
     existing_primary = str(payload.get("primary_surface") or "chat").strip().lower()
     same_primary = existing_primary == surface
@@ -742,10 +748,30 @@ def _supporting_surfaces_for_selection(
     return list(dict.fromkeys(supporting))
 
 
+def _selection_has_saved_artifact(
+    selection: NavigatorSelection,
+    *,
+    selected_resources: tuple[SelectedAttentionResource, ...],
+) -> bool:
+    selected_ids = {
+        *(selection.selected_ids or ()),
+        *(selection.supporting_resource_ids or ()),
+    }
+    if selection.primary_resource_id:
+        selected_ids.add(selection.primary_resource_id)
+    if any(str(resource_id).strip().lower().startswith("artifact:") for resource_id in selected_ids):
+        return True
+    return any(
+        resource.source == "artifact"
+        or str(resource.resource_id or "").strip().lower().startswith("artifact:")
+        for resource in selected_resources
+    )
+
+
 def _attention_write_behavior(surface: str, *, existing: Any) -> str:
     existing_text = _clean_text(existing)
     if surface == "whiteboard":
-        return existing_text if existing_text == "draft_only" else "open_only"
+        return "open_only"
     if existing_text and existing_text != "none":
         return existing_text
     if surface in {"calendar_day", "calendar_week", "today_briefing"}:
@@ -779,12 +805,17 @@ def _preferred_primary_resource_id(
     )
     if preferred_open_target is not None:
         return preferred_open_target
-    if primary is None or primary.source != "artifact":
+    if (
+        not infer_openable_source
+        or explicit_derivative_request
+        or primary is None
+        or primary.source != "artifact"
+    ):
         return primary_resource_id
+    primary_title = _normalized_title(primary.title)
     comes_from = primary.value_ref.get("comes_from")
     if not isinstance(comes_from, list):
         return primary_resource_id
-    primary_title = _normalized_title(primary.title)
     for parent_id in comes_from:
         parent_resource_id = _resource_id("artifact", str(parent_id).strip())
         parent = by_id.get(parent_resource_id)
@@ -808,16 +839,21 @@ def _preferred_openable_source_artifact(
         return None
     if primary is not None and _is_derivative_action_candidate(primary) and not infer_openable_source:
         return None
-    if requested_surface == "whiteboard":
-        should_choose_open_target = True
-    elif infer_openable_source:
-        should_choose_open_target = True
-    else:
-        should_choose_open_target = False
-    if not should_choose_open_target:
-        return None
     selected = [candidates[item] for item in selected_ids if item in candidates]
-    artifacts = _openable_artifact_candidates_with_sources(selected, candidates=candidates)
+    if requested_surface == "whiteboard" and not infer_openable_source:
+        if primary is not None and _is_openable_whiteboard_candidate(primary):
+            return primary.resource_id
+        for candidate in selected:
+            if _is_openable_whiteboard_candidate(candidate):
+                return candidate.resource_id
+        return None
+    if not infer_openable_source:
+        return None
+    artifacts = _openable_artifact_candidates_with_sources(
+        selected,
+        candidates=candidates,
+        include_sources=True,
+    )
     if not artifacts:
         return None
     scored = sorted(
@@ -838,12 +874,15 @@ def _openable_artifact_candidates_with_sources(
     selected: list[AttentionCandidate],
     *,
     candidates: dict[str, AttentionCandidate],
+    include_sources: bool = False,
 ) -> list[AttentionCandidate]:
     artifacts = [
         candidate
         for candidate in selected
         if candidate.source == "artifact" and _is_openable_whiteboard_candidate(candidate)
     ]
+    if not include_sources:
+        return artifacts
     artifact_ids = {candidate.resource_id for candidate in artifacts}
     for candidate in list(artifacts):
         comes_from = candidate.value_ref.get("comes_from")
@@ -1403,19 +1442,19 @@ def _should_prefer_source_artifact(query_frame: QueryFrame) -> bool:
         return False
     if not ({"read", "reopen"} & set(query_frame.operations)):
         return False
-    return any(
-        phrase in query_frame.normalized_text
-        for phrase in (
-            "exam preparation",
-            "find my",
-            "find the",
-            "go back",
-            "material",
-            "materials",
-            "open my",
-            "open the",
-            "pull up",
-            "reopen",
+    text = query_frame.normalized_text
+    return bool(
+        re.search(
+            r"\b(?:find|show|open|pull up|look at|go back(?: to)?|reopen|revisit)\b"
+            r".{0,100}\b(?:saved|artifact|material|materials|study plan|plan|whiteboard|note|document|exam preparation)\b",
+            text,
+            re.IGNORECASE,
+        )
+        or re.search(
+            r"\b(?:saved|artifact|material|materials|study plan|plan|whiteboard|note|document|exam preparation)\b"
+            r".{0,100}\b(?:find|show|open|pull up|look at|go back(?: to)?|reopen|revisit)\b",
+            text,
+            re.IGNORECASE,
         )
     )
 

@@ -18,6 +18,7 @@ from vantage_v5.services.protocols import find_protocol_record
 from vantage_v5.services.protocols import protocol_candidates_for_kinds
 from vantage_v5.services.protocols import normalize_protocol_kind
 from vantage_v5.services.search import CandidateMemory
+from vantage_v5.services.turn_plan import build_turn_plan_protocol_write_authority
 from vantage_v5.storage.concepts import ConceptStore
 from vantage_v5.storage.markdown_store import MarkdownRecord
 
@@ -79,6 +80,7 @@ class ProtocolGuidance:
 class ProtocolTurnResult:
     protocol_action: ExecutedAction | None = None
     protocol_record: MarkdownRecord | None = None
+    protocol_write_authority: dict[str, Any] | None = None
     recall_protocol_kinds: tuple[str, ...] = ()
     concept_records: tuple[MarkdownRecord, ...] = ()
     rationale: str = ""
@@ -171,6 +173,9 @@ class ProtocolEngine:
         concept_store: ConceptStore,
         visible_artifacts: list[dict[str, Any]] | None = None,
         allow_writes: bool = True,
+        surface_invocation: dict[str, Any] | None = None,
+        turn_interpretation: dict[str, Any] | None = None,
+        semantic_policy: dict[str, Any] | None = None,
     ) -> ProtocolTurnResult:
         protocol_interpretation = self.protocol_interpreter.interpret(
             message=message,
@@ -179,8 +184,26 @@ class ProtocolEngine:
             visible_artifacts=visible_artifacts,
         )
         protocol_write = protocol_interpretation.protocol_write
-        if protocol_write is not None and (not allow_writes or not _allows_protocol_write(message)):
-            protocol_write = None
+        protocol_write_authority = None
+        if protocol_write is not None:
+            existing_policy_allowed = allow_writes and _allows_protocol_write(message)
+            protocol_write_candidate = _protocol_write_candidate_payload(protocol_write)
+            authority = build_turn_plan_protocol_write_authority(
+                response_payload={
+                    "surface_invocation": surface_invocation or {},
+                    "turn_interpretation": turn_interpretation or {},
+                    "semantic_policy": semantic_policy or {},
+                    "protocol_write_candidate": protocol_write_candidate,
+                },
+                request_payload={
+                    "protocol_write_allowed_by_existing_policy": existing_policy_allowed,
+                    "protocol_write_content_available": _protocol_write_candidate_has_content(protocol_write),
+                    "protocol_write_target_available": _protocol_write_candidate_has_target(protocol_write),
+                },
+            )
+            protocol_write_authority = authority.to_dict()
+            if authority.blocks_candidate_write:
+                protocol_write = None
         protocol_record = None
         protocol_action = None
         merged_concepts = list(concept_records)
@@ -207,6 +230,7 @@ class ProtocolEngine:
         return ProtocolTurnResult(
             protocol_action=protocol_action,
             protocol_record=protocol_record,
+            protocol_write_authority=protocol_write_authority,
             recall_protocol_kinds=tuple(protocol_interpretation.recall_protocol_kinds or []),
             concept_records=tuple(merged_concepts),
             rationale=protocol_interpretation.rationale,
@@ -332,6 +356,33 @@ class ProtocolEngine:
             candidates=tuple(candidates),
             warnings=tuple(warnings),
         )
+
+
+def _protocol_write_candidate_payload(protocol_write: Any) -> dict[str, Any]:
+    return {
+        "action": "upsert_protocol",
+        "protocol_id": protocol_write.protocol_id,
+        "protocol_kind": protocol_write.protocol_kind,
+        "title_present": bool(str(protocol_write.title or "").strip()),
+        "card_present": bool(str(protocol_write.card or "").strip()),
+        "body_present": bool(str(protocol_write.body or "").strip()),
+        "content_available": _protocol_write_candidate_has_content(protocol_write),
+        "target_available": _protocol_write_candidate_has_target(protocol_write),
+    }
+
+
+def _protocol_write_candidate_has_content(protocol_write: Any) -> bool:
+    return any(
+        bool(str(value or "").strip())
+        for value in (protocol_write.title, protocol_write.card, protocol_write.body)
+    )
+
+
+def _protocol_write_candidate_has_target(protocol_write: Any) -> bool:
+    return bool(
+        str(protocol_write.protocol_id or "").strip()
+        and str(protocol_write.protocol_kind or "").strip()
+    )
 
 
 PROTOCOL_WRITE_INTENT_RE = re.compile(

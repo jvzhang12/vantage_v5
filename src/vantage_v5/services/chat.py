@@ -112,6 +112,7 @@ class ChatTurn:
     stage_progress: list[dict] | None = None
     stage_audit: dict | None = None
     selected_attention_resources: list[dict] | None = None
+    protocol_write_authority: dict | None = None
     trace_path: str | None = None
 
     def to_body_parts(self) -> ChatTurnBodyParts:
@@ -146,6 +147,7 @@ class ChatTurn:
             stage_progress=self.stage_progress,
             stage_audit=self.stage_audit,
             selected_attention_resources=self.selected_attention_resources or [],
+            protocol_write_authority=self.protocol_write_authority,
         )
 
     def to_dict(self) -> dict:
@@ -243,6 +245,9 @@ class ChatService:
             concept_store=self.concept_store,
             visible_artifacts=visible_artifacts,
             allow_writes=not suppress_protocol_writes,
+            surface_invocation=surface_invocation,
+            turn_interpretation=turn_interpretation,
+            semantic_policy=semantic_policy,
         )
         concepts = list(protocol_turn.concept_records)
         protocol_action = protocol_turn.protocol_action
@@ -646,6 +651,7 @@ class ChatService:
             stage_progress=stage_progress,
             stage_audit=stage_audit.to_dict() if stage_audit is not None else None,
             selected_attention_resources=selected_attention_resources,
+            protocol_write_authority=protocol_turn.protocol_write_authority,
         )
         trace_path = self._trace_turn(
             turn,
@@ -1296,6 +1302,7 @@ def build_final_response_trace_payload(
         "graph_action": response_payload.get("graph_action"),
         "created_record": response_payload.get("created_record"),
         "artifact_actions": response_payload.get("artifact_actions") or [],
+        "protocol_write_authority": response_payload.get("protocol_write_authority"),
         "visible_artifacts": response_payload.get("visible_artifacts") or [],
         "turn_interpretation": response_payload.get("turn_interpretation"),
         "semantic_frame": response_payload.get("semantic_frame"),

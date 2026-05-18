@@ -8,6 +8,7 @@ from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.protocols import build_protocol_write_from_interpretation
 from vantage_v5.services.protocols import ProtocolInterpretation
+from vantage_v5.services.protocols import ProtocolWrite
 from vantage_v5.storage.concepts import ConceptStore
 from vantage_v5.storage.markdown_store import MarkdownRecord
 from vantage_v5.storage.workspaces import WorkspaceDocument
@@ -378,6 +379,9 @@ def test_protocol_engine_interprets_and_applies_protocol_update(tmp_path: Path) 
     assert result.protocol_action is not None
     assert result.protocol_action.action == "upsert_protocol"
     assert result.protocol_action.record_id == "email-drafting-protocol"
+    assert result.protocol_write_authority is not None
+    assert result.protocol_write_authority["action"] == "protocol_write"
+    assert result.protocol_write_authority["allowed"] is True
     assert result.protocol_record is not None
     assert result.protocol_record.metadata["variables"]["signature"] == "Jordan Zhang"
     assert result.recall_protocol_kinds == ("email",)
@@ -415,9 +419,91 @@ def test_protocol_engine_can_interpret_protocols_without_writing(tmp_path: Path)
 
     assert result.protocol_action is None
     assert result.protocol_record is None
+    assert result.protocol_write_authority is not None
+    assert result.protocol_write_authority["allowed"] is False
+    assert result.protocol_write_authority["denied_reason"] == "protocol_write_blocked_by_existing_policy"
     assert result.recall_protocol_kinds == ("email",)
     assert result.concept_records == ()
     assert not (tmp_path / "concepts" / "email-drafting-protocol.md").exists()
+
+
+def test_protocol_engine_turn_plan_blocks_hard_no_write_protocol_candidate(tmp_path: Path) -> None:
+    concept_store = ConceptStore(tmp_path / "concepts")
+    engine = ProtocolEngine()
+
+    class _Interpreter:
+        def interpret(self, **kwargs):
+            return ProtocolInterpretation(
+                protocol_write=build_protocol_write_from_interpretation(
+                    protocol_kind="email",
+                    variables={"signature": "Jordan Zhang"},
+                    applies_to=["email"],
+                    source_instruction=kwargs["message"],
+                    existing_protocols=kwargs["existing_protocols"],
+                ),
+                recall_protocol_kinds=["email"],
+                rationale="The user updated a reusable email protocol.",
+            )
+
+    engine.protocol_interpreter = _Interpreter()
+
+    result = engine.interpret_and_apply(
+        message="Always sign my emails with Jordan Zhang.",
+        history=[],
+        concept_records=[],
+        concept_store=concept_store,
+        allow_writes=False,
+        surface_invocation={
+            "intent": "preserve_visible_surface",
+            "primary_surface": "chat",
+            "write_behavior": "none",
+        },
+    )
+
+    assert result.protocol_action is None
+    assert result.protocol_record is None
+    assert result.protocol_write_authority is not None
+    assert result.protocol_write_authority["allowed"] is False
+    assert result.protocol_write_authority["denied_reason"] == "preserve_visible_surface"
+    assert not (tmp_path / "concepts" / "email-drafting-protocol.md").exists()
+
+
+def test_protocol_engine_blocks_unsafe_empty_protocol_candidate(tmp_path: Path) -> None:
+    concept_store = ConceptStore(tmp_path / "concepts")
+    engine = ProtocolEngine()
+
+    class _Interpreter:
+        def interpret(self, **kwargs):
+            return ProtocolInterpretation(
+                protocol_write=ProtocolWrite(
+                    protocol_id="",
+                    protocol_kind="",
+                    title="",
+                    card="",
+                    body="",
+                    variables={},
+                    applies_to=[],
+                    metadata={},
+                ),
+                recall_protocol_kinds=["email"],
+                rationale="Malformed protocol candidate.",
+            )
+
+    engine.protocol_interpreter = _Interpreter()
+
+    result = engine.interpret_and_apply(
+        message="Always sign my emails with Jordan Zhang.",
+        history=[],
+        concept_records=[],
+        concept_store=concept_store,
+    )
+
+    assert result.protocol_action is None
+    assert result.protocol_record is None
+    assert result.protocol_write_authority is not None
+    assert result.protocol_write_authority["allowed"] is False
+    assert result.protocol_write_authority["denied_reason"] == "protocol_write_content_unavailable_or_unsafe"
+    assert not any((tmp_path / "concepts").glob("*.md"))
 
 
 def test_protocol_engine_suppresses_one_off_draft_protocol_update(tmp_path: Path) -> None:

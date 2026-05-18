@@ -19,7 +19,7 @@ Final response payload assembly helpers for chat, local actions, and Scenario La
 - `ScenarioLabTurnBodyParts`: typed input object for the Scenario Lab service-turn body that `ScenarioLabTurn.to_body_parts()` exposes and `ScenarioLabTurn.to_dict()` delegates to.
 - `assemble_turn_interpretation_payload()`: builds the public `turn_interpretation` shape, including pinned-context compatibility aliases and whiteboard mode source.
 - `build_local_turn_parts()`: builds `TurnResultParts` from `LocalTurnContext`, an explicit action-specific `LocalTurnBodyParts`, optional workspace override, and typed turn interpretation.
-- `assemble_chat_turn_body()`: builds the normal chat payload body, including `memory` / `selected_memory`, `recall` / `working_memory`, `turn_vault_notes`, `recall_details`, learned records, trace record, and created-record compatibility.
+- `assemble_chat_turn_body()`: builds the normal chat payload body, including `memory` / `selected_memory`, `recall` / `working_memory`, `turn_vault_notes`, `recall_details`, learned records, trace record, optional protocol-write authority metadata, and created-record compatibility.
 - `assemble_scenario_lab_turn_body()`: builds the Scenario Lab payload body, including grouped memory aliases, comparison artifact, branch list, default no-op meta action, and `scenario_lab` summary object.
 - `assemble_workspace_payload_for_turn()`: merges service-returned workspace payloads with the authoritative workspace document while preserving transient-content disclosure and scenario metadata.
 - `assemble_local_turn_payload()`: builds local-action and clarification payloads from `TurnResultParts`.

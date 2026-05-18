@@ -8,6 +8,7 @@ from vantage_v5.services.turn_plan import TurnPlanBuilder
 from vantage_v5.services.turn_plan import build_turn_plan_artifact_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_concept_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_memory_write_authority
+from vantage_v5.services.turn_plan import build_turn_plan_protocol_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 
 
@@ -1417,7 +1418,145 @@ def test_turn_plan_protocol_write_authority_lifts_artifact_qna_no_write() -> Non
     assert plan["write_ledger"]["categories"] == ["concept_write"]
     assert plan["write_projection"]["intended_write_kind"] == "protocol_write"
     assert plan["write_projection"]["authority"] == "protocol_interpreter"
+    assert plan["protocol_write_authority"]["action"] == "protocol_write"
+    assert plan["protocol_write_authority"]["allowed"] is True
+    assert plan["protocol_write_authority"]["authority"] == "protocol_interpreter"
     assert "visible_artifact_qna_with_durable_write" not in _warning_codes(plan)
+
+
+def test_turn_plan_protocol_write_authority_allows_structured_candidate() -> None:
+    authority = build_turn_plan_protocol_write_authority(
+        response_payload={
+            "protocol_write_candidate": {
+                "action": "upsert_protocol",
+                "protocol_id": "email-drafting-protocol",
+                "protocol_kind": "email",
+                "title_present": True,
+                "card_present": True,
+                "body_present": True,
+            },
+        },
+        request_payload={"protocol_write_allowed_by_existing_policy": True},
+    )
+
+    assert authority.action == "protocol_write"
+    assert authority.allowed is True
+    assert authority.denied_reason is None
+    assert authority.content_available is True
+    assert authority.target_available is True
+    assert authority.candidate_action == "upsert_protocol"
+
+
+@pytest.mark.parametrize(
+    ("response_payload", "expected_reason"),
+    [
+        (
+            {
+                "surface_invocation": {
+                    "intent": "attention_selected_context",
+                    "primary_surface": "whiteboard",
+                    "write_behavior": "open_only",
+                }
+            },
+            "open_only_ui_handoff",
+        ),
+        (
+            {
+                "surface_invocation": {
+                    "intent": "preserve_visible_surface",
+                    "primary_surface": "chat",
+                    "write_behavior": "none",
+                }
+            },
+            "preserve_visible_surface",
+        ),
+        (
+            {
+                "surface_invocation": {
+                    "primary_surface": "chat",
+                    "write_behavior": "none",
+                    "surface_action": {"type": "close_visible_surface", "target_kind": "whiteboard"},
+                }
+            },
+            "close_visible_surface",
+        ),
+    ],
+)
+def test_turn_plan_protocol_write_authority_hard_no_write_wins(
+    response_payload: dict,
+    expected_reason: str,
+) -> None:
+    response_payload["protocol_write_candidate"] = {
+        "action": "upsert_protocol",
+        "protocol_id": "email-drafting-protocol",
+        "protocol_kind": "email",
+        "content_available": True,
+        "target_available": True,
+    }
+    authority = build_turn_plan_protocol_write_authority(
+        response_payload=response_payload,
+        request_payload={"protocol_write_allowed_by_existing_policy": True},
+    )
+
+    assert authority.action == "protocol_write"
+    assert authority.allowed is False
+    assert authority.denied_reason == expected_reason
+    assert authority.blocks_candidate_write is True
+
+
+def test_turn_plan_protocol_write_authority_denies_missing_content_or_target() -> None:
+    missing_content = build_turn_plan_protocol_write_authority(
+        response_payload={
+            "protocol_write_candidate": {
+                "action": "upsert_protocol",
+                "protocol_id": "email-drafting-protocol",
+                "protocol_kind": "email",
+                "content_available": False,
+                "target_available": True,
+            },
+        },
+        request_payload={"protocol_write_allowed_by_existing_policy": True},
+    )
+    missing_target = build_turn_plan_protocol_write_authority(
+        response_payload={
+            "protocol_write_candidate": {
+                "action": "upsert_protocol",
+                "content_available": True,
+                "target_available": False,
+            },
+        },
+        request_payload={"protocol_write_allowed_by_existing_policy": True},
+    )
+
+    assert missing_content.allowed is False
+    assert missing_content.denied_reason == "protocol_write_content_unavailable_or_unsafe"
+    assert missing_target.allowed is False
+    assert missing_target.denied_reason == "protocol_write_target_unavailable_or_ambiguous"
+
+
+def test_turn_plan_protocol_write_effect_without_authority_warns() -> None:
+    plan = _plan(
+        message="Summarize this in chat.",
+        response={
+            "protocol_write_authority": {
+                "action": "protocol_write",
+                "allowed": False,
+                "denied_reason": "protocol_write_blocked_by_existing_policy",
+                "authority": "protocol_interpreter",
+                "source_field_paths": ["protocol_write_candidate.action"],
+                "content_available": True,
+                "target_available": True,
+                "candidate_action": "upsert_protocol",
+                "no_write_reason": None,
+            },
+            "graph_action": {"type": "upsert_protocol", "record_id": "email-drafting-protocol"},
+            "created_record": {"id": "email-drafting-protocol", "type": "protocol"},
+        },
+    )
+
+    assert plan["protocol_write_authority"]["action"] == "protocol_write"
+    assert plan["protocol_write_authority"]["allowed"] is False
+    assert "protocol_write_effect_without_authority" in _warning_codes(plan)
 
 
 def test_turn_plan_warns_when_write_effect_has_only_legacy_no_write_compatibility() -> None:

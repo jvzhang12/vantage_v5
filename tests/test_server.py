@@ -3966,6 +3966,98 @@ def test_visible_artifact_qna_does_not_suppress_protocol_update(tmp_path: Path, 
     final_response = _latest_trace_payload(repo_root)["final_response"]
     assert final_response["turn_plan"]["side_effect_policy"]["suppress_auto_graph_writes_reason"] is None
     assert final_response["turn_plan"]["execution"]["suppress_auto_graph_writes"] is False
+    assert final_response["turn_plan"]["protocol_write_authority"]["action"] == "protocol_write"
+    assert final_response["turn_plan"]["protocol_write_authority"]["allowed"] is True
+    assert final_response["protocol_write_authority"]["allowed"] is True
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
+def test_hard_no_write_blocks_protocol_update_candidate(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    visible_artifacts = [
+        {
+            "id": "artifact:midterm-study-plan",
+            "kind": "whiteboard",
+            "title": "Midterm Study Plan",
+            "summary": "Study plan for graph algorithms and priorities.",
+            "content": "# Midterm Study Plan\n\nPractice graph traversal first.",
+        }
+    ]
+
+    def _interpret_protocol(self, **kwargs):
+        return ProtocolInterpretation(
+            protocol_write=build_protocol_write_from_interpretation(
+                protocol_kind="email",
+                variables={"signature": "Jordan Zhang"},
+                applies_to=["email"],
+                source_instruction=kwargs["message"],
+                existing_protocols=kwargs["existing_protocols"],
+            ),
+            recall_protocol_kinds=["email"],
+            rationale="The user set a reusable email signature.",
+        )
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Preserve the visible whiteboard.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "preserve_surface",
+                        "target": "whiteboard",
+                        "reason": "The user asked to keep the whiteboard open.",
+                    },
+                    {"type": "respond", "reason": "Acknowledge the preserve request."},
+                ],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.protocols.ProtocolInterpreter.interpret", _interpret_protocol)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "I kept the whiteboard open. I did not update the email protocol.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Hard no-write protocol turns should skip generic graph writes.")
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler.compile_for_turn",
+        lambda self, **kwargs: ArtifactActionPlan(artifact_actions=[]),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "keep the whiteboard open and always sign emails with Jordan Zhang",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": visible_artifacts[0]["content"],
+            "visible_artifacts": visible_artifacts,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_invocation"]["intent"] == "preserve_visible_surface"
+    assert payload["workspace_update"] is None
+    assert payload["created_record"] is None
+    assert payload["graph_action"] is None
+    assert payload["artifact_actions"] == []
+    assert not (repo_root / "concepts" / "email-drafting-protocol.md").exists()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["protocol_write_authority"]["action"] == "protocol_write"
+    assert final_response["turn_plan"]["protocol_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["protocol_write_authority"]["denied_reason"] == "preserve_visible_surface"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 

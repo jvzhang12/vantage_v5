@@ -158,6 +158,7 @@ class ChatTurnBodyParts:
     stage_audit: StageAuditResult | dict[str, Any] | None = None
     visible_artifacts: list[dict[str, Any]] | None = None
     selected_attention_resources: list[dict[str, Any]] | None = None
+    protocol_write_authority: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -383,6 +384,7 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
         "workspace_update": parts.workspace_update,
         "visible_artifacts": parts.visible_artifacts or [],
         "selected_attention_resources": parts.selected_attention_resources or [],
+        "protocol_write_authority": parts.protocol_write_authority,
         "memory": selected_memory,
         "selected_memory": selected_memory,
         "candidate_memory": candidate_memory,

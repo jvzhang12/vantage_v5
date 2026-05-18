@@ -320,6 +320,38 @@ class TurnPlanConceptWriteAuthority:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnPlanProtocolWriteAuthority:
+    """Execution-facing permission for protocol upsert/update candidates."""
+
+    action: str | None
+    allowed: bool
+    denied_reason: str | None
+    authority: str
+    source_field_paths: tuple[str, ...]
+    content_available: bool
+    target_available: bool
+    candidate_action: str | None
+    no_write_reason: str | None
+
+    @property
+    def blocks_candidate_write(self) -> bool:
+        return self.action == "protocol_write" and not self.allowed
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "allowed": self.allowed,
+            "denied_reason": self.denied_reason,
+            "authority": self.authority,
+            "source_field_paths": list(self.source_field_paths),
+            "content_available": self.content_available,
+            "target_available": self.target_available,
+            "candidate_action": self.candidate_action,
+            "no_write_reason": self.no_write_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class WriteIntentPlan:
     kind: str
     whiteboard_mode: str | None
@@ -564,6 +596,7 @@ class TurnPlan:
     artifact_write_authority: TurnPlanArtifactWriteAuthority
     memory_write_authority: TurnPlanMemoryWriteAuthority
     concept_write_authority: TurnPlanConceptWriteAuthority
+    protocol_write_authority: TurnPlanProtocolWriteAuthority
     protocols: ProtocolPlan
     semantic: SemanticPlan
     execution: ExecutionPlan
@@ -585,6 +618,7 @@ class TurnPlan:
             "artifact_write_authority": self.artifact_write_authority.to_dict(),
             "memory_write_authority": self.memory_write_authority.to_dict(),
             "concept_write_authority": self.concept_write_authority.to_dict(),
+            "protocol_write_authority": self.protocol_write_authority.to_dict(),
             "protocols": self.protocols.to_dict(),
             "semantic": self.semantic.to_dict(),
             "execution": self.execution.to_dict(),
@@ -643,6 +677,12 @@ class TurnPlanBuilder:
             write_projection=write_projection,
             side_effect_policy=side_effect_policy,
         )
+        protocol_write_authority = self._protocol_write_authority_plan(
+            request_payload=request_payload,
+            response_payload=response_payload,
+            write_projection=write_projection,
+            side_effect_policy=side_effect_policy,
+        )
         execution = self._execution_plan(response_payload, write_intent, side_effect_policy, ui_surface_action)
         compatibility = self._compatibility_plan(response_payload, write_intent)
         validation = self._validation_plan(
@@ -659,6 +699,7 @@ class TurnPlanBuilder:
             artifact_write_authority=artifact_write_authority,
             memory_write_authority=memory_write_authority,
             concept_write_authority=concept_write_authority,
+            protocol_write_authority=protocol_write_authority,
             semantic=semantic,
             execution=execution,
         )
@@ -676,6 +717,7 @@ class TurnPlanBuilder:
             artifact_write_authority=artifact_write_authority,
             memory_write_authority=memory_write_authority,
             concept_write_authority=concept_write_authority,
+            protocol_write_authority=protocol_write_authority,
             protocols=protocols,
             semantic=semantic,
             execution=execution,
@@ -1251,6 +1293,86 @@ class TurnPlanBuilder:
             no_write_reason=no_write_reason,
         )
 
+    def _protocol_write_authority_plan(
+        self,
+        *,
+        request_payload: dict[str, Any],
+        response_payload: dict[str, Any],
+        write_projection: WriteProjectionPlan,
+        side_effect_policy: SideEffectPolicy,
+    ) -> TurnPlanProtocolWriteAuthority:
+        sources = tuple(
+            source
+            for source in write_projection.sources
+            if source.get("kind") == "protocol_write"
+            and source.get("source") != "existing_write_effect"
+        )
+        has_protocol_effect = any(
+            source.get("kind") == "protocol_write" and source.get("source") == "existing_write_effect"
+            for source in write_projection.sources
+        )
+        candidate_action = _protocol_write_candidate_action(response_payload)
+        action = "protocol_write" if sources or has_protocol_effect or candidate_action is not None else None
+        existing_authority = _dict_or_empty(response_payload.get("protocol_write_authority"))
+        source_field_paths = tuple(
+            path
+            for path in (_optional_str(source.get("field_path")) for source in sources)
+            if path
+        )
+        if not source_field_paths and isinstance(existing_authority.get("source_field_paths"), list):
+            source_field_paths = tuple(
+                path
+                for path in (_optional_str(item) for item in existing_authority["source_field_paths"])
+                if path
+            )
+        content_available = _protocol_write_content_available(
+            request_payload=request_payload,
+            response_payload=response_payload,
+            has_protocol_effect=has_protocol_effect,
+        )
+        target_available = _protocol_write_target_available(
+            request_payload=request_payload,
+            response_payload=response_payload,
+            has_protocol_effect=has_protocol_effect,
+        )
+        existing_policy_allowed = request_payload.get("protocol_write_allowed_by_existing_policy")
+        prior_denied_reason = _optional_str(existing_authority.get("denied_reason"))
+        prior_allowed = existing_authority.get("allowed")
+        no_write_reason = side_effect_policy.suppress_auto_graph_writes_reason
+        denied_reason = None
+        allowed = False
+        if action is None:
+            denied_reason = None
+        elif no_write_reason is not None:
+            denied_reason = no_write_reason
+        elif existing_policy_allowed is False:
+            denied_reason = "protocol_write_blocked_by_existing_policy"
+        elif prior_allowed is False and prior_denied_reason:
+            denied_reason = prior_denied_reason
+        elif not sources:
+            denied_reason = "missing_structured_protocol_write_intent"
+        elif not content_available:
+            denied_reason = "protocol_write_content_unavailable_or_unsafe"
+        elif not target_available:
+            denied_reason = "protocol_write_target_unavailable_or_ambiguous"
+        else:
+            allowed = True
+        return TurnPlanProtocolWriteAuthority(
+            action=action,
+            allowed=allowed,
+            denied_reason=denied_reason,
+            authority=(
+                str(sources[0].get("source") or "structured_intent")
+                if sources
+                else (_optional_str(existing_authority.get("authority")) or "none")
+            ),
+            source_field_paths=source_field_paths,
+            content_available=content_available,
+            target_available=target_available,
+            candidate_action=candidate_action,
+            no_write_reason=no_write_reason,
+        )
+
     def _execution_plan(
         self,
         response_payload: dict[str, Any],
@@ -1313,6 +1435,7 @@ class TurnPlanBuilder:
         artifact_write_authority: TurnPlanArtifactWriteAuthority,
         memory_write_authority: TurnPlanMemoryWriteAuthority,
         concept_write_authority: TurnPlanConceptWriteAuthority,
+        protocol_write_authority: TurnPlanProtocolWriteAuthority,
         semantic: SemanticPlan,
         execution: ExecutionPlan,
     ) -> TurnPlanValidation:
@@ -1641,6 +1764,14 @@ class TurnPlanBuilder:
             and str(entry.operation or "").strip().lower() != "upsert_protocol"
             for entry in write_ledger.entries
         )
+        has_protocol_effect = any(
+            entry.category == "concept_write"
+            and (
+                str(entry.target_kind or "").strip().lower() == "protocol"
+                or str(entry.operation or "").strip().lower() == "upsert_protocol"
+            )
+            for entry in write_ledger.entries
+        )
         if (
             has_non_protocol_concept_effect
             and not concept_write_authority.allowed
@@ -1652,6 +1783,21 @@ class TurnPlanBuilder:
                     "A concept write effect appeared after TurnPlan denied concept write authority.",
                     [
                         "turn_plan.concept_write_authority",
+                        *write_side_effects,
+                    ],
+                )
+            )
+        if (
+            has_protocol_effect
+            and not protocol_write_authority.allowed
+            and protocol_write_authority.action == "protocol_write"
+        ):
+            warnings.append(
+                _validation_warning(
+                    "protocol_write_effect_without_authority",
+                    "A protocol write effect appeared after TurnPlan denied protocol write authority.",
+                    [
+                        "turn_plan.protocol_write_authority",
                         *write_side_effects,
                     ],
                 )
@@ -1789,6 +1935,38 @@ def build_turn_plan_concept_write_authority(
         semantic=semantic,
     )
     return builder._concept_write_authority_plan(
+        request_payload=request_payload or {},
+        response_payload=payload,
+        write_projection=write_projection,
+        side_effect_policy=side_effect_policy,
+    )
+
+
+def build_turn_plan_protocol_write_authority(
+    *,
+    response_payload: dict[str, Any],
+    request_payload: dict[str, Any] | None = None,
+) -> TurnPlanProtocolWriteAuthority:
+    """Build the TurnPlan permission gate for protocol upsert/update candidates."""
+
+    payload = _with_nested_surface_action(response_payload)
+    builder = TurnPlanBuilder()
+    retrieval = builder._retrieval_plan(payload)
+    ui_surface_action = builder._ui_surface_action_plan(payload, retrieval)
+    write_intent = builder._write_intent_plan(payload, ui_surface_action)
+    side_effect_policy = builder._side_effect_policy(request_payload or {}, payload, write_intent)
+    write_ledger = builder._write_ledger_plan(payload, write_intent, ui_surface_action)
+    route = builder._route_plan(payload)
+    semantic = builder._semantic_plan(payload)
+    write_projection = builder._write_projection_plan(
+        request_payload=request_payload or {},
+        response_payload=payload,
+        route=route,
+        write_intent=write_intent,
+        write_ledger=write_ledger,
+        semantic=semantic,
+    )
+    return builder._protocol_write_authority_plan(
         request_payload=request_payload or {},
         response_payload=payload,
         write_projection=write_projection,
@@ -1981,6 +2159,9 @@ def _control_panel_has_write_action(interpretation: dict[str, Any]) -> bool:
             "concept_write",
             "save_concept",
             "upsert_concept",
+            "protocol_write",
+            "upsert_protocol",
+            "update_protocol",
         }:
             return True
     return False
@@ -2080,6 +2261,32 @@ def _structured_write_intent_sources(
                     field_path="turn_plan.write_intent.kind",
                     kind=write_kind,
                     action=write_intent.kind,
+                )
+            )
+
+    protocol_candidate = _dict_or_empty(response_payload.get("protocol_write_candidate"))
+    protocol_candidate_action = str(protocol_candidate.get("action") or "").strip().lower()
+    if protocol_candidate_action in {"upsert_protocol", "protocol_write"}:
+        sources.append(
+            _write_source(
+                source="protocol_interpreter",
+                field_path="protocol_write_candidate.action",
+                kind="protocol_write",
+                action=protocol_candidate_action,
+            )
+        )
+    else:
+        protocol_authority = _dict_or_empty(response_payload.get("protocol_write_authority"))
+        protocol_authority_action = str(protocol_authority.get("candidate_action") or "").strip().lower()
+        if not protocol_authority_action and str(protocol_authority.get("action") or "").strip().lower() == "protocol_write":
+            protocol_authority_action = "protocol_write"
+        if protocol_authority.get("allowed") is True and protocol_authority_action in {"upsert_protocol", "protocol_write"}:
+            sources.append(
+                _write_source(
+                    source="protocol_interpreter",
+                    field_path="protocol_write_authority.action",
+                    kind="protocol_write",
+                    action=protocol_authority_action,
                 )
             )
 
@@ -2189,6 +2396,70 @@ def _concept_write_candidate_action(response_payload: dict[str, Any]) -> str | N
     return None
 
 
+def _protocol_write_candidate_action(response_payload: dict[str, Any]) -> str | None:
+    candidate = _dict_or_empty(response_payload.get("protocol_write_candidate"))
+    action = str(candidate.get("action") or "").strip().lower()
+    if action in {"upsert_protocol", "protocol_write"}:
+        return action
+    authority = _dict_or_empty(response_payload.get("protocol_write_authority"))
+    action = str(authority.get("candidate_action") or "").strip().lower()
+    if action in {"upsert_protocol", "protocol_write"}:
+        return action
+    if str(authority.get("action") or "").strip().lower() == "protocol_write":
+        return "protocol_write"
+    return None
+
+
+def _protocol_write_content_available(
+    *,
+    request_payload: dict[str, Any],
+    response_payload: dict[str, Any],
+    has_protocol_effect: bool,
+) -> bool:
+    explicit = request_payload.get("protocol_write_content_available")
+    if isinstance(explicit, bool):
+        return explicit
+    authority = _dict_or_empty(response_payload.get("protocol_write_authority"))
+    if isinstance(authority.get("content_available"), bool):
+        return bool(authority.get("content_available"))
+    candidate = _dict_or_empty(response_payload.get("protocol_write_candidate"))
+    if isinstance(candidate.get("content_available"), bool):
+        return bool(candidate.get("content_available"))
+    if has_protocol_effect:
+        return True
+    for key in ("title", "card", "body"):
+        value = candidate.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+        presence_key = f"{key}_present"
+        if isinstance(candidate.get(presence_key), bool) and candidate[presence_key]:
+            return True
+    return False
+
+
+def _protocol_write_target_available(
+    *,
+    request_payload: dict[str, Any],
+    response_payload: dict[str, Any],
+    has_protocol_effect: bool,
+) -> bool:
+    explicit = request_payload.get("protocol_write_target_available")
+    if isinstance(explicit, bool):
+        return explicit
+    authority = _dict_or_empty(response_payload.get("protocol_write_authority"))
+    if isinstance(authority.get("target_available"), bool):
+        return bool(authority.get("target_available"))
+    candidate = _dict_or_empty(response_payload.get("protocol_write_candidate"))
+    if isinstance(candidate.get("target_available"), bool):
+        return bool(candidate.get("target_available"))
+    if has_protocol_effect:
+        return True
+    return bool(
+        str(candidate.get("protocol_id") or "").strip()
+        and str(candidate.get("protocol_kind") or "").strip()
+    )
+
+
 def _effect_write_sources(write_ledger: WriteLedgerPlan) -> tuple[dict[str, Any], ...]:
     sources: list[dict[str, Any]] = []
     for entry in write_ledger.entries:
@@ -2249,6 +2520,9 @@ def _control_panel_write_kind(action_type: str) -> str | None:
         "concept_write": "concept_write",
         "save_concept": "concept_write",
         "upsert_concept": "concept_write",
+        "protocol_write": "protocol_write",
+        "upsert_protocol": "protocol_write",
+        "update_protocol": "protocol_write",
         "create_artifact": "artifact_save",
     }.get(normalized)
 
@@ -2274,6 +2548,9 @@ def _semantic_write_kind(action_type: str) -> str | None:
         "concept_write": "concept_write",
         "save_concept": "concept_write",
         "upsert_concept": "concept_write",
+        "protocol_write": "protocol_write",
+        "upsert_protocol": "protocol_write",
+        "update_protocol": "protocol_write",
         "create_artifact": "artifact_save",
     }.get(normalized)
 
@@ -2399,6 +2676,8 @@ def _payload_has_explicit_write_authority(
 
     if _optional_str(request_payload.get("memory_intent")) == "remember":
         return True
+    if _protocol_write_candidate_action(response_payload) is not None:
+        return True
     interpretation = _dict_or_empty(response_payload.get("turn_interpretation"))
     control_panel = _dict_or_empty(interpretation.get("control_panel"))
     if _control_panel_action_types(control_panel).intersection(
@@ -2418,6 +2697,9 @@ def _payload_has_explicit_write_authority(
             "concept_write",
             "save_concept",
             "upsert_concept",
+            "protocol_write",
+            "upsert_protocol",
+            "update_protocol",
             "create_artifact",
         }
     ):
@@ -2440,6 +2722,9 @@ def _payload_has_explicit_write_authority(
         "concept_write",
         "save_concept",
         "upsert_concept",
+        "protocol_write",
+        "upsert_protocol",
+        "update_protocol",
         "create_artifact",
         "artifact_save",
         "artifact_publish",
@@ -2460,6 +2745,9 @@ def _payload_has_explicit_write_authority(
         "concept_write",
         "save_concept",
         "upsert_concept",
+        "protocol_write",
+        "upsert_protocol",
+        "update_protocol",
         "create_artifact",
         "artifact_save",
         "artifact_publish",
@@ -2530,6 +2818,8 @@ def _has_explicit_write_authority(
 ) -> bool:
     if _optional_str((request_payload or {}).get("memory_intent")) == "remember":
         return True
+    if _protocol_write_candidate_action(response_payload or {}) is not None:
+        return True
     if write_intent.explicit_user_intent and write_intent.kind in {
         "whiteboard_draft",
         "whiteboard_offer",
@@ -2553,6 +2843,9 @@ def _has_explicit_write_authority(
             "concept_write",
             "save_concept",
             "upsert_concept",
+            "protocol_write",
+            "upsert_protocol",
+            "update_protocol",
         }
     ):
         return True
@@ -2582,6 +2875,9 @@ def _has_explicit_write_authority(
             "concept_write",
             "save_concept",
             "upsert_concept",
+            "protocol_write",
+            "upsert_protocol",
+            "update_protocol",
             "create_artifact",
             "artifact_save",
             "artifact_publish",
@@ -2602,6 +2898,9 @@ def _has_explicit_write_authority(
             "concept_write",
             "save_concept",
             "upsert_concept",
+            "protocol_write",
+            "upsert_protocol",
+            "update_protocol",
             "create_artifact",
             "artifact_save",
             "artifact_publish",

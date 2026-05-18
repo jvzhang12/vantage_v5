@@ -170,6 +170,7 @@ class ProtocolEngine:
         concept_records: list[MarkdownRecord],
         concept_store: ConceptStore,
         visible_artifacts: list[dict[str, Any]] | None = None,
+        allow_writes: bool = True,
     ) -> ProtocolTurnResult:
         protocol_interpretation = self.protocol_interpreter.interpret(
             message=message,
@@ -178,7 +179,7 @@ class ProtocolEngine:
             visible_artifacts=visible_artifacts,
         )
         protocol_write = protocol_interpretation.protocol_write
-        if protocol_write is not None and not _allows_protocol_write(message):
+        if protocol_write is not None and (not allow_writes or not _allows_protocol_write(message)):
             protocol_write = None
         protocol_record = None
         protocol_action = None

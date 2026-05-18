@@ -6,6 +6,12 @@ from typing import Any
 
 TURN_PLAN_VERSION = "turn_plan.v1"
 NO_WRITE_LEDGER_CATEGORIES = frozenset({"none", "open_only_no_write"})
+NO_WRITE_EXECUTION_CATEGORIES = {
+    "open_only_ui_handoff": "open_only_no_write",
+    "close_visible_surface": "close_visible_surface",
+    "preserve_visible_surface": "preserve_visible_surface",
+    "artifact_qna_chat_first": "visible_selected_artifact_qna",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,12 +152,40 @@ class TurnPlanSurfaceAuthority:
         return self.ui_surface_action.surface == "whiteboard" and self.ui_surface_action.mode == "open_only"
 
     @property
+    def no_write_reason(self) -> str | None:
+        return self.side_effect_policy.suppress_auto_graph_writes_reason
+
+    @property
+    def writes_forbidden(self) -> bool:
+        return self.no_write_reason is not None
+
+    @property
+    def enforced_no_write_categories(self) -> tuple[str, ...]:
+        reason = self.no_write_reason
+        if reason is None:
+            return ()
+        category = NO_WRITE_EXECUTION_CATEGORIES.get(reason)
+        return (category,) if category else (reason,)
+
+    @property
     def suppress_auto_graph_writes(self) -> bool:
-        return self.is_close or self.is_preserve or self.is_whiteboard_open_only
+        return self.writes_forbidden
 
     @property
     def blocks_artifact_actions(self) -> bool:
-        return self.is_close or self.is_preserve or self.is_whiteboard_open_only
+        return self.writes_forbidden
+
+    @property
+    def blocks_protocol_writes(self) -> bool:
+        return self.no_write_reason in {
+            "open_only_ui_handoff",
+            "close_visible_surface",
+            "preserve_visible_surface",
+        }
+
+    @property
+    def blocks_local_semantic_writes(self) -> bool:
+        return self.blocks_protocol_writes
 
     @property
     def surface_payload_policy(self) -> str:
@@ -169,8 +203,15 @@ class TurnPlanSurfaceAuthority:
             "surface_invocation": dict(self.surface_invocation),
             "surface_action": dict(self.surface_action) if self.surface_action else None,
             "execution": {
+                "writes_forbidden": self.writes_forbidden,
+                "no_write_reason": self.no_write_reason,
+                "enforced_no_write_categories": list(self.enforced_no_write_categories),
                 "suppress_auto_graph_writes": self.suppress_auto_graph_writes,
                 "artifact_action_policy": "disabled" if self.blocks_artifact_actions else "legacy_postprocess",
+                "protocol_write_policy": "disabled" if self.blocks_protocol_writes else "legacy_interpreter",
+                "local_semantic_write_policy": (
+                    "disabled" if self.blocks_local_semantic_writes else "legacy_semantic_policy"
+                ),
                 "surface_payload_policy": self.surface_payload_policy,
             },
         }
@@ -319,6 +360,7 @@ class ExecutionPlan:
     suppress_auto_graph_writes: bool
     surface_payload_policy: str
     artifact_action_policy: str
+    local_semantic_write_policy: str
     trace_final_response: bool
 
     def to_dict(self) -> dict[str, Any]:
@@ -328,6 +370,7 @@ class ExecutionPlan:
             "suppress_auto_graph_writes": self.suppress_auto_graph_writes,
             "surface_payload_policy": self.surface_payload_policy,
             "artifact_action_policy": self.artifact_action_policy,
+            "local_semantic_write_policy": self.local_semantic_write_policy,
             "trace_final_response": self.trace_final_response,
         }
 
@@ -433,7 +476,7 @@ class TurnPlanBuilder:
         visible_context = self._visible_context_plan(request_payload, response_payload, retrieval)
         ui_surface_action = self._ui_surface_action_plan(response_payload, retrieval)
         write_intent = self._write_intent_plan(response_payload, ui_surface_action)
-        side_effect_policy = self._side_effect_policy(response_payload, write_intent)
+        side_effect_policy = self._side_effect_policy(request_payload, response_payload, write_intent)
         write_ledger = self._write_ledger_plan(response_payload, write_intent, ui_surface_action)
         route = self._route_plan(response_payload)
         protocols = self._protocol_plan(response_payload)
@@ -441,6 +484,7 @@ class TurnPlanBuilder:
         execution = self._execution_plan(response_payload, write_intent, side_effect_policy, ui_surface_action)
         compatibility = self._compatibility_plan(response_payload, write_intent)
         validation = self._validation_plan(
+            request_payload=request_payload,
             response_payload=response_payload,
             route=route,
             retrieval=retrieval,
@@ -676,6 +720,7 @@ class TurnPlanBuilder:
 
     def _side_effect_policy(
         self,
+        request_payload: dict[str, Any],
         response_payload: dict[str, Any],
         write_intent: WriteIntentPlan,
     ) -> SideEffectPolicy:
@@ -683,8 +728,14 @@ class TurnPlanBuilder:
         surface_action = _optional_dict(response_payload.get("surface_action"))
         intent = _optional_str(invocation.get("intent"))
         artifact_qna = intent in {"current_artifact_followup", "selected_material_question"}
+        artifact_context = _payload_has_openable_artifact_context(response_payload)
         preserve_surface = intent == "preserve_visible_surface"
         open_only = write_intent.write_behavior == "open_only"
+        explicit_write_authority = _payload_has_explicit_write_authority(
+            request_payload,
+            response_payload,
+            write_intent,
+        )
         suppress_reason = None
         if surface_action is not None:
             suppress_reason = "close_visible_surface"
@@ -692,7 +743,7 @@ class TurnPlanBuilder:
             suppress_reason = "preserve_visible_surface"
         elif open_only:
             suppress_reason = "open_only_ui_handoff"
-        elif artifact_qna:
+        elif artifact_qna and artifact_context and not explicit_write_authority:
             suppress_reason = "artifact_qna_chat_first"
 
         workspace_update = _optional_dict(response_payload.get("workspace_update"))
@@ -842,6 +893,12 @@ class TurnPlanBuilder:
             suppress_auto_graph_writes=not side_effect_policy.allow_auto_graph_write,
             surface_payload_policy=surface_payload_policy,
             artifact_action_policy="compile_proposals" if side_effect_policy.allow_artifact_actions else "disabled",
+            local_semantic_write_policy=(
+                "disabled"
+                if side_effect_policy.suppress_auto_graph_writes_reason
+                in {"open_only_ui_handoff", "close_visible_surface", "preserve_visible_surface"}
+                else "legacy_semantic_policy"
+            ),
             trace_final_response=True,
         )
 
@@ -863,6 +920,7 @@ class TurnPlanBuilder:
     def _validation_plan(
         self,
         *,
+        request_payload: dict[str, Any],
         response_payload: dict[str, Any],
         route: RoutePlan,
         retrieval: RetrievalPlan,
@@ -1064,7 +1122,7 @@ class TurnPlanBuilder:
         if (
             artifact_context_chat
             and write_side_effects
-            and not _has_explicit_write_authority(route, write_intent, semantic)
+            and not _has_explicit_write_authority(route, write_intent, semantic, request_payload, response_payload)
         ):
             warnings.append(
                 _validation_warning(
@@ -1155,6 +1213,7 @@ def turn_plan_trace_payload(
 def build_turn_plan_surface_authority(
     *,
     response_payload: dict[str, Any],
+    request_payload: dict[str, Any] | None = None,
 ) -> TurnPlanSurfaceAuthority:
     """Build the internal TurnPlan surface-action contract from finalized fields.
 
@@ -1168,7 +1227,7 @@ def build_turn_plan_surface_authority(
     retrieval = builder._retrieval_plan(payload)
     ui_surface_action = builder._ui_surface_action_plan(payload, retrieval)
     write_intent = builder._write_intent_plan(payload, ui_surface_action)
-    side_effect_policy = builder._side_effect_policy(payload, write_intent)
+    side_effect_policy = builder._side_effect_policy(request_payload or {}, payload, write_intent)
     surface_invocation = _dict_or_empty(payload.get("surface_invocation"))
     surface_action = _optional_dict(payload.get("surface_action"))
     return TurnPlanSurfaceAuthority(
@@ -1299,6 +1358,95 @@ def _control_panel_action_types(control_panel: dict[str, Any]) -> set[str]:
     }
 
 
+def _payload_has_explicit_write_authority(
+    request_payload: dict[str, Any],
+    response_payload: dict[str, Any],
+    write_intent: WriteIntentPlan,
+) -> bool:
+    """Return whether finalized structured fields explicitly authorize writing.
+
+    Ordinary graph/action payloads are not authority by themselves. The only
+    finalized write effect treated as authority here is a protocol upsert,
+    because that payload is produced by the protocol interpreter before the
+    general meta-write path.
+    """
+
+    if _optional_str(request_payload.get("memory_intent")) == "remember":
+        return True
+    interpretation = _dict_or_empty(response_payload.get("turn_interpretation"))
+    control_panel = _dict_or_empty(interpretation.get("control_panel"))
+    if _control_panel_action_types(control_panel).intersection(
+        {
+            "draft_whiteboard",
+            "save_whiteboard",
+            "publish_artifact",
+            "remember",
+            "learn",
+            "create_concept",
+            "create_artifact",
+        }
+    ):
+        return True
+    semantic_policy = _dict_or_empty(response_payload.get("semantic_policy"))
+    semantic_action = str(semantic_policy.get("semantic_action") or "").strip().lower()
+    policy_action = str(semantic_policy.get("action_type") or "").strip().lower()
+    if semantic_action in {
+        "save",
+        "publish",
+        "remember",
+        "learn",
+        "create_concept",
+        "create_artifact",
+        "artifact_save",
+        "artifact_publish",
+    }:
+        return True
+    if policy_action in {
+        "save_whiteboard",
+        "publish_artifact",
+        "remember",
+        "learn",
+        "create_concept",
+        "create_artifact",
+        "artifact_save",
+        "artifact_publish",
+    }:
+        return True
+    graph_action = _dict_or_empty(response_payload.get("graph_action"))
+    created_record = _dict_or_empty(response_payload.get("created_record"))
+    graph_action_type = str(graph_action.get("type") or graph_action.get("action") or "").strip()
+    created_record_type = str(created_record.get("type") or created_record.get("source") or "").strip()
+    if graph_action_type == "upsert_protocol" or created_record_type == "protocol":
+        return True
+    return bool(
+        write_intent.explicit_user_intent
+        and write_intent.kind in {"whiteboard_draft", "whiteboard_offer", "scenario_branching"}
+    )
+
+
+def _payload_has_openable_artifact_context(response_payload: dict[str, Any]) -> bool:
+    for artifact in _list_of_dicts(response_payload.get("visible_artifacts")):
+        kind = str(artifact.get("kind") or "").strip().lower()
+        artifact_id = str(artifact.get("id") or "").strip()
+        if kind in {"artifact", "whiteboard"} or _is_openable_resource_id(artifact_id):
+            return True
+    for resource in _list_of_dicts(response_payload.get("selected_attention_resources")):
+        kind = str(resource.get("kind") or "").strip().lower()
+        app = str(resource.get("app") or "").strip().lower()
+        surface = str(resource.get("suggested_surface") or "").strip().lower()
+        source = str(resource.get("source") or "").strip().lower()
+        resource_id = str(resource.get("resource_id") or resource.get("id") or "").strip()
+        if (
+            kind in {"artifact", "whiteboard"}
+            or app == "whiteboard"
+            or surface == "whiteboard"
+            or source == "artifact"
+            or _is_openable_resource_id(resource_id)
+        ):
+            return True
+    return False
+
+
 def _navigator_selected_ids(navigator_selection: dict[str, Any] | None) -> set[str]:
     if not navigator_selection:
         return set()
@@ -1324,7 +1472,11 @@ def _has_explicit_write_authority(
     route: RoutePlan,
     write_intent: WriteIntentPlan,
     semantic: SemanticPlan,
+    request_payload: dict[str, Any] | None = None,
+    response_payload: dict[str, Any] | None = None,
 ) -> bool:
+    if _optional_str((request_payload or {}).get("memory_intent")) == "remember":
+        return True
     if write_intent.explicit_user_intent and write_intent.kind in {
         "whiteboard_draft",
         "whiteboard_offer",
@@ -1337,9 +1489,34 @@ def _has_explicit_write_authority(
         return True
     semantic_action = str(semantic.semantic_action or "").strip().lower()
     policy_action = str(semantic.policy_action_type or "").strip().lower()
+    response_payload = response_payload or {}
+    graph_action = _dict_or_empty(response_payload.get("graph_action"))
+    created_record = _dict_or_empty(response_payload.get("created_record"))
+    graph_action_type = str(graph_action.get("type") or graph_action.get("action") or "").strip()
+    created_record_type = str(created_record.get("type") or created_record.get("source") or "").strip()
+    if graph_action_type == "upsert_protocol" or created_record_type == "protocol":
+        return True
     return bool(
-        semantic_action in {"save", "publish", "remember", "learn", "create_concept", "create_artifact"}
-        or policy_action in {"save_whiteboard", "publish_artifact", "create_concept", "create_artifact"}
+        semantic_action
+        in {
+            "save",
+            "publish",
+            "remember",
+            "learn",
+            "create_concept",
+            "create_artifact",
+            "artifact_save",
+            "artifact_publish",
+        }
+        or policy_action
+        in {
+            "save_whiteboard",
+            "publish_artifact",
+            "create_concept",
+            "create_artifact",
+            "artifact_save",
+            "artifact_publish",
+        }
     )
 
 

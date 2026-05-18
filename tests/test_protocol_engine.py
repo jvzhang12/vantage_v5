@@ -385,6 +385,41 @@ def test_protocol_engine_interprets_and_applies_protocol_update(tmp_path: Path) 
     assert (tmp_path / "concepts" / "email-drafting-protocol.md").exists()
 
 
+def test_protocol_engine_can_interpret_protocols_without_writing(tmp_path: Path) -> None:
+    concept_store = ConceptStore(tmp_path / "concepts")
+    engine = ProtocolEngine()
+
+    class _Interpreter:
+        def interpret(self, **kwargs):
+            return ProtocolInterpretation(
+                protocol_write=build_protocol_write_from_interpretation(
+                    protocol_kind="email",
+                    variables={"signature": "Jordan Zhang"},
+                    applies_to=["email"],
+                    source_instruction="Always sign emails with Jordan Zhang.",
+                    existing_protocols=kwargs["existing_protocols"],
+                ),
+                recall_protocol_kinds=["email"],
+                rationale="The user updated a reusable email protocol.",
+            )
+
+    engine.protocol_interpreter = _Interpreter()
+
+    result = engine.interpret_and_apply(
+        message="Always sign my emails with Jordan Zhang.",
+        history=[],
+        concept_records=[],
+        concept_store=concept_store,
+        allow_writes=False,
+    )
+
+    assert result.protocol_action is None
+    assert result.protocol_record is None
+    assert result.recall_protocol_kinds == ("email",)
+    assert result.concept_records == ()
+    assert not (tmp_path / "concepts" / "email-drafting-protocol.md").exists()
+
+
 def test_protocol_engine_suppresses_one_off_draft_protocol_update(tmp_path: Path) -> None:
     concept_store = ConceptStore(tmp_path / "concepts")
     engine = ProtocolEngine()

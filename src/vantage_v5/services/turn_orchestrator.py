@@ -23,6 +23,7 @@ from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 from vantage_v5.services.turn_payloads import assemble_local_turn_payload
 from vantage_v5.services.turn_payloads import assemble_scenario_lab_fallback_payload
 from vantage_v5.services.turn_payloads import assemble_service_turn_payload
+from vantage_v5.services.turn_payloads import assemble_turn_interpretation_payload
 from vantage_v5.services.turn_payloads import build_local_turn_parts
 from vantage_v5.services.turn_payloads import LocalTurnBodyParts
 from vantage_v5.services.turn_payloads import LocalTurnContext
@@ -213,6 +214,17 @@ class TurnOrchestrator:
             if resolved_whiteboard_mode != routed_whiteboard_mode
             else None,
         )
+        surface_authority = build_turn_plan_surface_authority(
+            response_payload={
+                **attention_state_payload,
+                "surface_invocation": surface_invocation_payload,
+                "turn_interpretation": assemble_turn_interpretation_payload(turn_interpretation_parts),
+                "semantic_policy": semantic_policy,
+            },
+            request_payload={"message": request.message, "memory_intent": request.memory_intent},
+        )
+        suppress_auto_graph_writes = surface_authority.suppress_auto_graph_writes
+        suppress_protocol_writes = surface_authority.blocks_protocol_writes
         turn_stage = build_turn_stage(
             navigation_mode=navigation.mode,
             whiteboard_mode=resolved_whiteboard_mode if navigation.mode == "chat" else "chat",
@@ -247,21 +259,26 @@ class TurnOrchestrator:
             )
             payload.update(attention_state_payload)
             return payload
-        local_semantic_parts = self.local_semantic_actions.build_turn_parts(
-            LocalSemanticTurnContext(
-                runtime=context.runtime,
-                session=context.session,
-                message=request.message,
-                history=request.history,
-                workspace=context.workspace,
-                workspace_scope=context.normalized_workspace_scope,
-                transient_workspace=context.transient_workspace,
-                semantic_frame=semantic_frame,
-                semantic_policy=semantic_policy,
-                pinned_context_id=request.pinned_context_id,
-                pinned_context=context.pinned_context,
+        local_semantic_parts = None
+        if not (
+            surface_authority.blocks_local_semantic_writes
+            and _semantic_policy_has_local_write_action(semantic_policy)
+        ):
+            local_semantic_parts = self.local_semantic_actions.build_turn_parts(
+                LocalSemanticTurnContext(
+                    runtime=context.runtime,
+                    session=context.session,
+                    message=request.message,
+                    history=request.history,
+                    workspace=context.workspace,
+                    workspace_scope=context.normalized_workspace_scope,
+                    transient_workspace=context.transient_workspace,
+                    semantic_frame=semantic_frame,
+                    semantic_policy=semantic_policy,
+                    pinned_context_id=request.pinned_context_id,
+                    pinned_context=context.pinned_context,
+                )
             )
-        )
         if local_semantic_parts is not None:
             payload = assemble_local_turn_payload(
                 replace(
@@ -339,6 +356,7 @@ class TurnOrchestrator:
                 applied_protocol_kinds=applied_protocol_kinds,
                 turn_stage=turn_stage,
                 suppress_auto_graph_writes=suppress_auto_graph_writes,
+                suppress_protocol_writes=suppress_protocol_writes,
             )
 
         payload = assemble_service_turn_payload(
@@ -384,8 +402,16 @@ class TurnOrchestrator:
         error: Exception,
         attention_state_payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        authority_payload = {
+            "surface_invocation": surface_invocation,
+            "turn_interpretation": assemble_turn_interpretation_payload(turn_interpretation),
+            "semantic_policy": semantic_policy,
+        }
+        if attention_state_payload:
+            authority_payload.update(attention_state_payload)
         surface_authority = build_turn_plan_surface_authority(
-            response_payload={"surface_invocation": surface_invocation}
+            response_payload=authority_payload,
+            request_payload={"message": request.message, "memory_intent": request.memory_intent},
         )
         turn = runtime["chat_service"].reply(
             message=request.message,
@@ -416,6 +442,7 @@ class TurnOrchestrator:
                 public_summary="Scenario Lab fell back to a chat response.",
             ),
             suppress_auto_graph_writes=surface_authority.suppress_auto_graph_writes,
+            suppress_protocol_writes=surface_authority.blocks_protocol_writes,
         )
         payload = assemble_scenario_lab_fallback_payload(
             ScenarioLabFallbackParts(
@@ -454,6 +481,11 @@ def _close_surface_assistant_message(action: dict[str, Any]) -> str:
     if title:
         return f"Closed {title} from view."
     return f"Closed the {target} from view."
+
+
+def _semantic_policy_has_local_write_action(policy: dict[str, Any]) -> bool:
+    action_type = str(policy.get("action_type") or policy.get("semantic_action") or "").strip()
+    return action_type in {"artifact_save", "artifact_publish"}
 
 
 def _safe_scenario_lab_error_message(error: Exception) -> str:

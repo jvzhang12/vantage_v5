@@ -27,6 +27,7 @@ from vantage_v5.services.scenario_lab import ScenarioBranchPlan
 from vantage_v5.services.scenario_lab import ScenarioComparisonPlan
 from vantage_v5.services.scenario_lab import ScenarioPlan
 from vantage_v5.services.search import CandidateMemory
+from vantage_v5.services.semantic_policy import SemanticPolicyDecision
 from vantage_v5.services.turn_payloads import ChatTurnBodyParts
 from vantage_v5.server import create_app
 from vantage_v5.storage.artifacts import ArtifactStore
@@ -1058,6 +1059,12 @@ def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
     monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
     monkeypatch.setattr("vantage_v5.services.meta.MetaService.decide", _unexpected_meta_write)
+    monkeypatch.setattr(
+        "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler.compile_for_turn",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Visible artifact Q&A should not compile artifact actions.")
+        ),
+    )
 
     response = client.post(
         "/api/chat",
@@ -1083,6 +1090,7 @@ def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_
     assert payload["turn_interpretation"]["resolved_whiteboard_mode"] == "chat"
     assert payload["surface_invocation"]["intent"] == "current_artifact_followup"
     assert payload["surface_invocation"]["primary_surface"] == "chat"
+    assert payload["surface_invocation"]["write_behavior"] == "none"
     assert captured["whiteboard_mode"] == "chat"
     assert captured["visible_artifacts"][0]["id"] == "artifact:midterm-study-plan"
     artifact_ids_after = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
@@ -1091,6 +1099,88 @@ def test_visible_whiteboard_follow_up_answers_in_chat_without_saving_derivative_
     concept_ids_after = {path.stem for path in (repo_root / "concepts").glob("*.md")}
     assert concept_ids_after == concept_ids_before
     assert "active-study-cycle-for-algorithm-exam-preparation" not in concept_ids_after
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    turn_plan_execution = final_response["turn_plan"]["execution"]
+    assert turn_plan_execution["suppress_auto_graph_writes"] is True
+    assert turn_plan_execution["artifact_action_policy"] == "disabled"
+    assert final_response["turn_plan"]["side_effect_policy"]["suppress_auto_graph_writes_reason"] == (
+        "artifact_qna_chat_first"
+    )
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
+def test_visible_whiteboard_follow_up_with_memory_intent_remember_is_not_suppressed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    visible_artifacts = [
+        {
+            "id": "artifact:midterm-study-plan",
+            "kind": "whiteboard",
+            "title": "Midterm Study Plan",
+            "summary": "Study plan for graph algorithms and priorities.",
+            "content": "# Midterm Study Plan\n\nPractice graph traversal first.",
+        }
+    ]
+    captured: dict[str, object] = {}
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Visible study plan follow-up.",
+            whiteboard_mode="draft",
+        )
+
+    def _reply(self, **kwargs):
+        return "Start with graph traversal practice."
+
+    def _decide(self, **kwargs):
+        captured["memory_mode"] = kwargs["memory_mode"]
+        captured["visible_artifacts"] = kwargs["visible_artifacts"]
+        return MetaDecision(
+            action="create_memory",
+            title="Study plan first step",
+            card="Start with graph traversal practice.",
+            body="The visible Midterm Study Plan says to start with graph traversal practice.",
+            rationale="The user explicitly asked Vantage to remember this.",
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr("vantage_v5.services.meta.MetaService.decide", _decide)
+    monkeypatch.setattr(
+        "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler.compile_for_turn",
+        lambda self, **kwargs: ArtifactActionPlan(artifact_actions=[]),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Can you summarize this study plan? Remember the first step.",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": visible_artifacts[0]["content"],
+            "visible_artifacts": visible_artifacts,
+            "memory_intent": "remember",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert captured["memory_mode"] == "remember"
+    assert captured["visible_artifacts"][0]["id"] == "artifact:midterm-study-plan"
+    assert payload["surface_invocation"]["intent"] == "current_artifact_followup"
+    assert payload["created_record"]["source"] == "memory"
+    assert payload["graph_action"]["type"] == "create_memory"
+    assert (repo_root / "memories" / f"{payload['created_record']['id']}.md").exists()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["side_effect_policy"]["suppress_auto_graph_writes_reason"] is None
+    assert final_response["turn_plan"]["execution"]["suppress_auto_graph_writes"] is False
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
 def test_chat_close_visible_whiteboard_returns_close_action_without_writes(
@@ -1477,6 +1567,159 @@ def test_chat_preserve_calendar_open_does_not_foreground_calendar(
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
+def test_preserve_surface_blocks_local_semantic_artifact_publish(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    visible_artifact = {
+        "id": "artifact:midterm-study-plan",
+        "kind": "whiteboard",
+        "title": "Midterm Study Plan",
+        "summary": "Study plan for graph algorithms and priorities.",
+        "content": "# Midterm Study Plan\n\nPractice graph traversal first.",
+    }
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Navigator chose preserve-visible-surface.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "preserve_surface",
+                        "target": "whiteboard",
+                        "reason": "The user asked to keep the current whiteboard open.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr(
+        "vantage_v5.services.turn_orchestrator.decide_semantic_policy",
+        lambda *args, **kwargs: SemanticPolicyDecision(
+            action_type="artifact_publish",
+            should_clarify=False,
+            reason="Synthetic local publish policy for no-write regression coverage.",
+        ),
+    )
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "I'll keep the whiteboard open.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Preserve turns should suppress generic graph writes.")
+        ),
+    )
+
+    artifact_ids_before = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "leave the study plan open and publish this artifact",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": visible_artifact["content"],
+            "visible_artifacts": [visible_artifact],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_invocation"]["intent"] == "preserve_visible_surface"
+    assert payload["workspace_update"] is None
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["artifact_actions"] == []
+    assert {path.stem for path in (repo_root / "artifacts").glob("*.md")} == artifact_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["execution"]["local_semantic_write_policy"] == "disabled"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
+def test_close_surface_blocks_local_semantic_artifact_save(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    visible_artifact = {
+        "id": "artifact:midterm-study-plan",
+        "kind": "whiteboard",
+        "title": "Midterm Study Plan",
+        "summary": "Study plan for graph algorithms and priorities.",
+        "content": "# Midterm Study Plan\n\nPractice graph traversal first.",
+    }
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Navigator chose close-visible-surface.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "close_surface",
+                        "target": "whiteboard",
+                        "reason": "The user asked to close the current whiteboard.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr(
+        "vantage_v5.services.turn_orchestrator.decide_semantic_policy",
+        lambda *args, **kwargs: SemanticPolicyDecision(
+            action_type="artifact_save",
+            should_clarify=False,
+            reason="Synthetic local save policy for no-write regression coverage.",
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService.reply",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Close-visible-surface should return before ChatService.reply().")
+        ),
+    )
+
+    artifact_ids_before = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "close the whiteboard and save this whiteboard",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": visible_artifact["content"],
+            "visible_artifacts": [visible_artifact],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_action"]["type"] == "close_visible_surface"
+    assert payload["workspace_update"] is None
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["artifact_actions"] == []
+    assert {path.stem for path in (repo_root / "artifacts").glob("*.md")} == artifact_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["execution"]["local_semantic_write_policy"] == "disabled"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
 def test_chat_uses_explicit_navigator_surface_open_intent(tmp_path: Path, monkeypatch) -> None:
     client, _ = _client(tmp_path)
 
@@ -1782,6 +2025,81 @@ def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(
     assert payload["created_record"] is None
     assert payload["graph_action"] is None
     assert captured["whiteboard_mode"] == "chat"
+
+
+def test_open_only_blocks_local_semantic_artifact_save(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    artifact = ArtifactStore(repo_root / "artifacts").create_artifact(
+        title="Midterm Study Plan",
+        card="Exam preparation material about graphs and study priorities.",
+        body="# Midterm Study Plan\n\nPrioritize graph traversals and proof review.",
+    )
+
+    def _route(self, **kwargs):
+        artifact_resource_id = f"artifact:{artifact.id}"
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Navigator selected the saved study plan for a UI-only open.",
+            whiteboard_mode="chat",
+            attention_selection={
+                "selected_ids": [artifact_resource_id],
+                "primary_resource_id": artifact_resource_id,
+                "supporting_resource_ids": [],
+                "rejected_candidate_ids": [],
+                "surface_to_open": "whiteboard",
+                "reason": "Open the selected study plan as existing material.",
+                "confidence": 0.9,
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr(
+        "vantage_v5.services.turn_orchestrator.decide_semantic_policy",
+        lambda *args, **kwargs: SemanticPolicyDecision(
+            action_type="artifact_save",
+            should_clarify=False,
+            reason="Synthetic local save policy for no-write regression coverage.",
+        ),
+    )
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "Opened the Midterm Study Plan without saving anything.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Open-only turns should suppress generic graph writes.")
+        ),
+    )
+
+    artifact_ids_before = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Show me the saved Midterm Study Plan and save this whiteboard.",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": "# Midterm Study Plan\n\nPractice graph traversal first.",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_invocation"]["write_behavior"] == "open_only"
+    assert payload["workspace_update"] is None
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["artifact_actions"] == []
+    assert {path.stem for path in (repo_root / "artifacts").glob("*.md")} == artifact_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["execution"]["local_semantic_write_policy"] == "disabled"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
 def test_chat_returns_proposed_calendar_action_without_mutating_user_file(tmp_path: Path) -> None:
@@ -3175,6 +3493,85 @@ def test_email_protocol_is_learned_and_recalled_for_matching_draft(tmp_path: Pat
     assert recalled["email-drafting-protocol"]["type"] == "protocol"
     assert "Jordan Zhang" in recalled["email-drafting-protocol"]["body"]
     assert (repo_root / "concepts" / "email-drafting-protocol.md").exists()
+
+
+def test_visible_artifact_qna_does_not_suppress_protocol_update(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    visible_artifacts = [
+        {
+            "id": "artifact:midterm-study-plan",
+            "kind": "whiteboard",
+            "title": "Midterm Study Plan",
+            "summary": "Study plan for graph algorithms and priorities.",
+            "content": "# Midterm Study Plan\n\nPractice graph traversal first.",
+        }
+    ]
+
+    def _interpret_protocol(self, **kwargs):
+        return ProtocolInterpretation(
+            protocol_write=build_protocol_write_from_interpretation(
+                protocol_kind="email",
+                variables={"signature": "Jordan Zhang"},
+                applies_to=["email"],
+                source_instruction=kwargs["message"],
+                existing_protocols=kwargs["existing_protocols"],
+            ),
+            recall_protocol_kinds=["email"],
+            rationale="The user set a reusable email signature.",
+        )
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Visible study plan follow-up plus reusable protocol update.",
+            whiteboard_mode="chat",
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.protocols.ProtocolInterpreter.interpret", _interpret_protocol)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "Use graph traversal first. I also updated the email signature protocol.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Protocol updates should skip the generic meta write path.")
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler.compile_for_turn",
+        lambda self, **kwargs: ArtifactActionPlan(artifact_actions=[]),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": (
+                "For emails, always sign drafts with Jordan Zhang. "
+                "Can you summarize this study plan?"
+            ),
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": visible_artifacts[0]["content"],
+            "visible_artifacts": visible_artifacts,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_invocation"]["intent"] == "current_artifact_followup"
+    assert payload["created_record"]["id"] == "email-drafting-protocol"
+    assert payload["created_record"]["type"] == "protocol"
+    assert payload["graph_action"]["type"] == "upsert_protocol"
+    assert (repo_root / "concepts" / "email-drafting-protocol.md").exists()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["side_effect_policy"]["suppress_auto_graph_writes_reason"] is None
+    assert final_response["turn_plan"]["execution"]["suppress_auto_graph_writes"] is False
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
 def test_email_protocol_updates_existing_record_in_place(tmp_path: Path, monkeypatch) -> None:

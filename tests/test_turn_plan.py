@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from vantage_v5.services.chat import build_final_response_trace_payload
 from vantage_v5.services.turn_plan import TurnPlanBuilder
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
@@ -132,6 +134,8 @@ def test_turn_plan_saved_artifact_open_only() -> None:
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is False
     assert plan["side_effect_policy"]["allow_artifact_actions"] is False
     assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "open_only_ui_handoff"
+    assert plan["execution"]["suppress_auto_graph_writes"] is True
+    assert plan["execution"]["artifact_action_policy"] == "disabled"
     assert plan["validation"]["warnings"] == []
 
 
@@ -165,6 +169,10 @@ def test_turn_plan_surface_authority_open_only_blocks_writes_and_payloads() -> N
     assert authority.is_preserve is False
     assert authority.suppress_auto_graph_writes is True
     assert authority.blocks_artifact_actions is True
+    assert authority.writes_forbidden is True
+    assert authority.no_write_reason == "open_only_ui_handoff"
+    assert authority.enforced_no_write_categories == ("open_only_no_write",)
+    assert authority.blocks_protocol_writes is True
     assert authority.surface_payload_policy == "none"
     assert authority.ui_surface_action.target_resource_id == "artifact:midterm-study-plan"
 
@@ -476,6 +484,265 @@ def test_turn_plan_visible_artifact_qna_with_explicit_save_does_not_warn() -> No
     )
 
     assert "visible_artifact_qna_with_durable_write" not in _warning_codes(plan)
+    assert plan["side_effect_policy"]["allow_auto_graph_write"] is True
+    assert plan["side_effect_policy"]["allow_artifact_actions"] is False
+    assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] is None
+
+
+@pytest.mark.parametrize("action_type", ["artifact_save", "artifact_publish"])
+def test_turn_plan_visible_artifact_qna_with_real_semantic_write_action_does_not_suppress(
+    action_type: str,
+) -> None:
+    visible_artifact = {
+        "id": "artifact:midterm-study-plan",
+        "kind": "whiteboard",
+        "title": "Midterm Study Plan",
+    }
+    graph_action_type = (
+        "save_workspace_iteration_artifact"
+        if action_type == "artifact_save"
+        else "promote_workspace_to_artifact"
+    )
+    plan = _plan(
+        message="Save this whiteboard.",
+        request={"visible_artifacts": [visible_artifact], "workspace_scope": "visible"},
+        response={
+            "surface_invocation": {
+                "intent": "current_artifact_followup",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "visible_artifacts": [visible_artifact],
+            "workspace": {"context_scope": "visible"},
+            "semantic_policy": {"action_type": action_type, "semantic_action": action_type},
+            "graph_action": {"type": graph_action_type},
+            "created_record": {"id": "midterm-study-plan-snapshot", "source": "artifact"},
+        },
+    )
+
+    assert plan["side_effect_policy"]["allow_auto_graph_write"] is True
+    assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] is None
+    assert plan["write_ledger"]["categories"] == ["artifact_save_or_promotion"]
+    assert "visible_artifact_qna_with_durable_write" not in _warning_codes(plan)
+
+
+def test_turn_plan_visible_artifact_qna_with_memory_intent_remember_does_not_suppress() -> None:
+    visible_artifact = {
+        "id": "artifact:midterm-study-plan",
+        "kind": "whiteboard",
+        "title": "Midterm Study Plan",
+    }
+    plan = _plan(
+        message="Remember this study plan summary.",
+        request={
+            "visible_artifacts": [visible_artifact],
+            "workspace_scope": "visible",
+            "memory_intent": "remember",
+        },
+        response={
+            "surface_invocation": {
+                "intent": "current_artifact_followup",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "visible_artifacts": [visible_artifact],
+            "workspace": {"context_scope": "visible"},
+        },
+    )
+
+    assert plan["side_effect_policy"]["allow_auto_graph_write"] is True
+    assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] is None
+    assert plan["execution"]["suppress_auto_graph_writes"] is False
+    assert plan["validation"]["warnings"] == []
+
+
+def test_turn_plan_surface_authority_visible_artifact_qna_forbids_writes() -> None:
+    authority = build_turn_plan_surface_authority(
+        response_payload={
+            "surface_invocation": {
+                "intent": "current_artifact_followup",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "visible_artifacts": [
+                {
+                    "id": "artifact:midterm-study-plan",
+                    "kind": "whiteboard",
+                    "title": "Midterm Study Plan",
+                }
+            ],
+            "turn_interpretation": {
+                "resolved_whiteboard_mode": "chat",
+                "control_panel": {"actions": [{"type": "respond"}]},
+            },
+        }
+    )
+
+    assert authority.writes_forbidden is True
+    assert authority.suppress_auto_graph_writes is True
+    assert authority.blocks_artifact_actions is True
+    assert authority.blocks_protocol_writes is False
+    assert authority.no_write_reason == "artifact_qna_chat_first"
+    assert authority.enforced_no_write_categories == ("visible_selected_artifact_qna",)
+    assert authority.ui_surface_action.mode == "none"
+
+
+def test_turn_plan_surface_authority_selected_artifact_qna_forbids_writes() -> None:
+    authority = build_turn_plan_surface_authority(
+        response_payload={
+            "selected_attention_resources": [
+                {
+                    "resource_id": "artifact:midterm-study-plan",
+                    "kind": "artifact",
+                    "suggested_surface": "whiteboard",
+                }
+            ],
+            "surface_invocation": {
+                "intent": "selected_material_question",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "turn_interpretation": {
+                "resolved_whiteboard_mode": "chat",
+                "control_panel": {"actions": [{"type": "respond"}]},
+            },
+        }
+    )
+
+    assert authority.writes_forbidden is True
+    assert authority.suppress_auto_graph_writes is True
+    assert authority.blocks_artifact_actions is True
+    assert authority.blocks_protocol_writes is False
+    assert authority.no_write_reason == "artifact_qna_chat_first"
+    assert authority.enforced_no_write_categories == ("visible_selected_artifact_qna",)
+
+
+def test_turn_plan_surface_authority_selected_non_artifact_question_allows_meta_path() -> None:
+    authority = build_turn_plan_surface_authority(
+        response_payload={
+            "selected_attention_resources": [
+                {
+                    "resource_id": "visible:calendar-week-2026-05-11",
+                    "kind": "calendar_week",
+                    "suggested_surface": "calendar_week",
+                }
+            ],
+            "surface_invocation": {
+                "intent": "selected_material_question",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "turn_interpretation": {
+                "resolved_whiteboard_mode": "chat",
+                "control_panel": {"actions": [{"type": "respond"}]},
+            },
+        }
+    )
+
+    assert authority.writes_forbidden is False
+    assert authority.suppress_auto_graph_writes is False
+    assert authority.blocks_artifact_actions is False
+    assert authority.no_write_reason is None
+
+
+def test_turn_plan_surface_authority_artifact_qna_explicit_save_allows_existing_write_paths() -> None:
+    authority = build_turn_plan_surface_authority(
+        response_payload={
+            "surface_invocation": {
+                "intent": "current_artifact_followup",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "visible_artifacts": [
+                {
+                    "id": "artifact:midterm-study-plan",
+                    "kind": "whiteboard",
+                    "title": "Midterm Study Plan",
+                }
+            ],
+            "turn_interpretation": {
+                "resolved_whiteboard_mode": "chat",
+                "control_panel": {"actions": [{"type": "save_whiteboard"}]},
+            },
+            "semantic_policy": {"semantic_action": "save"},
+        }
+    )
+
+    assert authority.writes_forbidden is False
+    assert authority.suppress_auto_graph_writes is False
+    assert authority.blocks_artifact_actions is False
+    assert authority.no_write_reason is None
+    assert authority.enforced_no_write_categories == ()
+
+
+def test_turn_plan_surface_authority_artifact_qna_memory_intent_allows_existing_write_paths() -> None:
+    authority = build_turn_plan_surface_authority(
+        request_payload={"memory_intent": "remember"},
+        response_payload={
+            "surface_invocation": {
+                "intent": "current_artifact_followup",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "visible_artifacts": [
+                {
+                    "id": "artifact:midterm-study-plan",
+                    "kind": "whiteboard",
+                    "title": "Midterm Study Plan",
+                }
+            ],
+        },
+    )
+
+    assert authority.writes_forbidden is False
+    assert authority.suppress_auto_graph_writes is False
+    assert authority.blocks_artifact_actions is False
+    assert authority.blocks_protocol_writes is False
+    assert authority.no_write_reason is None
+
+
+def test_turn_plan_protocol_write_authority_lifts_artifact_qna_no_write() -> None:
+    visible_artifact = {
+        "id": "artifact:midterm-study-plan",
+        "kind": "whiteboard",
+        "title": "Midterm Study Plan",
+    }
+    plan = _plan(
+        message="For emails, always sign with Jordan Zhang; summarize this study plan.",
+        request={"visible_artifacts": [visible_artifact], "workspace_scope": "visible"},
+        response={
+            "surface_invocation": {
+                "intent": "current_artifact_followup",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "visible_artifacts": [visible_artifact],
+            "workspace": {"context_scope": "visible"},
+            "graph_action": {"type": "upsert_protocol", "record_id": "email-drafting-protocol"},
+            "created_record": {"id": "email-drafting-protocol", "type": "protocol"},
+        },
+    )
+
+    assert plan["side_effect_policy"]["allow_auto_graph_write"] is True
+    assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] is None
+    assert plan["write_ledger"]["categories"] == ["concept_write"]
+    assert "visible_artifact_qna_with_durable_write" not in _warning_codes(plan)
 
 
 def test_turn_plan_write_ledger_pending_offer() -> None:
@@ -620,6 +887,10 @@ def test_turn_plan_surface_authority_preserve_short_circuits_surface_payloads() 
     assert authority.is_close is False
     assert authority.suppress_auto_graph_writes is True
     assert authority.blocks_artifact_actions is True
+    assert authority.blocks_protocol_writes is True
+    assert authority.writes_forbidden is True
+    assert authority.no_write_reason == "preserve_visible_surface"
+    assert authority.enforced_no_write_categories == ("preserve_visible_surface",)
     assert authority.surface_payload_policy == "none"
     assert authority.ui_surface_action.target_resource_kind == "calendar"
 
@@ -654,6 +925,10 @@ def test_turn_plan_surface_authority_close_uses_nested_surface_action() -> None:
     }
     assert authority.suppress_auto_graph_writes is True
     assert authority.blocks_artifact_actions is True
+    assert authority.blocks_protocol_writes is True
+    assert authority.writes_forbidden is True
+    assert authority.no_write_reason == "close_visible_surface"
+    assert authority.enforced_no_write_categories == ("close_visible_surface",)
     assert authority.surface_payload_policy == "none"
 
 

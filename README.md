@@ -40,8 +40,9 @@ The user-facing default should be:
 - a deliberate `Vantage` view for Reasoning Path, Working Memory, Learned, and the library
 - an on-demand whiteboard that appears only when the user asks for it or accepts an invite/draft flow, and then becomes the main drafting surface rather than another inspection dock
 - a clear authority boundary where Attention selects bounded context, while Navigator/control-panel intent decides whether a UI surface should open
-- an internal TurnPlan surface-action contract that applies open, close, and preserve/no-op surface behavior after Navigator/control-plane interpretation, while write/draft/save execution remains on the existing explicit write paths
-- a trace-only TurnPlan write ledger that records finalized write/no-write effects for debugging and validation without becoming the write execution authority
+- an internal TurnPlan surface-action contract that applies open, close, and preserve/no-op surface behavior after Navigator/control-plane interpretation
+- a TurnPlan no-write policy that suppresses writes for structured no-write turns such as open-only UI handoffs, close/preserve surface actions, and ordinary visible/selected artifact Q&A without becoming an authority for creating or approving writes
+- a TurnPlan write ledger that records finalized write/no-write effects for debugging and validation while positive write/draft/save execution remains on the existing explicit write paths
 - visible surfaces remain user-controlled context: a normal chat command can close or hide the current Whiteboard, artifact, calendar, Today, or task surface without deleting the saved underlying data, while keep/leave-open commands preserve the current surface instead of reopening another item
 
 ### 3. Persistent Memory
@@ -771,6 +772,7 @@ The V5 architecture can be summarized like this:
 - the navigator interprets turns semantically before chat executes them
 - the navigator can route comparative what-if turns into Scenario Lab
 - the navigator can preserve selected context for continuity and steer auto-mode whiteboard collaboration
+- TurnPlan is now authoritative for surface actions and no-write suppression on structured no-write turns, but it does not yet authorize positive writes
 - Scenario Lab writes branch workspaces plus a comparison artifact
 - a graph-conditioned meta call decides what to do with each interaction
 - timeless knowledge can become a concept

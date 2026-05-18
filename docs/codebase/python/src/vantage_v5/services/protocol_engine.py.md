@@ -19,7 +19,7 @@ Backend protocol-resolution boundary for one chat turn.
 - `ProtocolTurnResult`: immutable result for interpreter-driven protocol learning, including the optional `upsert_protocol` action, updated protocol record, recall kinds, merged concept records, and rationale.
 - `ProtocolCatalogEntry`: protocol API catalog fact that contains either a persisted protocol record or a built-in protocol kind.
 - `ProtocolCatalog`: immutable list of protocol catalog entries for API serialization.
-- `ProtocolEngine`: implements `resolve_for_turn(navigation, request, context) -> ResolvedTurnProtocols`, `interpret_and_apply(...) -> ProtocolTurnResult`, `build_guidance(protocol_kinds, concept_records, experiment_root, runtime_scope) -> ProtocolGuidance`, `list_catalog(...) -> ProtocolCatalog`, `lookup_catalog_entry(...)`, and `update_from_api(...)`.
+- `ProtocolEngine`: implements `resolve_for_turn(navigation, request, context) -> ResolvedTurnProtocols`, `interpret_and_apply(..., allow_writes=True) -> ProtocolTurnResult`, `build_guidance(protocol_kinds, concept_records, experiment_root, runtime_scope) -> ProtocolGuidance`, `list_catalog(...) -> ProtocolCatalog`, `lookup_catalog_entry(...)`, and `update_from_api(...)`.
 
 ## Notable Behavior
 
@@ -27,7 +27,7 @@ Backend protocol-resolution boundary for one chat turn.
 - Deduplicates repeated protocol actions while preserving Navigator action order.
 - Adds task-surface protocol actions after Navigator actions: email-looking turns load the email protocol, research-paper-looking turns load the research-paper protocol, and explicit Scenario Lab turns load the Scenario Lab protocol.
 - Ignores unsupported protocol kinds with warnings instead of letting arbitrary raw strings reach Chat or Scenario Lab.
-- `interpret_and_apply()` owns protocol learning/upsert side effects. It only acts on a structured `ProtocolInterpreter` decision after a deterministic reusable-preference/protocol-edit gate passes, writes through `ConceptStore.upsert_protocol()`, returns the `ExecutedAction`, and merges the updated protocol back into the concept records used for the turn.
+- `interpret_and_apply()` owns protocol learning/upsert side effects. It only acts on a structured `ProtocolInterpreter` decision after a deterministic reusable-preference/protocol-edit gate passes and `allow_writes` remains true, writes through `ConceptStore.upsert_protocol()`, returns the `ExecutedAction`, and merges the updated protocol back into the concept records used for the turn. No-write TurnPlan execution can pass `allow_writes=False` while still preserving protocol recall guidance.
 - Ordinary one-off drafting or revision requests may recall a protocol as guidance, but they do not update the protocol record unless the user explicitly frames the instruction as reusable future behavior.
 - `build_guidance()` owns the high-priority protocol candidate construction used by Chat and Scenario Lab, so those services no longer call the lower-level `protocol_candidates_for_kinds()` helper directly. It accepts explicit experiment/runtime scope inputs so experiment-local protocol candidates keep temporary provenance while canonical and built-in guidance remain correctly labeled.
 - The engine carries the configured canonical root into protocol update and guidance helpers so canonical override flags depend on root-relative paths rather than path segment names.

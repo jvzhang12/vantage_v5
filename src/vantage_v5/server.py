@@ -889,7 +889,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 app_capabilities=app_capabilities,
             )
         )
-        surface_authority = build_turn_plan_surface_authority(response_payload=payload)
+        surface_authority = build_turn_plan_surface_authority(
+            response_payload=payload,
+            request_payload={"message": message, "memory_intent": memory_intent},
+        )
         action_visible_artifacts = [
             *(visible_artifacts or []),
             *_visible_artifacts_from_selected_attention(payload.get("selected_attention_resources")),
@@ -912,7 +915,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 action_plan.artifact_actions[0],
                 existing=payload.get("surface_invocation"),
             )
-        surface_authority = build_turn_plan_surface_authority(response_payload=payload)
+        surface_authority = build_turn_plan_surface_authority(
+            response_payload=payload,
+            request_payload={"message": message, "memory_intent": memory_intent},
+        )
         if surface_authority.surface_payload_policy == "build_operational_payload":
             surface_result = _surface_payload_builder_for_scope(durable_scope).build_for_turn(
                 message=message,

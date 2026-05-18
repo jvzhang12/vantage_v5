@@ -203,6 +203,11 @@ class TurnOrchestrator:
                 user_message=request.message,
             ),
         ).to_dict()
+        effective_memory_intent = _effective_memory_intent(
+            request.memory_intent,
+            navigation=navigation,
+            semantic_policy=semantic_policy,
+        )
         turn_interpretation_parts = TurnInterpretationParts(
             navigation=navigation,
             requested_whiteboard_mode=request.whiteboard_mode,
@@ -222,7 +227,7 @@ class TurnOrchestrator:
                 "turn_interpretation": assemble_turn_interpretation_payload(turn_interpretation_parts),
                 "semantic_policy": semantic_policy,
             },
-            request_payload={"message": request.message, "memory_intent": request.memory_intent},
+            request_payload={"message": request.message, "memory_intent": effective_memory_intent},
         )
         suppress_auto_graph_writes = surface_authority.suppress_auto_graph_writes
         suppress_protocol_writes = surface_authority.blocks_protocol_writes
@@ -236,7 +241,7 @@ class TurnOrchestrator:
             },
             request_payload={
                 "message": request.message,
-                "memory_intent": request.memory_intent,
+                "memory_intent": effective_memory_intent,
                 "workspace_scope": context.normalized_workspace_scope,
                 "workspace_has_content": workspace_has_content,
                 "artifact_write_target_available": context.normalized_workspace_scope != "excluded"
@@ -396,7 +401,7 @@ class TurnOrchestrator:
                 message=request.message,
                 workspace=context.workspace,
                 history=request.history,
-                memory_intent=request.memory_intent,
+                memory_intent=effective_memory_intent,
                 selected_record_id=request.pinned_context_id,
                 whiteboard_mode=resolved_whiteboard_mode,
                 preserve_selected_record=(
@@ -562,6 +567,37 @@ def _artifact_write_denied_by_hard_no_write(reason: str | None) -> bool:
         "close_visible_surface",
         "preserve_visible_surface",
     }
+
+
+def _effective_memory_intent(
+    requested_memory_intent: str,
+    *,
+    navigation: NavigationDecision,
+    semantic_policy: dict[str, Any],
+) -> str:
+    normalized = str(requested_memory_intent or "auto").strip().lower()
+    if normalized in {"remember", "skip", "dont_save"}:
+        return normalized
+    if _navigation_has_memory_action(navigation) or _semantic_policy_has_memory_action(semantic_policy):
+        return "remember"
+    return normalized or "auto"
+
+
+def _navigation_has_memory_action(navigation: NavigationDecision) -> bool:
+    control_panel = navigation.control_panel if isinstance(navigation.control_panel, dict) else {}
+    actions = control_panel.get("actions")
+    if not isinstance(actions, list):
+        return False
+    return any(
+        isinstance(action, dict)
+        and str(action.get("type") or "").strip().lower() in {"remember", "memory_write", "save_memory"}
+        for action in actions
+    )
+
+
+def _semantic_policy_has_memory_action(policy: dict[str, Any]) -> bool:
+    action_type = str(policy.get("action_type") or policy.get("semantic_action") or "").strip().lower()
+    return action_type in {"remember", "memory_write", "save_memory", "create_memory"}
 
 
 def _denied_artifact_write_assistant_message(surface_authority: Any, artifact_write_authority: Any) -> str:

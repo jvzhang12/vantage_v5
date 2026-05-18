@@ -198,6 +198,19 @@ def build_surface_invocation(
             whiteboard_mode="chat",
             status="kept_current_view",
         )
+    remember_action = _control_panel_surface_action(navigation, "remember")
+    if remember_action is not None:
+        return _invocation(
+            intent="memory_write",
+            primary=SURFACE_CHAT,
+            supporting=(),
+            write_behavior="none",
+            reason=_clean(remember_action.get("reason"))
+            or "The user asked Vantage to remember information, so the turn stays in chat.",
+            confidence=_action_confidence(remember_action, default=0.82),
+            whiteboard_mode="chat",
+            status="handled_by_memory_write",
+        )
     if navigation_mode == "scenario_lab":
         return _invocation(
             intent="scenario_comparison",

@@ -33,6 +33,7 @@ def test_control_panel_normalization_validates_actions_and_protocol_kinds() -> N
                     "target": "study_plan",
                     "reason": "  keep this artifact open  ",
                 },
+                {"type": "remember", "protocol_kind": "email", "reason": "  remember this fact  "},
             ],
             "working_memory_queries": [" email protocol ", "", "  scenario protocol  "],
             "response_call": {"type": "chat_response", "after_working_memory": True},
@@ -58,6 +59,7 @@ def test_control_panel_normalization_validates_actions_and_protocol_kinds() -> N
                 "target": "artifact",
                 "reason": "keep this artifact open",
             },
+            {"type": "remember", "protocol_kind": None, "reason": "remember this fact"},
         ],
         "working_memory_queries": ["email protocol", "scenario protocol"],
         "response_call": {"type": "chat_response", "after_working_memory": True},
@@ -197,6 +199,42 @@ def test_control_panel_fallback_does_not_open_for_normal_artifact_question() -> 
 
     assert decision.attention_selection is not None
     assert decision.attention_selection["surface_to_open"] is None
+    assert all(action["type"] != "open_whiteboard" for action in decision.control_panel["actions"])
+
+
+def test_control_panel_fallback_adds_memory_intent_and_clears_surface_open() -> None:
+    decision = apply_control_panel_open_intent_fallback(
+        NavigationDecision(
+            mode="chat",
+            confidence=0.65,
+            reason="Model selected task context because the remembered content mentions priority.",
+            whiteboard_mode="chat",
+            control_panel={"actions": [], "working_memory_queries": [], "response_call": None},
+            attention_selection={
+                "selected_ids": ["task_focus:2026-05-14"],
+                "primary_resource_id": "task_focus:2026-05-14",
+                "supporting_resource_ids": [],
+                "rejected_candidate_ids": [],
+                "surface_to_open": "task_focus",
+                "reason": "Priority wording matched task focus.",
+                "confidence": 0.8,
+            },
+        ),
+        user_message="Remember that my graph exam priority is BFS and DFS review.",
+        attention_candidates=[
+            {
+                "id": "task_focus:2026-05-14",
+                "resource_id": "task_focus:2026-05-14",
+                "kind": "task_focus",
+                "suggested_surface": "task_focus",
+            }
+        ],
+    )
+
+    assert decision.whiteboard_mode == "chat"
+    assert decision.attention_selection is not None
+    assert decision.attention_selection["surface_to_open"] is None
+    assert any(action["type"] == "remember" for action in decision.control_panel["actions"])
     assert all(action["type"] != "open_whiteboard" for action in decision.control_panel["actions"])
 
 

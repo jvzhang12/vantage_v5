@@ -836,6 +836,26 @@ def test_chat_attaches_task_focus_surface_for_task_only_prompt(tmp_path: Path) -
     assert [surface["kind"] for surface in payload["surface_payloads"]] == ["task_focus"]
 
 
+def test_chat_attaches_task_focus_surface_for_priority_lookup(tmp_path: Path) -> None:
+    tasks_path = _write_tasks(
+        tmp_path / "tasks" / "tasks.json",
+        tasks=[
+            {"id": "midterm-review", "title": "Review graphs", "priority": "high"},
+        ],
+    )
+    client, _ = _client(tmp_path, tasks_path=tasks_path)
+
+    response = client.post(
+        "/api/chat",
+        json={"message": "Show my priorities.", "history": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_surface_id"].startswith("tasks-")
+    assert [surface["kind"] for surface in payload["surface_payloads"]] == ["task_focus"]
+
+
 def test_chat_attaches_calendar_week_surface_for_week_prompt(tmp_path: Path) -> None:
     calendar_events_path = _write_calendar_events(
         tmp_path / "calendar" / "events.json",
@@ -6242,6 +6262,55 @@ def test_memory_write_with_empty_candidate_content_is_denied(
     assert memory_authority["content_available"] is False
     assert memory_authority["denied_reason"] == "memory_write_content_unavailable_or_unsafe"
     assert final_response["turn_plan"]["write_ledger"]["categories"] == ["none"]
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Remember that my graph exam priority is BFS and DFS review.",
+        "Remember that my preferred study block starts at 9.",
+    ],
+)
+def test_explicit_remember_control_panel_writes_memory_instead_of_task_focus(
+    tmp_path: Path,
+    message: str,
+) -> None:
+    tasks_path = _write_tasks(
+        tmp_path / "tasks" / "tasks.json",
+        tasks=[
+            {"id": "graph-review", "title": "Review graph algorithms", "priority": "high"},
+        ],
+    )
+    client, repo_root = _client(tmp_path, tasks_path=tasks_path)
+
+    memory_ids_before = {path.stem for path in (repo_root / "memories").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": message,
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_invocation"]["intent"] == "memory_write"
+    assert payload["surface_invocation"]["primary_surface"] == "chat"
+    assert payload["active_surface_id"] is None
+    assert payload["surface_payloads"] == []
+    assert payload["meta_action"]["action"] == "create_memory"
+    assert payload["graph_action"]["type"] == "create_memory"
+    assert payload["created_record"]["source"] == "memory"
+    assert payload["created_record"]["id"] not in memory_ids_before
+    assert (repo_root / "memories" / f"{payload['created_record']['id']}.md").exists()
+    assert "remembered" in payload["assistant_message"].lower()
+    assert "task focus" not in payload["assistant_message"].lower()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["write_ledger"]["categories"] == ["memory_write"]
+    assert final_response["turn_plan"]["write_projection"]["intended_write_kind"] == "memory_write"
+    assert final_response["turn_plan"]["write_projection"]["effect_agreement"] == "aligned"
+    assert final_response["turn_plan"]["memory_write_authority"]["allowed"] is True
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 

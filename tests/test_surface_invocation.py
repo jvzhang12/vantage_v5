@@ -92,6 +92,35 @@ def test_surface_invocation_task_focus_for_todos() -> None:
     assert invocation.supporting_surfaces == ()
 
 
+def test_surface_invocation_remember_control_panel_stays_chat_before_task_focus() -> None:
+    invocation = build_surface_invocation(
+        user_message="Remember that my graph exam priority is BFS and DFS review.",
+        navigation=NavigationDecision(
+            mode="chat",
+            confidence=0.82,
+            reason="Navigator interpreted explicit memory intent.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "remember",
+                        "protocol_kind": None,
+                        "reason": "The user explicitly asked Vantage to remember information.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        ),
+    )
+
+    assert invocation.intent == "memory_write"
+    assert invocation.primary_surface == "chat"
+    assert invocation.write_behavior == "none"
+    assert invocation.whiteboard_mode == "chat"
+    assert invocation.resolved_whiteboard_mode(requested_mode="auto", current_mode="chat") == "chat"
+
+
 def test_surface_invocation_keeps_visible_artifact_for_ambiguous_followup() -> None:
     invocation = build_surface_invocation(
         user_message="What should I do next?",

@@ -9,6 +9,7 @@ Focused unit tests for the deterministic surface invocation policy.
 - Today/day schedule lookups summon `calendar_day`.
 - Schedule planning summons `calendar_day` with `task_focus` and `whiteboard` support.
 - To-do/focus requests summon `task_focus`.
+- Structured Navigator/control-panel `remember` actions stay in chat as `memory_write` intent before raw task-focus classification, even when the memory content mentions priorities.
 - Visible artifact/Whiteboard follow-up questions, including pronoun-only summarize/explain/key-points phrasing, stay in chat and force chat mode even if an upstream route suggested draft mode, while explicit "draft this in the whiteboard" requests still draft.
 - Structured Navigator/control-panel close actions return a validated surface action for Whiteboard/artifact and Today/calendar surfaces, close actions without a visible surface return a safe no-op action, and raw close text without a Navigator action stays chat/no-op.
 - Structured Navigator/control-panel preserve actions short-circuit raw calendar/task/whiteboard classification so keep/leave-open turns remain no-op surface preservation.

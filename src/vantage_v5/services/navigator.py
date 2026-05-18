@@ -21,6 +21,7 @@ ALLOWED_CONTROL_PANEL_ACTIONS = {
     "inspect_context",
     "save_whiteboard",
     "publish_artifact",
+    "remember",
     "close_surface",
     "preserve_surface",
     "manage_experiment",
@@ -221,6 +222,7 @@ class NavigatorService:
                 "inspect_context",
                 "save_whiteboard",
                 "publish_artifact",
+                "remember",
                 "close_surface",
                 "preserve_surface",
                 "manage_experiment",
@@ -252,6 +254,8 @@ class NavigatorService:
                 "When the user asks to keep or leave a visible surface open, or explicitly says not to close/hide/remove it, add a preserve_surface action and do not add close_surface, open_whiteboard, draft_whiteboard, or attention_selection.surface_to_open. "
                 "Examples include 'don't close the whiteboard', 'do not close this artifact', 'please don't remove today from view', 'keep the whiteboard open', and 'leave the calendar open'. "
                 "If close/hide intent is ambiguous, prefer respond/chat and do not add close_surface. "
+                "When the user explicitly asks Vantage to remember or save something as memory, add a remember action and keep the response in chat. "
+                "Do not open calendar, task focus, or another operational surface merely because the content to remember mentions a day, task, focus, priority, or deadline. "
                 "Scenario Lab is for structured comparison across alternative futures, plans, or options that should become durable scenario branches and a comparison artifact. "
                 "Use scenario_lab only when the user is clearly asking for comparative what-if reasoning, option analysis, or branchable alternatives. "
                 "The workspace payload may include scenario metadata when the currently open workspace is already a saved scenario branch. "
@@ -723,6 +727,8 @@ def apply_control_panel_open_intent_fallback(
         return decision
     if _is_preserve_visible_surface_intent(user_message) or _has_control_panel_action(decision, {"preserve_surface"}):
         return _with_preserve_surface_intent(decision, user_message=user_message)
+    if _is_explicit_memory_intent(user_message) or _has_control_panel_action(decision, {"remember"}):
+        return _with_memory_intent(decision, user_message=user_message)
     if not _is_saved_material_open_lookup(user_message):
         return decision
 
@@ -816,6 +822,51 @@ def _is_saved_material_open_lookup(message: str) -> bool:
 
 def _is_preserve_visible_surface_intent(message: str) -> bool:
     return bool(PRESERVE_VISIBLE_SURFACE_RE.search(str(message or "")))
+
+
+def _is_explicit_memory_intent(message: str) -> bool:
+    return bool(
+        re.search(
+            r"^\s*(?:please\s+)?remember\s+that\b|\b(?:save|store)\s+this\s+as\s+(?:a\s+)?memory\b",
+            str(message or ""),
+            re.IGNORECASE,
+        )
+    )
+
+
+def _with_memory_intent(decision: NavigationDecision, *, user_message: str) -> NavigationDecision:
+    attention_selection = _normalize_attention_selection(decision.attention_selection)
+    if attention_selection is not None:
+        attention_selection = {
+            **attention_selection,
+            "surface_to_open": None,
+            "reason": attention_selection.get("reason")
+            or "The user asked Vantage to remember information, not to open an operational surface.",
+        }
+    control_panel = _without_control_panel_actions(
+        _normalize_control_panel(decision.control_panel),
+        {"open_whiteboard", "draft_whiteboard"},
+    )
+    control_panel = _ensure_control_panel_action(
+        control_panel,
+        action_type="remember",
+        reason="The user explicitly asked Vantage to remember information.",
+    )
+    return NavigationDecision(
+        mode=decision.mode,
+        confidence=max(decision.confidence, 0.74),
+        reason=decision.reason or "The turn has explicit memory-write intent and should stay in chat.",
+        comparison_question=decision.comparison_question,
+        branch_count=decision.branch_count,
+        branch_labels=list(decision.branch_labels),
+        whiteboard_mode="chat",
+        preserve_pinned_context=decision.preserve_pinned_context,
+        pinned_context_reason=decision.pinned_context_reason,
+        preserve_selected_record=decision.preserve_selected_record,
+        selected_record_reason=decision.selected_record_reason,
+        control_panel=control_panel,
+        attention_selection=attention_selection,
+    )
 
 
 def _with_preserve_surface_intent(decision: NavigationDecision, *, user_message: str) -> NavigationDecision:

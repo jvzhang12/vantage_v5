@@ -557,6 +557,8 @@ class ChatService:
             else:
                 executed_action = self.executor.execute(meta, workspace=workspace)
         created_record = self._created_record_payload(executed_action)
+        if created_record is not None and created_record.get("source") == "memory" and memory_mode == "remember":
+            assistant_message = _memory_write_assistant_receipt(assistant_message)
         protocol_record_payload = self._created_record_payload(protocol_action)
         learned_records = [
             record
@@ -1720,6 +1722,15 @@ def _memory_write_denied_rationale(reason: str | None) -> str:
     if reason == "memory_write_content_unavailable_or_unsafe":
         return "TurnPlan could not identify safe memory content to save, so no memory was created."
     return "TurnPlan did not find structured memory-write authority, so no memory was created."
+
+
+def _memory_write_assistant_receipt(message: str) -> str:
+    text = str(message or "").strip()
+    if re.search(r"\b(?:remembered|remember|saved|memory)\b", text, re.IGNORECASE):
+        return text
+    if text:
+        return f"{text} I remembered it."
+    return "I remembered it."
 
 
 def _trace_preserved_context_payload(candidate: CandidateMemory | None) -> dict[str, Any] | None:

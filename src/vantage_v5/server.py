@@ -67,6 +67,7 @@ from vantage_v5.services.surface_payloads import SurfacePayloadResult
 from vantage_v5.services.surface_payloads import surface_assistant_message
 from vantage_v5.services.tasks import LocalTaskProvider
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
+from vantage_v5.services.turn_plan import project_write_intent_compatibility
 from vantage_v5.services.turn_payloads import attach_safe_turn_state
 from vantage_v5.services.turn_orchestrator import TurnOrchestrator
 from vantage_v5.services.turn_orchestrator import TurnOrchestratorHooks
@@ -935,6 +936,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         payload["app_capabilities"] = _app_capability_manifest_for_scope(
             durable_scope,
             workspace_payload=payload.get("workspace") if isinstance(payload.get("workspace"), dict) else None,
+        )
+        payload = project_write_intent_compatibility(
+            response_payload=payload,
+            request_payload={"message": message, "memory_intent": memory_intent},
         )
         trace_path = payload.pop("_turn_trace_path", None)
         final_payload = attach_safe_turn_state(payload)

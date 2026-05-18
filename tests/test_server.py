@@ -2895,6 +2895,12 @@ def test_semantic_policy_saves_visible_whiteboard_without_chat_guessing(tmp_path
     assert payload["semantic_frame"]["task_type"] == "artifact_save"
     assert payload["semantic_policy"]["action_type"] == "artifact_save"
     assert payload["semantic_policy"]["should_clarify"] is False
+    assert payload["surface_invocation"]["intent"] == "artifact_save"
+    assert payload["surface_invocation"]["legacy_write_behavior"] == "none"
+    assert payload["surface_invocation"]["write_behavior"] == "committed_write"
+    assert payload["surface_invocation"]["write_intent"]["kind"] == "artifact_save"
+    assert payload["surface_invocation"]["write_intent"]["authority"] == "semantic_policy"
+    assert payload["surface_invocation"]["write_effects"][0]["category"] == "artifact_save_or_promotion"
     assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
     assert payload["created_record"]["source"] == "artifact"
     assert payload["created_record"]["artifact_lifecycle"] == "whiteboard_snapshot"
@@ -2909,6 +2915,11 @@ def test_semantic_policy_saves_visible_whiteboard_without_chat_guessing(tmp_path
     assert payload["created_record"]["write_review"]["direct_mutation_supported"] is False
     assert (repo_root / "workspaces" / "semantic-save-draft.md").exists()
     assert (repo_root / "artifacts" / f"{payload['created_record']['id']}.md").exists()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    turn_plan = final_response["turn_plan"]
+    assert turn_plan["write_projection"]["intended_write_kind"] == "artifact_save"
+    assert turn_plan["write_projection"]["effect_agreement"] == "aligned"
+    assert turn_plan["validation"]["warnings"] == []
 
 
 def test_semantic_policy_clarifies_save_without_visible_target(tmp_path: Path, monkeypatch) -> None:
@@ -2968,10 +2979,21 @@ def test_semantic_policy_publishes_visible_whiteboard_as_artifact(tmp_path: Path
     assert payload["semantic_frame"]["task_type"] == "artifact_publish"
     assert payload["semantic_policy"]["action_type"] == "artifact_publish"
     assert payload["semantic_policy"]["should_clarify"] is False
+    assert payload["surface_invocation"]["intent"] == "artifact_publish"
+    assert payload["surface_invocation"]["legacy_write_behavior"] == "none"
+    assert payload["surface_invocation"]["write_behavior"] == "committed_write"
+    assert payload["surface_invocation"]["write_intent"]["kind"] == "artifact_publish"
+    assert payload["surface_invocation"]["write_intent"]["authority"] == "semantic_policy"
+    assert payload["surface_invocation"]["write_effects"][0]["category"] == "artifact_save_or_promotion"
     assert payload["graph_action"]["type"] == "promote_workspace_to_artifact"
     assert payload["created_record"]["source"] == "artifact"
     assert payload["created_record"]["artifact_lifecycle"] == "promoted_artifact"
     assert (repo_root / "artifacts" / f"{payload['created_record']['id']}.md").exists()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    turn_plan = final_response["turn_plan"]
+    assert turn_plan["write_projection"]["intended_write_kind"] == "artifact_publish"
+    assert turn_plan["write_projection"]["effect_agreement"] == "aligned"
+    assert turn_plan["validation"]["warnings"] == []
 
 
 def test_semantic_policy_answers_experiment_status_locally(tmp_path: Path, monkeypatch) -> None:

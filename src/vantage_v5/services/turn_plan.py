@@ -324,6 +324,32 @@ class WriteLedgerPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class WriteProjectionPlan:
+    intended_write_kind: str | None
+    intended_write_kinds: tuple[str, ...]
+    authority: str
+    sources: tuple[dict[str, Any], ...]
+    structured_source_count: int
+    actual_write_categories: tuple[str, ...]
+    actual_write_effect_count: int
+    effect_agreement: str
+    compatibility_projection: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "intended_write_kind": self.intended_write_kind,
+            "intended_write_kinds": list(self.intended_write_kinds),
+            "authority": self.authority,
+            "sources": [dict(source) for source in self.sources],
+            "structured_source_count": self.structured_source_count,
+            "actual_write_categories": list(self.actual_write_categories),
+            "actual_write_effect_count": self.actual_write_effect_count,
+            "effect_agreement": self.effect_agreement,
+            "compatibility_projection": dict(self.compatibility_projection),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ProtocolPlan:
     applied_protocol_kinds: tuple[str, ...]
     control_panel_actions: tuple[str, ...]
@@ -432,6 +458,7 @@ class TurnPlan:
     write_intent: WriteIntentPlan
     side_effect_policy: SideEffectPolicy
     write_ledger: WriteLedgerPlan
+    write_projection: WriteProjectionPlan
     protocols: ProtocolPlan
     semantic: SemanticPlan
     execution: ExecutionPlan
@@ -449,6 +476,7 @@ class TurnPlan:
             "write_intent": self.write_intent.to_dict(),
             "side_effect_policy": self.side_effect_policy.to_dict(),
             "write_ledger": self.write_ledger.to_dict(),
+            "write_projection": self.write_projection.to_dict(),
             "protocols": self.protocols.to_dict(),
             "semantic": self.semantic.to_dict(),
             "execution": self.execution.to_dict(),
@@ -481,6 +509,14 @@ class TurnPlanBuilder:
         route = self._route_plan(response_payload)
         protocols = self._protocol_plan(response_payload)
         semantic = self._semantic_plan(response_payload)
+        write_projection = self._write_projection_plan(
+            request_payload=request_payload,
+            response_payload=response_payload,
+            route=route,
+            write_intent=write_intent,
+            write_ledger=write_ledger,
+            semantic=semantic,
+        )
         execution = self._execution_plan(response_payload, write_intent, side_effect_policy, ui_surface_action)
         compatibility = self._compatibility_plan(response_payload, write_intent)
         validation = self._validation_plan(
@@ -493,6 +529,7 @@ class TurnPlanBuilder:
             write_intent=write_intent,
             side_effect_policy=side_effect_policy,
             write_ledger=write_ledger,
+            write_projection=write_projection,
             semantic=semantic,
             execution=execution,
         )
@@ -506,6 +543,7 @@ class TurnPlanBuilder:
             write_intent=write_intent,
             side_effect_policy=side_effect_policy,
             write_ledger=write_ledger,
+            write_projection=write_projection,
             protocols=protocols,
             semantic=semantic,
             execution=execution,
@@ -871,6 +909,50 @@ class TurnPlanBuilder:
             frame_target_surface=_optional_str(semantic_frame.get("target_surface")),
         )
 
+    def _write_projection_plan(
+        self,
+        *,
+        request_payload: dict[str, Any],
+        response_payload: dict[str, Any],
+        route: RoutePlan,
+        write_intent: WriteIntentPlan,
+        write_ledger: WriteLedgerPlan,
+        semantic: SemanticPlan,
+    ) -> WriteProjectionPlan:
+        sources = _structured_write_intent_sources(
+            request_payload=request_payload,
+            response_payload=response_payload,
+            route=route,
+            write_intent=write_intent,
+            semantic=semantic,
+        )
+        structured_source_count = len(sources)
+        effect_sources = _effect_write_sources(write_ledger)
+        all_sources = tuple([*sources, *effect_sources])
+        intended_kinds = _dedupe(source.get("kind") for source in all_sources)
+        actual_categories = tuple(category for category in write_ledger.categories if category not in NO_WRITE_LEDGER_CATEGORIES)
+        authority = "none"
+        if sources:
+            authority = str(sources[0].get("source") or "structured_intent")
+        elif effect_sources:
+            authority = "existing_write_effect"
+        return WriteProjectionPlan(
+            intended_write_kind=intended_kinds[0] if intended_kinds else None,
+            intended_write_kinds=intended_kinds,
+            authority=authority,
+            sources=all_sources,
+            structured_source_count=structured_source_count,
+            actual_write_categories=actual_categories,
+            actual_write_effect_count=write_ledger.actual_write_effect_count,
+            effect_agreement=_write_projection_agreement(
+                intended_kinds=intended_kinds,
+                actual_categories=actual_categories,
+                has_structured_sources=bool(sources),
+                has_effect_sources=bool(effect_sources),
+            ),
+            compatibility_projection=_write_projection_compatibility(response_payload),
+        )
+
     def _execution_plan(
         self,
         response_payload: dict[str, Any],
@@ -929,6 +1011,7 @@ class TurnPlanBuilder:
         write_intent: WriteIntentPlan,
         side_effect_policy: SideEffectPolicy,
         write_ledger: WriteLedgerPlan,
+        write_projection: WriteProjectionPlan,
         semantic: SemanticPlan,
         execution: ExecutionPlan,
     ) -> TurnPlanValidation:
@@ -1196,6 +1279,29 @@ class TurnPlanBuilder:
                 )
             )
 
+        if write_ledger.has_write_side_effects and not write_projection.sources:
+            warnings.append(
+                _validation_warning(
+                    "write_effect_without_projected_intent",
+                    "Finalized write effects exist, but TurnPlan did not project any write intent source.",
+                    [*write_side_effects, "turn_plan.write_projection.sources"],
+                )
+            )
+
+        if (
+            write_ledger.has_write_side_effects
+            and write_projection.structured_source_count == 0
+            and write_projection.compatibility_projection.get("surface_invocation_write_behavior") == "none"
+            and not write_projection.compatibility_projection.get("surface_invocation_has_write_intent")
+        ):
+            warnings.append(
+                _validation_warning(
+                    "compatibility_no_write_with_write_effect",
+                    "Compatibility surface fields claimed no write while finalized write effects were present.",
+                    [*write_side_effects, "surface_invocation.write_behavior", "surface_invocation.write_intent"],
+                )
+            )
+
         return TurnPlanValidation(warnings=tuple(warnings))
 
 
@@ -1237,6 +1343,72 @@ def build_turn_plan_surface_authority(
         surface_invocation=surface_invocation,
         surface_action=surface_action,
     )
+
+
+def project_write_intent_compatibility(
+    *,
+    response_payload: dict[str, Any],
+    request_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return a response payload with additive write-intent compatibility fields.
+
+    The projection is intentionally post-execution only. It does not create or
+    authorize writes; it annotates the finalized payload so legacy
+    ``surface_invocation`` fields do not look like pure chat when structured
+    write intent or finalized write effects are already present.
+    """
+
+    payload = dict(response_payload)
+    plan = TurnPlanBuilder().build(
+        request_payload=request_payload or {},
+        response_payload=payload,
+    )
+    projection = plan.write_projection
+    if projection.intended_write_kind is None and projection.actual_write_effect_count == 0:
+        return payload
+
+    invocation = dict(_dict_or_empty(payload.get("surface_invocation")))
+    if not invocation:
+        invocation = {
+            "policy_version": "surface-invocation-v1",
+            "intent": "write_effect",
+            "primary_surface": "chat",
+            "supporting_surfaces": [],
+            "surfaces": [],
+            "write_behavior": "none",
+            "reason": "Projected from finalized write intent/effects.",
+            "confidence": None,
+            "whiteboard_mode": "chat",
+            "trigger": "write_intent_projection",
+        }
+    legacy_intent = _optional_str(invocation.get("intent"))
+    projected_intent = _surface_intent_for_write_projection(projection.intended_write_kind, legacy_intent)
+    if projected_intent and projected_intent != legacy_intent:
+        invocation["legacy_intent"] = legacy_intent
+        invocation["intent"] = projected_intent
+
+    legacy_write_behavior = _normalized_write_behavior(invocation)
+    projected_write_behavior = _surface_write_behavior_for_projection(projection, legacy_write_behavior)
+    if projected_write_behavior != legacy_write_behavior:
+        invocation["legacy_write_behavior"] = legacy_write_behavior
+        invocation["write_behavior"] = projected_write_behavior
+
+    invocation["write_intent"] = {
+        "kind": projection.intended_write_kind,
+        "kinds": list(projection.intended_write_kinds),
+        "authority": projection.authority,
+        "sources": [dict(source) for source in projection.sources],
+        "effect_agreement": projection.effect_agreement,
+    }
+    effects = [
+        entry.to_dict()
+        for entry in plan.write_ledger.entries
+        if entry.category not in NO_WRITE_LEDGER_CATEGORIES
+    ]
+    if effects:
+        invocation["write_effects"] = effects
+    payload["surface_invocation"] = invocation
+    return payload
 
 
 def _with_nested_surface_action(response_payload: dict[str, Any]) -> dict[str, Any]:
@@ -1356,6 +1528,269 @@ def _control_panel_action_types(control_panel: dict[str, Any]) -> set[str]:
         )
         if action_type
     }
+
+
+def _structured_write_intent_sources(
+    *,
+    request_payload: dict[str, Any],
+    response_payload: dict[str, Any],
+    route: RoutePlan,
+    write_intent: WriteIntentPlan,
+    semantic: SemanticPlan,
+) -> tuple[dict[str, Any], ...]:
+    sources: list[dict[str, Any]] = []
+    memory_intent = _optional_str(request_payload.get("memory_intent"))
+    if memory_intent == "remember":
+        sources.append(
+            _write_source(
+                source="memory_intent",
+                field_path="request.memory_intent",
+                kind="memory_write",
+                action=memory_intent,
+            )
+        )
+
+    for index, action in enumerate(_list_of_dicts(route.control_panel.get("actions"))):
+        action_type = str(action.get("type") or action.get("action") or "").strip()
+        kind = _control_panel_write_kind(action_type)
+        if kind is None:
+            continue
+        sources.append(
+            _write_source(
+                source="control_panel",
+                field_path=f"turn_interpretation.control_panel.actions[{index}].type",
+                kind=kind,
+                action=action_type,
+            )
+        )
+
+    semantic_action = str(semantic.semantic_action or "").strip().lower()
+    semantic_kind = _semantic_write_kind(semantic_action)
+    if semantic_kind is not None:
+        sources.append(
+            _write_source(
+                source="semantic_policy",
+                field_path="semantic_policy.semantic_action",
+                kind=semantic_kind,
+                action=semantic_action,
+            )
+        )
+    policy_action = str(semantic.policy_action_type or "").strip().lower()
+    policy_kind = _semantic_write_kind(policy_action)
+    if policy_kind is not None and policy_action != semantic_action:
+        sources.append(
+            _write_source(
+                source="semantic_policy",
+                field_path="semantic_policy.action_type",
+                kind=policy_kind,
+                action=policy_action,
+            )
+        )
+
+    if write_intent.explicit_user_intent:
+        write_kind = _write_intent_kind(write_intent.kind)
+        if write_kind is not None:
+            sources.append(
+                _write_source(
+                    source="write_intent",
+                    field_path="turn_plan.write_intent.kind",
+                    kind=write_kind,
+                    action=write_intent.kind,
+                )
+            )
+
+    graph_action = _dict_or_empty(response_payload.get("graph_action"))
+    created_record = _dict_or_empty(response_payload.get("created_record"))
+    graph_action_type = str(graph_action.get("type") or graph_action.get("action") or "").strip()
+    created_record_type = str(created_record.get("type") or created_record.get("source") or "").strip()
+    if graph_action_type == "upsert_protocol" or created_record_type == "protocol":
+        sources.append(
+            _write_source(
+                source="protocol_interpreter",
+                field_path="graph_action.type" if graph_action_type == "upsert_protocol" else "created_record.type",
+                kind="protocol_write",
+                action=graph_action_type or created_record_type,
+            )
+        )
+
+    return tuple(_dedupe_write_sources(sources))
+
+
+def _effect_write_sources(write_ledger: WriteLedgerPlan) -> tuple[dict[str, Any], ...]:
+    sources: list[dict[str, Any]] = []
+    for entry in write_ledger.entries:
+        if entry.category in NO_WRITE_LEDGER_CATEGORIES:
+            continue
+        sources.append(
+            _write_source(
+                source="existing_write_effect",
+                field_path=",".join(entry.field_paths),
+                kind=_effect_write_kind(entry),
+                action=entry.operation or entry.category,
+            )
+        )
+    return tuple(_dedupe_write_sources(sources))
+
+
+def _write_source(*, source: str, field_path: str, kind: str, action: str | None) -> dict[str, Any]:
+    return {
+        "source": source,
+        "field_path": field_path,
+        "kind": kind,
+        "action": action,
+    }
+
+
+def _dedupe_write_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, str, str, str | None]] = set()
+    deduped: list[dict[str, Any]] = []
+    for source in sources:
+        key = (
+            str(source.get("source") or ""),
+            str(source.get("field_path") or ""),
+            str(source.get("kind") or ""),
+            _optional_str(source.get("action")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(source)
+    return deduped
+
+
+def _control_panel_write_kind(action_type: str) -> str | None:
+    normalized = action_type.strip().lower()
+    return {
+        "draft_whiteboard": "whiteboard_draft",
+        "save_whiteboard": "artifact_save",
+        "publish_artifact": "artifact_publish",
+        "remember": "memory_write",
+        "learn": "concept_write",
+        "create_concept": "concept_write",
+        "create_artifact": "artifact_save",
+    }.get(normalized)
+
+
+def _semantic_write_kind(action_type: str) -> str | None:
+    normalized = action_type.strip().lower()
+    return {
+        "artifact_save": "artifact_save",
+        "artifact_publish": "artifact_publish",
+        "save": "artifact_save",
+        "publish": "artifact_publish",
+        "save_whiteboard": "artifact_save",
+        "publish_artifact": "artifact_publish",
+        "remember": "memory_write",
+        "learn": "concept_write",
+        "create_concept": "concept_write",
+        "create_artifact": "artifact_save",
+    }.get(normalized)
+
+
+def _write_intent_kind(kind: str) -> str | None:
+    return {
+        "whiteboard_draft": "whiteboard_draft",
+        "whiteboard_offer": "whiteboard_offer",
+        "scenario_branching": "scenario_branching",
+        "artifact_action_proposal": "artifact_action_proposal",
+    }.get(kind)
+
+
+def _effect_write_kind(entry: WriteLedgerEntry) -> str:
+    if entry.category == "artifact_save_or_promotion":
+        operation = str(entry.operation or "").strip().lower()
+        if "promote" in operation or "publish" in operation:
+            return "artifact_publish"
+        return "artifact_save"
+    if entry.category == "concept_write":
+        return "protocol_write" if str(entry.target_kind or "").strip().lower() == "protocol" else "concept_write"
+    if entry.category == "memory_write":
+        return "memory_write"
+    if entry.category in {"proposed_calendar_task_mutation", "accepted_calendar_task_mutation"}:
+        return "calendar_task_mutation"
+    if entry.category == "pending_whiteboard_draft":
+        return "whiteboard_draft"
+    if entry.category == "pending_whiteboard_offer":
+        return "whiteboard_offer"
+    if entry.category == "draft_snapshot_workspace_update":
+        return "whiteboard_draft"
+    return entry.category
+
+
+def _write_projection_agreement(
+    *,
+    intended_kinds: tuple[str, ...],
+    actual_categories: tuple[str, ...],
+    has_structured_sources: bool,
+    has_effect_sources: bool,
+) -> str:
+    if not intended_kinds and not actual_categories:
+        return "no_write"
+    if actual_categories and not has_structured_sources:
+        return "effect_without_explicit_intent" if has_effect_sources else "missing_intent"
+    if intended_kinds and not actual_categories:
+        return "intent_without_effect"
+    if any(_write_kind_matches_category(kind, category) for kind in intended_kinds for category in actual_categories):
+        return "aligned"
+    return "mismatch"
+
+
+def _write_kind_matches_category(kind: str, category: str) -> bool:
+    if kind in {"artifact_save", "artifact_publish"}:
+        return category == "artifact_save_or_promotion"
+    if kind in {"concept_write", "protocol_write"}:
+        return category == "concept_write"
+    if kind == "memory_write":
+        return category == "memory_write"
+    if kind in {"whiteboard_draft", "whiteboard_offer"}:
+        return category in {
+            "pending_whiteboard_offer",
+            "pending_whiteboard_draft",
+            "draft_snapshot_workspace_update",
+            "artifact_save_or_promotion",
+        }
+    if kind == "artifact_action_proposal":
+        return category in {"proposed_calendar_task_mutation", "artifact_save_or_promotion"}
+    if kind == "calendar_task_mutation":
+        return category in {"proposed_calendar_task_mutation", "accepted_calendar_task_mutation"}
+    if kind == "scenario_branching":
+        return category in {"artifact_save_or_promotion", "draft_snapshot_workspace_update"}
+    return kind == category
+
+
+def _write_projection_compatibility(response_payload: dict[str, Any]) -> dict[str, Any]:
+    invocation = _dict_or_empty(response_payload.get("surface_invocation"))
+    return {
+        "surface_invocation_intent": _optional_str(invocation.get("intent")),
+        "surface_invocation_write_behavior": _normalized_write_behavior(invocation),
+        "surface_invocation_has_write_intent": isinstance(invocation.get("write_intent"), dict),
+        "surface_invocation_has_write_effects": isinstance(invocation.get("write_effects"), list),
+    }
+
+
+def _surface_intent_for_write_projection(projected_kind: str | None, legacy_intent: str | None) -> str | None:
+    if not legacy_intent or legacy_intent in {"general", "general_chat", "chat_only"}:
+        return projected_kind
+    return None
+
+
+def _surface_write_behavior_for_projection(
+    projection: WriteProjectionPlan,
+    legacy_write_behavior: str,
+) -> str:
+    if legacy_write_behavior != "none":
+        return legacy_write_behavior
+    if projection.actual_write_effect_count <= 0:
+        return legacy_write_behavior
+    if projection.intended_write_kind in {
+        "artifact_save",
+        "artifact_publish",
+        "memory_write",
+        "concept_write",
+        "protocol_write",
+    }:
+        return "committed_write"
+    return legacy_write_behavior
 
 
 def _payload_has_explicit_write_authority(

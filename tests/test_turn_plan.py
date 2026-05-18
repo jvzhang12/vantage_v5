@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from vantage_v5.services.chat import build_final_response_trace_payload
+from vantage_v5.services.turn_plan import project_write_intent_compatibility
 from vantage_v5.services.turn_plan import TurnPlanBuilder
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 
@@ -525,7 +526,60 @@ def test_turn_plan_visible_artifact_qna_with_real_semantic_write_action_does_not
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is True
     assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] is None
     assert plan["write_ledger"]["categories"] == ["artifact_save_or_promotion"]
+    assert plan["write_projection"]["intended_write_kind"] == action_type
+    assert plan["write_projection"]["authority"] == "semantic_policy"
+    assert plan["write_projection"]["actual_write_categories"] == ["artifact_save_or_promotion"]
+    assert plan["write_projection"]["effect_agreement"] == "aligned"
     assert "visible_artifact_qna_with_durable_write" not in _warning_codes(plan)
+
+
+@pytest.mark.parametrize(
+    ("action_type", "graph_action_type", "expected_kind"),
+    [
+        ("artifact_save", "save_workspace_iteration_artifact", "artifact_save"),
+        ("artifact_publish", "promote_workspace_to_artifact", "artifact_publish"),
+    ],
+)
+def test_turn_plan_write_projection_enriches_surface_invocation_for_semantic_artifact_writes(
+    action_type: str,
+    graph_action_type: str,
+    expected_kind: str,
+) -> None:
+    response = {
+        "surface_invocation": {
+            "intent": "general_chat",
+            "primary_surface": "chat",
+            "write_behavior": "none",
+            "whiteboard_mode": "chat",
+            "resolved_whiteboard_mode": "chat",
+        },
+        "semantic_policy": {"action_type": action_type, "semantic_action": action_type},
+        "graph_action": {"type": graph_action_type},
+        "created_record": {"id": "midterm-study-plan-snapshot", "source": "artifact"},
+    }
+
+    projected = project_write_intent_compatibility(
+        request_payload={"message": "Save this whiteboard.", "memory_intent": "auto"},
+        response_payload=response,
+    )
+
+    invocation = projected["surface_invocation"]
+    assert invocation["intent"] == expected_kind
+    assert invocation["legacy_intent"] == "general_chat"
+    assert invocation["write_behavior"] == "committed_write"
+    assert invocation["legacy_write_behavior"] == "none"
+    assert invocation["write_intent"]["kind"] == expected_kind
+    assert invocation["write_intent"]["authority"] == "semantic_policy"
+    assert invocation["write_intent"]["effect_agreement"] == "aligned"
+    assert invocation["write_effects"][0]["category"] == "artifact_save_or_promotion"
+
+    plan = TurnPlanBuilder().build(
+        request_payload={"message": "Save this whiteboard.", "memory_intent": "auto"},
+        response_payload=projected,
+    ).to_dict()
+    assert plan["write_projection"]["intended_write_kind"] == expected_kind
+    assert plan["write_projection"]["compatibility_projection"]["surface_invocation_has_write_intent"] is True
+    assert plan["validation"]["warnings"] == []
 
 
 def test_turn_plan_visible_artifact_qna_with_memory_intent_remember_does_not_suppress() -> None:
@@ -715,6 +769,22 @@ def test_turn_plan_surface_authority_artifact_qna_memory_intent_allows_existing_
     assert authority.no_write_reason is None
 
 
+def test_turn_plan_write_projection_records_memory_intent_authority() -> None:
+    plan = _plan(
+        message="Remember that I prefer morning study blocks.",
+        request={"memory_intent": "remember"},
+        response={
+            "graph_action": {"type": "create_memory", "record_id": "memory:morning-study"},
+            "created_record": {"id": "memory:morning-study", "source": "memory"},
+        },
+    )
+
+    assert plan["write_projection"]["intended_write_kind"] == "memory_write"
+    assert plan["write_projection"]["authority"] == "memory_intent"
+    assert plan["write_projection"]["effect_agreement"] == "aligned"
+    assert "write_effect_without_projected_intent" not in _warning_codes(plan)
+
+
 def test_turn_plan_protocol_write_authority_lifts_artifact_qna_no_write() -> None:
     visible_artifact = {
         "id": "artifact:midterm-study-plan",
@@ -742,7 +812,30 @@ def test_turn_plan_protocol_write_authority_lifts_artifact_qna_no_write() -> Non
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is True
     assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] is None
     assert plan["write_ledger"]["categories"] == ["concept_write"]
+    assert plan["write_projection"]["intended_write_kind"] == "protocol_write"
+    assert plan["write_projection"]["authority"] == "protocol_interpreter"
     assert "visible_artifact_qna_with_durable_write" not in _warning_codes(plan)
+
+
+def test_turn_plan_warns_when_write_effect_has_only_legacy_no_write_compatibility() -> None:
+    plan = _plan(
+        message="Summarize this study plan.",
+        response={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "graph_action": {"action": "create_concept"},
+            "created_record": {"id": "concept:study-plan-summary", "type": "concept"},
+        },
+    )
+
+    assert plan["write_projection"]["authority"] == "existing_write_effect"
+    assert plan["write_projection"]["effect_agreement"] == "effect_without_explicit_intent"
+    assert "compatibility_no_write_with_write_effect" in _warning_codes(plan)
 
 
 def test_turn_plan_write_ledger_pending_offer() -> None:

@@ -1180,6 +1180,9 @@ def test_visible_whiteboard_follow_up_with_memory_intent_remember_is_not_suppres
     final_response = _latest_trace_payload(repo_root)["final_response"]
     assert final_response["turn_plan"]["side_effect_policy"]["suppress_auto_graph_writes_reason"] is None
     assert final_response["turn_plan"]["execution"]["suppress_auto_graph_writes"] is False
+    assert final_response["turn_plan"]["memory_write_authority"]["action"] == "memory_write"
+    assert final_response["turn_plan"]["memory_write_authority"]["allowed"] is True
+    assert final_response["turn_plan"]["memory_write_authority"]["authority"] == "memory_intent"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
@@ -1621,6 +1624,7 @@ def test_preserve_surface_blocks_local_semantic_artifact_publish(
     )
 
     artifact_ids_before = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
+    memory_ids_before = {path.stem for path in (repo_root / "memories").glob("*.md")}
     response = client.post(
         "/api/chat",
         json={
@@ -1630,6 +1634,7 @@ def test_preserve_surface_blocks_local_semantic_artifact_publish(
             "workspace_scope": "visible",
             "workspace_content": visible_artifact["content"],
             "visible_artifacts": [visible_artifact],
+            "memory_intent": "remember",
         },
     )
 
@@ -1641,11 +1646,15 @@ def test_preserve_surface_blocks_local_semantic_artifact_publish(
     assert payload["created_record"] is None
     assert payload["artifact_actions"] == []
     assert {path.stem for path in (repo_root / "artifacts").glob("*.md")} == artifact_ids_before
+    assert {path.stem for path in (repo_root / "memories").glob("*.md")} == memory_ids_before
     final_response = _latest_trace_payload(repo_root)["final_response"]
     assert final_response["turn_plan"]["execution"]["local_semantic_write_policy"] == "disabled"
     assert final_response["turn_plan"]["artifact_write_authority"]["action"] == "artifact_publish"
     assert final_response["turn_plan"]["artifact_write_authority"]["allowed"] is False
     assert final_response["turn_plan"]["artifact_write_authority"]["denied_reason"] == "preserve_visible_surface"
+    assert final_response["turn_plan"]["memory_write_authority"]["action"] == "memory_write"
+    assert final_response["turn_plan"]["memory_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["memory_write_authority"]["denied_reason"] == "preserve_visible_surface"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
@@ -1776,6 +1785,7 @@ def test_close_surface_blocks_local_semantic_artifact_save(
     )
 
     artifact_ids_before = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
+    memory_ids_before = {path.stem for path in (repo_root / "memories").glob("*.md")}
     response = client.post(
         "/api/chat",
         json={
@@ -1785,6 +1795,7 @@ def test_close_surface_blocks_local_semantic_artifact_save(
             "workspace_scope": "visible",
             "workspace_content": visible_artifact["content"],
             "visible_artifacts": [visible_artifact],
+            "memory_intent": "remember",
         },
     )
 
@@ -1796,11 +1807,15 @@ def test_close_surface_blocks_local_semantic_artifact_save(
     assert payload["created_record"] is None
     assert payload["artifact_actions"] == []
     assert {path.stem for path in (repo_root / "artifacts").glob("*.md")} == artifact_ids_before
+    assert {path.stem for path in (repo_root / "memories").glob("*.md")} == memory_ids_before
     final_response = _latest_trace_payload(repo_root)["final_response"]
     assert final_response["turn_plan"]["execution"]["local_semantic_write_policy"] == "disabled"
     assert final_response["turn_plan"]["artifact_write_authority"]["action"] == "artifact_save"
     assert final_response["turn_plan"]["artifact_write_authority"]["allowed"] is False
     assert final_response["turn_plan"]["artifact_write_authority"]["denied_reason"] == "close_visible_surface"
+    assert final_response["turn_plan"]["memory_write_authority"]["action"] == "memory_write"
+    assert final_response["turn_plan"]["memory_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["memory_write_authority"]["denied_reason"] == "close_visible_surface"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
@@ -2190,6 +2205,75 @@ def test_open_only_blocks_local_semantic_artifact_save(
     assert final_response["turn_plan"]["artifact_write_authority"]["action"] == "artifact_save"
     assert final_response["turn_plan"]["artifact_write_authority"]["allowed"] is False
     assert final_response["turn_plan"]["artifact_write_authority"]["denied_reason"] == "open_only_ui_handoff"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
+def test_open_only_blocks_memory_write_intent(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    artifact = ArtifactStore(repo_root / "artifacts").create_artifact(
+        title="Midterm Study Plan",
+        card="Exam preparation material about graphs and study priorities.",
+        body="# Midterm Study Plan\n\nPrioritize graph traversals and proof review.",
+    )
+
+    def _route(self, **kwargs):
+        artifact_resource_id = f"artifact:{artifact.id}"
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Navigator selected the saved study plan for a UI-only open.",
+            whiteboard_mode="chat",
+            attention_selection={
+                "selected_ids": [artifact_resource_id],
+                "primary_resource_id": artifact_resource_id,
+                "supporting_resource_ids": [],
+                "rejected_candidate_ids": [],
+                "surface_to_open": "whiteboard",
+                "reason": "Open the selected study plan as existing material.",
+                "confidence": 0.9,
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "Opened the Midterm Study Plan without saving anything.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Open-only turns should not ask MetaService for memory writes.")
+        ),
+    )
+
+    memory_ids_before = {path.stem for path in (repo_root / "memories").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Show me the saved Midterm Study Plan and remember this.",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": "# Midterm Study Plan\n\nPractice graph traversal first.",
+            "memory_intent": "remember",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_invocation"]["write_behavior"] == "open_only"
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert {path.stem for path in (repo_root / "memories").glob("*.md")} == memory_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["memory_write_authority"]["action"] == "memory_write"
+    assert final_response["turn_plan"]["memory_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["memory_write_authority"]["denied_reason"] == "open_only_ui_handoff"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
@@ -6055,6 +6139,59 @@ def test_open_promote_and_remember_flow(tmp_path: Path) -> None:
     )
     assert payload["created_record"]["write_review"]["mutation_supported"] is False
     assert (repo_root / "memories" / f"{payload['created_record']['id']}.md").exists()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["memory_write_authority"]["action"] == "memory_write"
+    assert final_response["turn_plan"]["memory_write_authority"]["allowed"] is True
+    assert final_response["turn_plan"]["memory_write_authority"]["authority"] == "memory_intent"
+    assert final_response["turn_plan"]["write_ledger"]["categories"] == ["memory_write"]
+    assert final_response["turn_plan"]["write_projection"]["effect_agreement"] == "aligned"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
+def test_memory_write_without_structured_authority_is_denied(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "I'll keep that in mind for this answer.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="create_memory",
+            title="Unstructured remember",
+            card="This candidate should be denied by TurnPlan.",
+            body="This should not be written without structured memory authority.",
+            rationale="Synthetic memory candidate without structured authority.",
+        ),
+    )
+
+    memory_ids_before = {path.stem for path in (repo_root / "memories").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Keep that in mind for the answer.",
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["meta_action"]["blocked_action"] == "create_memory"
+    assert payload["meta_action"]["blocked_reason"] == "missing_structured_memory_write_intent"
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["learned"] == []
+    assert {path.stem for path in (repo_root / "memories").glob("*.md")} == memory_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["memory_write_authority"]["action"] == "memory_write"
+    assert final_response["turn_plan"]["memory_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["memory_write_authority"]["denied_reason"] == (
+        "missing_structured_memory_write_intent"
+    )
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
 def test_follow_up_after_artifact_promotion_keeps_selected_artifact_in_focus(tmp_path: Path, monkeypatch) -> None:

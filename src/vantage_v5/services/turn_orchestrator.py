@@ -415,6 +415,9 @@ class TurnOrchestrator:
                 turn_stage=turn_stage,
                 suppress_auto_graph_writes=suppress_auto_graph_writes,
                 suppress_protocol_writes=suppress_protocol_writes,
+                surface_invocation=surface_invocation_payload,
+                turn_interpretation=assemble_turn_interpretation_payload(turn_interpretation_parts),
+                semantic_policy=semantic_policy,
             )
 
         payload = assemble_service_turn_payload(
@@ -501,6 +504,9 @@ class TurnOrchestrator:
             ),
             suppress_auto_graph_writes=surface_authority.suppress_auto_graph_writes,
             suppress_protocol_writes=surface_authority.blocks_protocol_writes,
+            surface_invocation=surface_invocation,
+            turn_interpretation=assemble_turn_interpretation_payload(turn_interpretation),
+            semantic_policy=semantic_policy,
         )
         payload = assemble_scenario_lab_fallback_payload(
             ScenarioLabFallbackParts(

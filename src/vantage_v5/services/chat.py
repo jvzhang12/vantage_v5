@@ -29,6 +29,7 @@ from vantage_v5.services.turn_staging import initial_stage_progress
 from vantage_v5.services.turn_staging import stage_progress_event
 from vantage_v5.services.turn_staging import StageAuditResult
 from vantage_v5.services.turn_staging import TurnStage
+from vantage_v5.services.turn_plan import build_turn_plan_memory_write_authority
 from vantage_v5.services.turn_plan import turn_plan_trace_payload
 from vantage_v5.services.vetting import anchor_selected_record_candidate
 from vantage_v5.services.vetting import build_continuity_hint
@@ -222,6 +223,9 @@ class ChatService:
         turn_stage: TurnStage | None = None,
         suppress_auto_graph_writes: bool = False,
         suppress_protocol_writes: bool = False,
+        surface_invocation: dict[str, Any] | None = None,
+        turn_interpretation: dict[str, Any] | None = None,
+        semantic_policy: dict[str, Any] | None = None,
     ) -> ChatTurn:
         visible_artifacts = normalize_visible_artifacts(visible_artifacts)
         selected_attention_resources = _normalize_selected_attention_resources(selected_attention_resources)
@@ -525,7 +529,39 @@ class ChatService:
                 workspace_update=workspace_update,
                 visible_artifacts=visible_artifacts,
             )
-            executed_action = self.executor.execute(meta, workspace=workspace)
+            if meta.action == "create_memory":
+                memory_authority = build_turn_plan_memory_write_authority(
+                    response_payload={
+                        "surface_invocation": surface_invocation or {},
+                        "turn_interpretation": turn_interpretation or {},
+                        "semantic_policy": semantic_policy or {},
+                        "meta_action": {"candidate_action": "create_memory"},
+                    },
+                    request_payload={
+                        "message": message,
+                        "assistant_message": assistant_message,
+                        "workspace_content": workspace.content,
+                        "memory_intent": memory_intent,
+                        "memory_write_content_available": _memory_write_candidate_has_content(
+                            meta,
+                            message=message,
+                            assistant_message=assistant_message,
+                            workspace=workspace,
+                        ),
+                    },
+                )
+                if memory_authority.blocks_candidate_write:
+                    meta = MetaDecision(
+                        action="no_op",
+                        rationale=_memory_write_denied_rationale(memory_authority.denied_reason),
+                        blocked_action="create_memory",
+                        blocked_reason=memory_authority.denied_reason,
+                    )
+                    executed_action = None
+                else:
+                    executed_action = self.executor.execute(meta, workspace=workspace)
+            else:
+                executed_action = self.executor.execute(meta, workspace=workspace)
         created_record = self._created_record_payload(executed_action)
         protocol_record_payload = self._created_record_payload(protocol_action)
         learned_records = [
@@ -1665,6 +1701,38 @@ def _normalize_memory_mode(memory_intent: str | None) -> str:
     if memory_intent in {"skip", "dont_save"}:
         return "dont_save"
     return "auto"
+
+
+def _memory_write_candidate_has_content(
+    decision: MetaDecision,
+    *,
+    message: str,
+    assistant_message: str,
+    workspace: WorkspaceDocument,
+) -> bool:
+    return any(
+        bool(str(value or "").strip())
+        for value in (
+            decision.title,
+            decision.card,
+            decision.body,
+            message,
+            assistant_message,
+            workspace.content,
+        )
+    )
+
+
+def _memory_write_denied_rationale(reason: str | None) -> str:
+    if reason == "open_only_ui_handoff":
+        return "TurnPlan opened existing material as a UI-only handoff, so no memory was saved."
+    if reason == "close_visible_surface":
+        return "TurnPlan closed the visible surface, so no memory was saved."
+    if reason == "preserve_visible_surface":
+        return "TurnPlan preserved the visible surface, so no memory was saved."
+    if reason == "memory_write_content_unavailable_or_unsafe":
+        return "TurnPlan could not identify safe memory content to save, so no memory was created."
+    return "TurnPlan did not find structured memory-write authority, so no memory was created."
 
 
 def _trace_preserved_context_payload(candidate: CandidateMemory | None) -> dict[str, Any] | None:

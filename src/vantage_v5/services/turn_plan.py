@@ -248,6 +248,34 @@ class TurnPlanArtifactWriteAuthority:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnPlanMemoryWriteAuthority:
+    """Execution-facing permission for memory write candidates."""
+
+    action: str | None
+    allowed: bool
+    denied_reason: str | None
+    authority: str
+    source_field_paths: tuple[str, ...]
+    content_available: bool
+    no_write_reason: str | None
+
+    @property
+    def blocks_candidate_write(self) -> bool:
+        return self.action == "memory_write" and not self.allowed
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "allowed": self.allowed,
+            "denied_reason": self.denied_reason,
+            "authority": self.authority,
+            "source_field_paths": list(self.source_field_paths),
+            "content_available": self.content_available,
+            "no_write_reason": self.no_write_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class WriteIntentPlan:
     kind: str
     whiteboard_mode: str | None
@@ -490,6 +518,7 @@ class TurnPlan:
     write_ledger: WriteLedgerPlan
     write_projection: WriteProjectionPlan
     artifact_write_authority: TurnPlanArtifactWriteAuthority
+    memory_write_authority: TurnPlanMemoryWriteAuthority
     protocols: ProtocolPlan
     semantic: SemanticPlan
     execution: ExecutionPlan
@@ -509,6 +538,7 @@ class TurnPlan:
             "write_ledger": self.write_ledger.to_dict(),
             "write_projection": self.write_projection.to_dict(),
             "artifact_write_authority": self.artifact_write_authority.to_dict(),
+            "memory_write_authority": self.memory_write_authority.to_dict(),
             "protocols": self.protocols.to_dict(),
             "semantic": self.semantic.to_dict(),
             "execution": self.execution.to_dict(),
@@ -555,6 +585,12 @@ class TurnPlanBuilder:
             semantic=semantic,
             side_effect_policy=side_effect_policy,
         )
+        memory_write_authority = self._memory_write_authority_plan(
+            request_payload=request_payload,
+            response_payload=response_payload,
+            write_projection=write_projection,
+            side_effect_policy=side_effect_policy,
+        )
         execution = self._execution_plan(response_payload, write_intent, side_effect_policy, ui_surface_action)
         compatibility = self._compatibility_plan(response_payload, write_intent)
         validation = self._validation_plan(
@@ -569,6 +605,7 @@ class TurnPlanBuilder:
             write_ledger=write_ledger,
             write_projection=write_projection,
             artifact_write_authority=artifact_write_authority,
+            memory_write_authority=memory_write_authority,
             semantic=semantic,
             execution=execution,
         )
@@ -584,6 +621,7 @@ class TurnPlanBuilder:
             write_ledger=write_ledger,
             write_projection=write_projection,
             artifact_write_authority=artifact_write_authority,
+            memory_write_authority=memory_write_authority,
             protocols=protocols,
             semantic=semantic,
             execution=execution,
@@ -1044,6 +1082,58 @@ class TurnPlanBuilder:
             no_write_reason=no_write_reason,
         )
 
+    def _memory_write_authority_plan(
+        self,
+        *,
+        request_payload: dict[str, Any],
+        response_payload: dict[str, Any],
+        write_projection: WriteProjectionPlan,
+        side_effect_policy: SideEffectPolicy,
+    ) -> TurnPlanMemoryWriteAuthority:
+        sources = tuple(
+            source
+            for source in write_projection.sources
+            if source.get("kind") == "memory_write"
+            and source.get("source") != "existing_write_effect"
+        )
+        has_memory_effect = any(
+            source.get("kind") == "memory_write" and source.get("source") == "existing_write_effect"
+            for source in write_projection.sources
+        )
+        action = (
+            "memory_write"
+            if sources or has_memory_effect or _has_memory_write_candidate(response_payload)
+            else None
+        )
+        source_field_paths = tuple(
+            path
+            for path in (_optional_str(source.get("field_path")) for source in sources)
+            if path
+        )
+        content_available = _memory_write_content_available(request_payload=request_payload)
+        no_write_reason = side_effect_policy.suppress_auto_graph_writes_reason
+        denied_reason = None
+        allowed = False
+        if action is None:
+            denied_reason = None
+        elif no_write_reason is not None:
+            denied_reason = no_write_reason
+        elif not sources:
+            denied_reason = "missing_structured_memory_write_intent"
+        elif not content_available:
+            denied_reason = "memory_write_content_unavailable_or_unsafe"
+        else:
+            allowed = True
+        return TurnPlanMemoryWriteAuthority(
+            action=action,
+            allowed=allowed,
+            denied_reason=denied_reason,
+            authority=str(sources[0].get("source") or "structured_intent") if sources else "none",
+            source_field_paths=source_field_paths,
+            content_available=content_available,
+            no_write_reason=no_write_reason,
+        )
+
     def _execution_plan(
         self,
         response_payload: dict[str, Any],
@@ -1104,6 +1194,7 @@ class TurnPlanBuilder:
         write_ledger: WriteLedgerPlan,
         write_projection: WriteProjectionPlan,
         artifact_write_authority: TurnPlanArtifactWriteAuthority,
+        memory_write_authority: TurnPlanMemoryWriteAuthority,
         semantic: SemanticPlan,
         execution: ExecutionPlan,
     ) -> TurnPlanValidation:
@@ -1410,6 +1501,22 @@ class TurnPlanBuilder:
                 )
             )
 
+        if (
+            "memory_write" in write_ledger.categories
+            and not memory_write_authority.allowed
+            and memory_write_authority.action == "memory_write"
+        ):
+            warnings.append(
+                _validation_warning(
+                    "memory_write_effect_without_authority",
+                    "A memory write effect appeared after TurnPlan denied memory write authority.",
+                    [
+                        "turn_plan.memory_write_authority",
+                        *write_side_effects,
+                    ],
+                )
+            )
+
         return TurnPlanValidation(warnings=tuple(warnings))
 
 
@@ -1481,6 +1588,38 @@ def build_turn_plan_artifact_write_authority(
         request_payload=request_payload or {},
         write_projection=write_projection,
         semantic=semantic,
+        side_effect_policy=side_effect_policy,
+    )
+
+
+def build_turn_plan_memory_write_authority(
+    *,
+    response_payload: dict[str, Any],
+    request_payload: dict[str, Any] | None = None,
+) -> TurnPlanMemoryWriteAuthority:
+    """Build the TurnPlan permission gate for memory write candidates."""
+
+    payload = _with_nested_surface_action(response_payload)
+    builder = TurnPlanBuilder()
+    retrieval = builder._retrieval_plan(payload)
+    ui_surface_action = builder._ui_surface_action_plan(payload, retrieval)
+    write_intent = builder._write_intent_plan(payload, ui_surface_action)
+    side_effect_policy = builder._side_effect_policy(request_payload or {}, payload, write_intent)
+    write_ledger = builder._write_ledger_plan(payload, write_intent, ui_surface_action)
+    route = builder._route_plan(payload)
+    semantic = builder._semantic_plan(payload)
+    write_projection = builder._write_projection_plan(
+        request_payload=request_payload or {},
+        response_payload=payload,
+        route=route,
+        write_intent=write_intent,
+        write_ledger=write_ledger,
+        semantic=semantic,
+    )
+    return builder._memory_write_authority_plan(
+        request_payload=request_payload or {},
+        response_payload=payload,
+        write_projection=write_projection,
         side_effect_policy=side_effect_policy,
     )
 
@@ -1654,7 +1793,15 @@ def _control_panel_has_write_action(interpretation: dict[str, Any]) -> bool:
     control_panel = _dict_or_empty(interpretation.get("control_panel"))
     for action in _list_of_dicts(control_panel.get("actions")):
         action_type = str(action.get("type") or action.get("action") or "").strip()
-        if action_type in {"draft_whiteboard", "save_whiteboard", "publish_artifact"}:
+        if action_type in {
+            "draft_whiteboard",
+            "save_whiteboard",
+            "publish_artifact",
+            "remember",
+            "create_memory",
+            "memory_write",
+            "save_memory",
+        }:
             return True
     return False
 
@@ -1782,6 +1929,31 @@ def _artifact_write_target_available(
     return True
 
 
+def _memory_write_content_available(
+    *,
+    request_payload: dict[str, Any],
+) -> bool:
+    explicit = request_payload.get("memory_write_content_available")
+    if isinstance(explicit, bool):
+        return explicit
+    for key in ("message", "assistant_message", "workspace_content"):
+        value = request_payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return True
+
+
+def _has_memory_write_candidate(response_payload: dict[str, Any]) -> bool:
+    meta_action = _dict_or_empty(response_payload.get("meta_action"))
+    blocked_action = str(meta_action.get("blocked_action") or "").strip().lower()
+    candidate_action = str(meta_action.get("candidate_action") or "").strip().lower()
+    return blocked_action in {"create_memory", "memory_write", "save_memory"} or candidate_action in {
+        "create_memory",
+        "memory_write",
+        "save_memory",
+    }
+
+
 def _effect_write_sources(write_ledger: WriteLedgerPlan) -> tuple[dict[str, Any], ...]:
     sources: list[dict[str, Any]] = []
     for entry in write_ledger.entries:
@@ -1831,6 +2003,9 @@ def _control_panel_write_kind(action_type: str) -> str | None:
         "save_whiteboard": "artifact_save",
         "publish_artifact": "artifact_publish",
         "remember": "memory_write",
+        "create_memory": "memory_write",
+        "memory_write": "memory_write",
+        "save_memory": "memory_write",
         "learn": "concept_write",
         "create_concept": "concept_write",
         "create_artifact": "artifact_save",
@@ -1847,6 +2022,9 @@ def _semantic_write_kind(action_type: str) -> str | None:
         "save_whiteboard": "artifact_save",
         "publish_artifact": "artifact_publish",
         "remember": "memory_write",
+        "create_memory": "memory_write",
+        "memory_write": "memory_write",
+        "save_memory": "memory_write",
         "learn": "concept_write",
         "create_concept": "concept_write",
         "create_artifact": "artifact_save",
@@ -1982,6 +2160,9 @@ def _payload_has_explicit_write_authority(
             "save_whiteboard",
             "publish_artifact",
             "remember",
+            "create_memory",
+            "memory_write",
+            "save_memory",
             "learn",
             "create_concept",
             "create_artifact",
@@ -1995,6 +2176,9 @@ def _payload_has_explicit_write_authority(
         "save",
         "publish",
         "remember",
+        "create_memory",
+        "memory_write",
+        "save_memory",
         "learn",
         "create_concept",
         "create_artifact",
@@ -2006,6 +2190,9 @@ def _payload_has_explicit_write_authority(
         "save_whiteboard",
         "publish_artifact",
         "remember",
+        "create_memory",
+        "memory_write",
+        "save_memory",
         "learn",
         "create_concept",
         "create_artifact",
@@ -2085,7 +2272,15 @@ def _has_explicit_write_authority(
     }:
         return True
     if _control_panel_action_types(route.control_panel).intersection(
-        {"draft_whiteboard", "save_whiteboard", "publish_artifact"}
+        {
+            "draft_whiteboard",
+            "save_whiteboard",
+            "publish_artifact",
+            "remember",
+            "create_memory",
+            "memory_write",
+            "save_memory",
+        }
     ):
         return True
     semantic_action = str(semantic.semantic_action or "").strip().lower()
@@ -2103,6 +2298,9 @@ def _has_explicit_write_authority(
             "save",
             "publish",
             "remember",
+            "create_memory",
+            "memory_write",
+            "save_memory",
             "learn",
             "create_concept",
             "create_artifact",
@@ -2113,6 +2311,10 @@ def _has_explicit_write_authority(
         in {
             "save_whiteboard",
             "publish_artifact",
+            "remember",
+            "create_memory",
+            "memory_write",
+            "save_memory",
             "create_concept",
             "create_artifact",
             "artifact_save",

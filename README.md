@@ -45,6 +45,7 @@ The user-facing default should be:
 - a TurnPlan write ledger that records finalized write/no-write effects for debugging and validation while positive write/draft/save execution remains on the existing explicit write paths
 - a TurnPlan write-intent projection that aligns explicit semantic/control-plane write intent, finalized write effects, traces, and compatibility payload annotations without changing write execution
 - a narrow TurnPlan artifact-write authority gate that permits existing local artifact save/publish candidates only when structured save/publish intent and a safe current target already exist
+- a narrow TurnPlan memory-write authority gate that permits existing memory candidates only when structured remember/memory intent and safe memory content already exist
 - visible surfaces remain user-controlled context: a normal chat command can close or hide the current Whiteboard, artifact, calendar, Today, or task surface without deleting the saved underlying data, while keep/leave-open commands preserve the current surface instead of reopening another item
 
 ### 3. Persistent Memory
@@ -774,7 +775,7 @@ The V5 architecture can be summarized like this:
 - the navigator interprets turns semantically before chat executes them
 - the navigator can route comparative what-if turns into Scenario Lab
 - the navigator can preserve selected context for continuity and steer auto-mode whiteboard collaboration
-- TurnPlan is now authoritative for surface actions, no-write suppression on structured no-write turns, and the narrow permission gate for existing local artifact save/publish candidates
+- TurnPlan is now authoritative for surface actions, no-write suppression on structured no-write turns, and the narrow permission gates for existing local artifact save/publish and memory write candidates
 - Scenario Lab writes branch workspaces plus a comparison artifact
 - a graph-conditioned meta call decides what to do with each interaction
 - timeless knowledge can become a concept

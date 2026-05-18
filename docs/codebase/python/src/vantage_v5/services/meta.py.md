@@ -21,7 +21,7 @@ Decides whether a chat turn should create durable graph state, and if so, what k
 
 ## Key Classes / Functions
 
-- `MetaDecision`: dataclass describing the proposed graph action and optional fields like title, card, body, target concept, and links.
+- `MetaDecision`: dataclass describing the proposed graph action and optional fields like title, card, body, target concept, links, and optional blocked-action metadata when a downstream TurnPlan authority gate denies a candidate write.
 - `MetaService`: orchestrates model-backed and fallback decisioning.
 - `_openai_decide()`: prepares the payload, constrains the allowed actions, and parses the JSON response.
 - `_fallback_decide()`: handles explicit user phrases such as “save as concept,” deliberate concept-revision requests, “promote workspace,” and “remember this,” then otherwise applies concept-forward heuristics for reusable knowledge turns.
@@ -45,3 +45,4 @@ Decides whether a chat turn should create durable graph state, and if so, what k
 - Explicit fallback memory phrases now win even when saved notes were already retrieved, which keeps direct user save requests from being suppressed by retrieval noise.
 - Fallback concept and memory writes reuse the same title/card/body shaping helpers, which means the saved record may reflect either the user message or assistant reply depending on available text.
 - `links_to` is normalized to an empty list in `to_dict()` so downstream code does not have to handle `None`.
+- `blocked_action` and `blocked_reason` are serialized for denied candidates so traces can explain why a memory write candidate did not persist without changing the underlying memory store path.

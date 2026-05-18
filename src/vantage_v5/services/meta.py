@@ -28,9 +28,11 @@ class MetaDecision:
     body: str | None = None
     target_concept_id: str | None = None
     links_to: list[str] | None = None
+    blocked_action: str | None = None
+    blocked_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "action": self.action,
             "rationale": self.rationale,
             "title": self.title,
@@ -39,6 +41,11 @@ class MetaDecision:
             "target_concept_id": self.target_concept_id,
             "links_to": self.links_to or [],
         }
+        if self.blocked_action is not None:
+            payload["blocked_action"] = self.blocked_action
+        if self.blocked_reason is not None:
+            payload["blocked_reason"] = self.blocked_reason
+        return payload
 
 
 class MetaService:

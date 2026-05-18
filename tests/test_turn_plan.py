@@ -6,6 +6,7 @@ from vantage_v5.services.chat import build_final_response_trace_payload
 from vantage_v5.services.turn_plan import project_write_intent_compatibility
 from vantage_v5.services.turn_plan import TurnPlanBuilder
 from vantage_v5.services.turn_plan import build_turn_plan_artifact_write_authority
+from vantage_v5.services.turn_plan import build_turn_plan_memory_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 
 
@@ -962,7 +963,176 @@ def test_turn_plan_write_projection_records_memory_intent_authority() -> None:
     assert plan["write_projection"]["intended_write_kind"] == "memory_write"
     assert plan["write_projection"]["authority"] == "memory_intent"
     assert plan["write_projection"]["effect_agreement"] == "aligned"
+    assert plan["memory_write_authority"]["action"] == "memory_write"
+    assert plan["memory_write_authority"]["allowed"] is True
+    assert plan["memory_write_authority"]["authority"] == "memory_intent"
     assert "write_effect_without_projected_intent" not in _warning_codes(plan)
+
+
+def test_turn_plan_memory_write_authority_allows_memory_intent() -> None:
+    authority = build_turn_plan_memory_write_authority(
+        request_payload={
+            "message": "Remember that I prefer morning study blocks.",
+            "assistant_message": "Got it.",
+            "memory_intent": "remember",
+            "memory_write_content_available": True,
+        },
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+        },
+    )
+
+    assert authority.action == "memory_write"
+    assert authority.allowed is True
+    assert authority.denied_reason is None
+    assert authority.authority == "memory_intent"
+    assert authority.source_field_paths == ("request.memory_intent",)
+
+
+def test_turn_plan_memory_write_authority_allows_control_panel_remember() -> None:
+    authority = build_turn_plan_memory_write_authority(
+        request_payload={
+            "message": "Remember this.",
+            "assistant_message": "Got it.",
+            "memory_intent": "auto",
+            "memory_write_content_available": True,
+        },
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "turn_interpretation": {"control_panel": {"actions": [{"type": "remember"}]}},
+        },
+    )
+
+    assert authority.action == "memory_write"
+    assert authority.allowed is True
+    assert authority.authority == "control_panel"
+    assert authority.source_field_paths == ("turn_interpretation.control_panel.actions[0].type",)
+
+
+@pytest.mark.parametrize(
+    ("response_payload", "expected_reason"),
+    [
+        (
+            {
+                "surface_invocation": {
+                    "intent": "attention_selected_context",
+                    "primary_surface": "whiteboard",
+                    "write_behavior": "open_only",
+                    "whiteboard_mode": "chat",
+                    "resolved_whiteboard_mode": "chat",
+                },
+                "navigator_selection": {
+                    "primary_resource_id": "artifact:midterm-study-plan",
+                    "surface_to_open": "whiteboard",
+                },
+                "selected_attention_resources": [
+                    {"resource_id": "artifact:midterm-study-plan", "kind": "artifact"}
+                ],
+            },
+            "open_only_ui_handoff",
+        ),
+        (
+            {
+                "surface_invocation": {
+                    "intent": "preserve_visible_surface",
+                    "primary_surface": "chat",
+                    "write_behavior": "none",
+                    "whiteboard_mode": "chat",
+                    "resolved_whiteboard_mode": "chat",
+                },
+                "turn_interpretation": {
+                    "control_panel": {"actions": [{"type": "preserve_surface", "target": "whiteboard"}]},
+                },
+            },
+            "preserve_visible_surface",
+        ),
+        (
+            {
+                "surface_action": {"type": "close_visible_surface", "target": "whiteboard"},
+                "surface_invocation": {
+                    "intent": "close_visible_surface",
+                    "primary_surface": "chat",
+                    "write_behavior": "none",
+                    "whiteboard_mode": "chat",
+                    "resolved_whiteboard_mode": "chat",
+                },
+            },
+            "close_visible_surface",
+        ),
+    ],
+)
+def test_turn_plan_memory_write_authority_hard_no_write_wins(
+    response_payload: dict,
+    expected_reason: str,
+) -> None:
+    authority = build_turn_plan_memory_write_authority(
+        request_payload={
+            "message": "Remember this.",
+            "assistant_message": "Got it.",
+            "memory_intent": "remember",
+            "memory_write_content_available": True,
+        },
+        response_payload=response_payload,
+    )
+
+    assert authority.action == "memory_write"
+    assert authority.allowed is False
+    assert authority.blocks_candidate_write is True
+    assert authority.denied_reason == expected_reason
+
+
+def test_turn_plan_memory_write_authority_denies_missing_content() -> None:
+    authority = build_turn_plan_memory_write_authority(
+        request_payload={
+            "message": "",
+            "assistant_message": "",
+            "workspace_content": "",
+            "memory_intent": "remember",
+            "memory_write_content_available": False,
+        },
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+        },
+    )
+
+    assert authority.action == "memory_write"
+    assert authority.allowed is False
+    assert authority.denied_reason == "memory_write_content_unavailable_or_unsafe"
+
+
+def test_turn_plan_memory_write_effect_without_authority_warns() -> None:
+    plan = _plan(
+        message="Remember this.",
+        response={
+            "graph_action": {"type": "create_memory", "record_id": "memory:raw-remember"},
+            "created_record": {"id": "memory:raw-remember", "source": "memory"},
+        },
+    )
+
+    assert plan["memory_write_authority"]["action"] == "memory_write"
+    assert plan["memory_write_authority"]["allowed"] is False
+    assert plan["memory_write_authority"]["denied_reason"] == "missing_structured_memory_write_intent"
+    assert "memory_write_effect_without_authority" in _warning_codes(plan)
+    assert "write_effect_without_projected_intent" not in _warning_codes(plan)
+    assert "compatibility_no_write_with_write_effect" in _warning_codes(plan)
 
 
 def test_turn_plan_protocol_write_authority_lifts_artifact_qna_no_write() -> None:

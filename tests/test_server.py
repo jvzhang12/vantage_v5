@@ -6194,6 +6194,57 @@ def test_memory_write_without_structured_authority_is_denied(tmp_path: Path, mon
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
+def test_memory_write_with_empty_candidate_content_is_denied(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "Got it, I can use that in this answer.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="create_memory",
+            rationale="Malformed memory candidate without persisted content fields.",
+        ),
+    )
+
+    memory_ids_before = {path.stem for path in (repo_root / "memories").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Remember this preference from the whiteboard.",
+            "history": [],
+            "workspace_id": "v5-milestone-1",
+            "workspace_scope": "visible",
+            "workspace_content": "# Raw Whiteboard\n\nThis text must not count as safe memory candidate content.",
+            "memory_intent": "remember",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["meta_action"]["blocked_action"] == "create_memory"
+    assert payload["meta_action"]["blocked_reason"] == "memory_write_content_unavailable_or_unsafe"
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["learned"] == []
+    assert {path.stem for path in (repo_root / "memories").glob("*.md")} == memory_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    memory_authority = final_response["turn_plan"]["memory_write_authority"]
+    assert memory_authority["action"] == "memory_write"
+    assert memory_authority["allowed"] is False
+    assert memory_authority["content_available"] is False
+    assert memory_authority["denied_reason"] == "memory_write_content_unavailable_or_unsafe"
+    assert final_response["turn_plan"]["write_ledger"]["categories"] == ["none"]
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
 def test_follow_up_after_artifact_promotion_keeps_selected_artifact_in_focus(tmp_path: Path, monkeypatch) -> None:
     client, _ = _client(tmp_path)
 

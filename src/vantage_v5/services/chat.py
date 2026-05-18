@@ -530,24 +530,18 @@ class ChatService:
                 visible_artifacts=visible_artifacts,
             )
             if meta.action == "create_memory":
+                candidate_meta_action = meta.to_dict()
+                candidate_meta_action["candidate_action"] = "create_memory"
                 memory_authority = build_turn_plan_memory_write_authority(
                     response_payload={
                         "surface_invocation": surface_invocation or {},
                         "turn_interpretation": turn_interpretation or {},
                         "semantic_policy": semantic_policy or {},
-                        "meta_action": {"candidate_action": "create_memory"},
+                        "meta_action": candidate_meta_action,
                     },
                     request_payload={
-                        "message": message,
-                        "assistant_message": assistant_message,
-                        "workspace_content": workspace.content,
                         "memory_intent": memory_intent,
-                        "memory_write_content_available": _memory_write_candidate_has_content(
-                            meta,
-                            message=message,
-                            assistant_message=assistant_message,
-                            workspace=workspace,
-                        ),
+                        "memory_write_content_available": _memory_write_candidate_has_content(meta),
                     },
                 )
                 if memory_authority.blocks_candidate_write:
@@ -1705,10 +1699,6 @@ def _normalize_memory_mode(memory_intent: str | None) -> str:
 
 def _memory_write_candidate_has_content(
     decision: MetaDecision,
-    *,
-    message: str,
-    assistant_message: str,
-    workspace: WorkspaceDocument,
 ) -> bool:
     return any(
         bool(str(value or "").strip())
@@ -1716,9 +1706,6 @@ def _memory_write_candidate_has_content(
             decision.title,
             decision.card,
             decision.body,
-            message,
-            assistant_message,
-            workspace.content,
         )
     )
 

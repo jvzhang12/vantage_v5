@@ -1110,7 +1110,10 @@ class TurnPlanBuilder:
             for path in (_optional_str(source.get("field_path")) for source in sources)
             if path
         )
-        content_available = _memory_write_content_available(request_payload=request_payload)
+        content_available = _memory_write_content_available(
+            request_payload=request_payload,
+            response_payload=response_payload,
+        )
         no_write_reason = side_effect_policy.suppress_auto_graph_writes_reason
         denied_reason = None
         allowed = False
@@ -1932,15 +1935,17 @@ def _artifact_write_target_available(
 def _memory_write_content_available(
     *,
     request_payload: dict[str, Any],
+    response_payload: dict[str, Any] | None = None,
 ) -> bool:
     explicit = request_payload.get("memory_write_content_available")
     if isinstance(explicit, bool):
         return explicit
-    for key in ("message", "assistant_message", "workspace_content"):
-        value = request_payload.get(key)
+    meta_action = _dict_or_empty((response_payload or {}).get("meta_action"))
+    for key in ("title", "card", "body"):
+        value = meta_action.get(key)
         if isinstance(value, str) and value.strip():
             return True
-    return True
+    return False
 
 
 def _has_memory_write_candidate(response_payload: dict[str, Any]) -> bool:

@@ -955,6 +955,12 @@ def test_turn_plan_write_projection_records_memory_intent_authority() -> None:
         message="Remember that I prefer morning study blocks.",
         request={"memory_intent": "remember"},
         response={
+            "meta_action": {
+                "action": "create_memory",
+                "title": "Morning study blocks",
+                "card": "The user prefers morning study blocks.",
+                "body": "The user prefers morning study blocks.",
+            },
             "graph_action": {"type": "create_memory", "record_id": "memory:morning-study"},
             "created_record": {"id": "memory:morning-study", "source": "memory"},
         },
@@ -1116,6 +1122,60 @@ def test_turn_plan_memory_write_authority_denies_missing_content() -> None:
     assert authority.action == "memory_write"
     assert authority.allowed is False
     assert authority.denied_reason == "memory_write_content_unavailable_or_unsafe"
+
+
+def test_turn_plan_memory_write_authority_ignores_raw_text_for_content() -> None:
+    authority = build_turn_plan_memory_write_authority(
+        request_payload={
+            "message": "Remember that I prefer morning study blocks.",
+            "assistant_message": "Got it.",
+            "workspace_content": "# Morning Study\n\nThis text is not the candidate payload.",
+            "memory_intent": "remember",
+        },
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "meta_action": {"candidate_action": "create_memory"},
+        },
+    )
+
+    assert authority.action == "memory_write"
+    assert authority.content_available is False
+    assert authority.allowed is False
+    assert authority.denied_reason == "memory_write_content_unavailable_or_unsafe"
+
+
+def test_turn_plan_memory_write_authority_uses_meta_action_fields_for_content() -> None:
+    authority = build_turn_plan_memory_write_authority(
+        request_payload={
+            "memory_intent": "remember",
+        },
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "meta_action": {
+                "candidate_action": "create_memory",
+                "title": "Morning study blocks",
+                "card": "",
+                "body": "",
+            },
+        },
+    )
+
+    assert authority.action == "memory_write"
+    assert authority.content_available is True
+    assert authority.allowed is True
+    assert authority.denied_reason is None
 
 
 def test_turn_plan_memory_write_effect_without_authority_warns() -> None:

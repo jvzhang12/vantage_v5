@@ -19,6 +19,7 @@ from vantage_v5.services.protocol_engine import ProtocolEngine
 from vantage_v5.services.semantic_frame import build_semantic_frame
 from vantage_v5.services.semantic_policy import decide_semantic_policy
 from vantage_v5.services.surface_invocation import build_surface_invocation
+from vantage_v5.services.turn_plan import build_turn_plan_artifact_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 from vantage_v5.services.turn_payloads import assemble_local_turn_payload
 from vantage_v5.services.turn_payloads import assemble_scenario_lab_fallback_payload
@@ -225,6 +226,23 @@ class TurnOrchestrator:
         )
         suppress_auto_graph_writes = surface_authority.suppress_auto_graph_writes
         suppress_protocol_writes = surface_authority.blocks_protocol_writes
+        workspace_has_content = bool(context.workspace.content.strip())
+        artifact_write_authority = build_turn_plan_artifact_write_authority(
+            response_payload={
+                **attention_state_payload,
+                "surface_invocation": surface_invocation_payload,
+                "turn_interpretation": assemble_turn_interpretation_payload(turn_interpretation_parts),
+                "semantic_policy": semantic_policy,
+            },
+            request_payload={
+                "message": request.message,
+                "memory_intent": request.memory_intent,
+                "workspace_scope": context.normalized_workspace_scope,
+                "workspace_has_content": workspace_has_content,
+                "artifact_write_target_available": context.normalized_workspace_scope != "excluded"
+                and workspace_has_content,
+            },
+        )
         turn_stage = build_turn_stage(
             navigation_mode=navigation.mode,
             whiteboard_mode=resolved_whiteboard_mode if navigation.mode == "chat" else "chat",
@@ -260,10 +278,17 @@ class TurnOrchestrator:
             payload.update(attention_state_payload)
             return payload
         local_semantic_parts = None
-        if not (
-            surface_authority.blocks_local_semantic_writes
-            and _semantic_policy_has_local_write_action(semantic_policy)
-        ):
+        local_semantic_write_action = _semantic_policy_has_local_write_action(semantic_policy)
+        local_semantic_clarification = _semantic_policy_should_clarify(semantic_policy)
+        local_semantic_blocked_by_surface = (
+            surface_authority.blocks_local_semantic_writes and local_semantic_write_action
+        )
+        local_semantic_blocked_by_artifact_authority = (
+            artifact_write_authority.blocks_candidate_write
+            and local_semantic_write_action
+            and not local_semantic_clarification
+        )
+        if not (local_semantic_blocked_by_surface or local_semantic_blocked_by_artifact_authority):
             local_semantic_parts = self.local_semantic_actions.build_turn_parts(
                 LocalSemanticTurnContext(
                     runtime=context.runtime,
@@ -486,6 +511,10 @@ def _close_surface_assistant_message(action: dict[str, Any]) -> str:
 def _semantic_policy_has_local_write_action(policy: dict[str, Any]) -> bool:
     action_type = str(policy.get("action_type") or policy.get("semantic_action") or "").strip()
     return action_type in {"artifact_save", "artifact_publish"}
+
+
+def _semantic_policy_should_clarify(policy: dict[str, Any]) -> bool:
+    return bool(policy.get("should_clarify") or policy.get("needs_clarification"))
 
 
 def _safe_scenario_lab_error_message(error: Exception) -> str:

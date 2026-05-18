@@ -5,6 +5,7 @@ import pytest
 from vantage_v5.services.chat import build_final_response_trace_payload
 from vantage_v5.services.turn_plan import project_write_intent_compatibility
 from vantage_v5.services.turn_plan import TurnPlanBuilder
+from vantage_v5.services.turn_plan import build_turn_plan_artifact_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 
 
@@ -579,7 +580,186 @@ def test_turn_plan_write_projection_enriches_surface_invocation_for_semantic_art
     ).to_dict()
     assert plan["write_projection"]["intended_write_kind"] == expected_kind
     assert plan["write_projection"]["compatibility_projection"]["surface_invocation_has_write_intent"] is True
+    assert plan["artifact_write_authority"]["action"] == expected_kind
+    assert plan["artifact_write_authority"]["allowed"] is True
+    assert plan["artifact_write_authority"]["denied_reason"] is None
     assert plan["validation"]["warnings"] == []
+
+
+@pytest.mark.parametrize("action_type", ["artifact_save", "artifact_publish"])
+def test_turn_plan_artifact_write_authority_allows_structured_save_publish(
+    action_type: str,
+) -> None:
+    authority = build_turn_plan_artifact_write_authority(
+        request_payload={
+            "message": "Save this whiteboard.",
+            "workspace_scope": "visible",
+            "workspace_has_content": True,
+        },
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "semantic_policy": {
+                "action_type": action_type,
+                "semantic_action": action_type,
+                "should_clarify": False,
+            },
+        },
+    )
+
+    assert authority.action == action_type
+    assert authority.allowed is True
+    assert authority.denied_reason is None
+    assert authority.authority == "semantic_policy"
+    assert authority.target_available is True
+    assert authority.requires_clarification is False
+
+
+@pytest.mark.parametrize(
+    ("response_payload", "expected_reason"),
+    [
+        (
+            {
+                "surface_invocation": {
+                    "intent": "attention_selected_context",
+                    "primary_surface": "whiteboard",
+                    "write_behavior": "open_only",
+                    "whiteboard_mode": "chat",
+                    "resolved_whiteboard_mode": "chat",
+                },
+                "navigator_selection": {
+                    "primary_resource_id": "artifact:midterm-study-plan",
+                    "surface_to_open": "whiteboard",
+                },
+                "selected_attention_resources": [
+                    {"resource_id": "artifact:midterm-study-plan", "kind": "artifact"}
+                ],
+                "semantic_policy": {
+                    "action_type": "artifact_save",
+                    "semantic_action": "artifact_save",
+                    "should_clarify": False,
+                },
+            },
+            "open_only_ui_handoff",
+        ),
+        (
+            {
+                "surface_invocation": {
+                    "intent": "preserve_visible_surface",
+                    "primary_surface": "chat",
+                    "write_behavior": "none",
+                    "whiteboard_mode": "chat",
+                    "resolved_whiteboard_mode": "chat",
+                },
+                "turn_interpretation": {
+                    "control_panel": {"actions": [{"type": "preserve_surface", "target": "whiteboard"}]},
+                },
+                "semantic_policy": {
+                    "action_type": "artifact_publish",
+                    "semantic_action": "artifact_publish",
+                    "should_clarify": False,
+                },
+            },
+            "preserve_visible_surface",
+        ),
+        (
+            {
+                "surface_action": {"type": "close_visible_surface", "target": "whiteboard"},
+                "surface_invocation": {
+                    "intent": "close_visible_surface",
+                    "primary_surface": "chat",
+                    "write_behavior": "none",
+                    "whiteboard_mode": "chat",
+                    "resolved_whiteboard_mode": "chat",
+                },
+                "semantic_policy": {
+                    "action_type": "artifact_save",
+                    "semantic_action": "artifact_save",
+                    "should_clarify": False,
+                },
+            },
+            "close_visible_surface",
+        ),
+    ],
+)
+def test_turn_plan_artifact_write_authority_hard_no_write_wins(
+    response_payload: dict,
+    expected_reason: str,
+) -> None:
+    authority = build_turn_plan_artifact_write_authority(
+        request_payload={
+            "message": "Save this whiteboard.",
+            "workspace_scope": "visible",
+            "workspace_has_content": True,
+        },
+        response_payload=response_payload,
+    )
+
+    assert authority.action in {"artifact_save", "artifact_publish"}
+    assert authority.allowed is False
+    assert authority.blocks_candidate_write is True
+    assert authority.denied_reason == expected_reason
+
+
+def test_turn_plan_artifact_write_authority_denies_missing_target() -> None:
+    authority = build_turn_plan_artifact_write_authority(
+        request_payload={
+            "message": "Save this.",
+            "workspace_scope": "excluded",
+            "workspace_has_content": False,
+        },
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "semantic_policy": {
+                "action_type": "artifact_save",
+                "semantic_action": "artifact_save",
+                "should_clarify": False,
+            },
+        },
+    )
+
+    assert authority.action == "artifact_save"
+    assert authority.allowed is False
+    assert authority.denied_reason == "artifact_write_target_unavailable_or_ambiguous"
+    assert authority.target_available is False
+
+
+def test_turn_plan_artifact_write_authority_recognizes_control_panel_save() -> None:
+    authority = build_turn_plan_artifact_write_authority(
+        request_payload={
+            "message": "Save this whiteboard.",
+            "workspace_scope": "visible",
+            "workspace_has_content": True,
+        },
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "turn_interpretation": {
+                "control_panel": {"actions": [{"type": "save_whiteboard"}]},
+            },
+        },
+    )
+
+    assert authority.action == "artifact_save"
+    assert authority.allowed is True
+    assert authority.authority == "control_panel"
+    assert authority.source_field_paths == ("turn_interpretation.control_panel.actions[0].type",)
 
 
 def test_turn_plan_visible_artifact_qna_with_memory_intent_remember_does_not_suppress() -> None:

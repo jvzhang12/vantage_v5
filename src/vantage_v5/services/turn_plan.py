@@ -218,6 +218,36 @@ class TurnPlanSurfaceAuthority:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnPlanArtifactWriteAuthority:
+    """Execution-facing permission for local artifact save/publish candidates."""
+
+    action: str | None
+    allowed: bool
+    denied_reason: str | None
+    authority: str
+    source_field_paths: tuple[str, ...]
+    target_available: bool
+    requires_clarification: bool
+    no_write_reason: str | None
+
+    @property
+    def blocks_candidate_write(self) -> bool:
+        return self.action in {"artifact_save", "artifact_publish"} and not self.allowed
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "allowed": self.allowed,
+            "denied_reason": self.denied_reason,
+            "authority": self.authority,
+            "source_field_paths": list(self.source_field_paths),
+            "target_available": self.target_available,
+            "requires_clarification": self.requires_clarification,
+            "no_write_reason": self.no_write_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class WriteIntentPlan:
     kind: str
     whiteboard_mode: str | None
@@ -459,6 +489,7 @@ class TurnPlan:
     side_effect_policy: SideEffectPolicy
     write_ledger: WriteLedgerPlan
     write_projection: WriteProjectionPlan
+    artifact_write_authority: TurnPlanArtifactWriteAuthority
     protocols: ProtocolPlan
     semantic: SemanticPlan
     execution: ExecutionPlan
@@ -477,6 +508,7 @@ class TurnPlan:
             "side_effect_policy": self.side_effect_policy.to_dict(),
             "write_ledger": self.write_ledger.to_dict(),
             "write_projection": self.write_projection.to_dict(),
+            "artifact_write_authority": self.artifact_write_authority.to_dict(),
             "protocols": self.protocols.to_dict(),
             "semantic": self.semantic.to_dict(),
             "execution": self.execution.to_dict(),
@@ -517,6 +549,12 @@ class TurnPlanBuilder:
             write_ledger=write_ledger,
             semantic=semantic,
         )
+        artifact_write_authority = self._artifact_write_authority_plan(
+            request_payload=request_payload,
+            write_projection=write_projection,
+            semantic=semantic,
+            side_effect_policy=side_effect_policy,
+        )
         execution = self._execution_plan(response_payload, write_intent, side_effect_policy, ui_surface_action)
         compatibility = self._compatibility_plan(response_payload, write_intent)
         validation = self._validation_plan(
@@ -530,6 +568,7 @@ class TurnPlanBuilder:
             side_effect_policy=side_effect_policy,
             write_ledger=write_ledger,
             write_projection=write_projection,
+            artifact_write_authority=artifact_write_authority,
             semantic=semantic,
             execution=execution,
         )
@@ -544,6 +583,7 @@ class TurnPlanBuilder:
             side_effect_policy=side_effect_policy,
             write_ledger=write_ledger,
             write_projection=write_projection,
+            artifact_write_authority=artifact_write_authority,
             protocols=protocols,
             semantic=semantic,
             execution=execution,
@@ -953,6 +993,57 @@ class TurnPlanBuilder:
             compatibility_projection=_write_projection_compatibility(response_payload),
         )
 
+    def _artifact_write_authority_plan(
+        self,
+        *,
+        request_payload: dict[str, Any],
+        write_projection: WriteProjectionPlan,
+        semantic: SemanticPlan,
+        side_effect_policy: SideEffectPolicy,
+    ) -> TurnPlanArtifactWriteAuthority:
+        sources = tuple(
+            source
+            for source in write_projection.sources
+            if source.get("kind") in {"artifact_save", "artifact_publish"}
+            and source.get("source") != "existing_write_effect"
+        )
+        action = _artifact_write_action_from_semantic(semantic)
+        if action is None and sources:
+            action = str(sources[0].get("kind") or "").strip() or None
+        source_field_paths = tuple(
+            path
+            for path in (_optional_str(source.get("field_path")) for source in sources)
+            if path
+        )
+        requires_clarification = bool(semantic.should_clarify and action in {"artifact_save", "artifact_publish"})
+        target_available = _artifact_write_target_available(
+            request_payload=request_payload,
+            requires_clarification=requires_clarification,
+        )
+        no_write_reason = side_effect_policy.suppress_auto_graph_writes_reason
+        denied_reason = None
+        allowed = False
+        if action is None:
+            denied_reason = None
+        elif no_write_reason is not None:
+            denied_reason = no_write_reason
+        elif not sources:
+            denied_reason = "missing_structured_artifact_write_intent"
+        elif requires_clarification or not target_available:
+            denied_reason = "artifact_write_target_unavailable_or_ambiguous"
+        else:
+            allowed = True
+        return TurnPlanArtifactWriteAuthority(
+            action=action,
+            allowed=allowed,
+            denied_reason=denied_reason,
+            authority=str(sources[0].get("source") or "structured_intent") if sources else "none",
+            source_field_paths=source_field_paths,
+            target_available=target_available,
+            requires_clarification=requires_clarification,
+            no_write_reason=no_write_reason,
+        )
+
     def _execution_plan(
         self,
         response_payload: dict[str, Any],
@@ -1012,6 +1103,7 @@ class TurnPlanBuilder:
         side_effect_policy: SideEffectPolicy,
         write_ledger: WriteLedgerPlan,
         write_projection: WriteProjectionPlan,
+        artifact_write_authority: TurnPlanArtifactWriteAuthority,
         semantic: SemanticPlan,
         execution: ExecutionPlan,
     ) -> TurnPlanValidation:
@@ -1302,6 +1394,22 @@ class TurnPlanBuilder:
                 )
             )
 
+        if (
+            "artifact_save_or_promotion" in write_ledger.categories
+            and not artifact_write_authority.allowed
+            and artifact_write_authority.action in {"artifact_save", "artifact_publish"}
+        ):
+            warnings.append(
+                _validation_warning(
+                    "artifact_write_effect_without_authority",
+                    "An artifact save/publish effect appeared after TurnPlan denied artifact write authority.",
+                    [
+                        "turn_plan.artifact_write_authority",
+                        *write_side_effects,
+                    ],
+                )
+            )
+
         return TurnPlanValidation(warnings=tuple(warnings))
 
 
@@ -1342,6 +1450,38 @@ def build_turn_plan_surface_authority(
         side_effect_policy=side_effect_policy,
         surface_invocation=surface_invocation,
         surface_action=surface_action,
+    )
+
+
+def build_turn_plan_artifact_write_authority(
+    *,
+    response_payload: dict[str, Any],
+    request_payload: dict[str, Any] | None = None,
+) -> TurnPlanArtifactWriteAuthority:
+    """Build the TurnPlan permission gate for artifact save/publish candidates."""
+
+    payload = _with_nested_surface_action(response_payload)
+    builder = TurnPlanBuilder()
+    retrieval = builder._retrieval_plan(payload)
+    ui_surface_action = builder._ui_surface_action_plan(payload, retrieval)
+    write_intent = builder._write_intent_plan(payload, ui_surface_action)
+    side_effect_policy = builder._side_effect_policy(request_payload or {}, payload, write_intent)
+    write_ledger = builder._write_ledger_plan(payload, write_intent, ui_surface_action)
+    route = builder._route_plan(payload)
+    semantic = builder._semantic_plan(payload)
+    write_projection = builder._write_projection_plan(
+        request_payload=request_payload or {},
+        response_payload=payload,
+        route=route,
+        write_intent=write_intent,
+        write_ledger=write_ledger,
+        semantic=semantic,
+    )
+    return builder._artifact_write_authority_plan(
+        request_payload=request_payload or {},
+        write_projection=write_projection,
+        semantic=semantic,
+        side_effect_policy=side_effect_policy,
     )
 
 
@@ -1614,6 +1754,32 @@ def _structured_write_intent_sources(
         )
 
     return tuple(_dedupe_write_sources(sources))
+
+
+def _artifact_write_action_from_semantic(semantic: SemanticPlan) -> str | None:
+    for value in (semantic.semantic_action, semantic.policy_action_type):
+        kind = _semantic_write_kind(str(value or "").strip().lower())
+        if kind in {"artifact_save", "artifact_publish"}:
+            return kind
+    return None
+
+
+def _artifact_write_target_available(
+    *,
+    request_payload: dict[str, Any],
+    requires_clarification: bool,
+) -> bool:
+    if requires_clarification:
+        return False
+    explicit = request_payload.get("artifact_write_target_available")
+    if isinstance(explicit, bool):
+        return explicit
+    workspace_scope = _optional_str(request_payload.get("workspace_scope"))
+    if workspace_scope == "excluded":
+        return False
+    if isinstance(request_payload.get("workspace_has_content"), bool):
+        return bool(request_payload.get("workspace_has_content"))
+    return True
 
 
 def _effect_write_sources(write_ledger: WriteLedgerPlan) -> tuple[dict[str, Any], ...]:

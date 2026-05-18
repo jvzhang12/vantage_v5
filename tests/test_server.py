@@ -1643,6 +1643,9 @@ def test_preserve_surface_blocks_local_semantic_artifact_publish(
     assert {path.stem for path in (repo_root / "artifacts").glob("*.md")} == artifact_ids_before
     final_response = _latest_trace_payload(repo_root)["final_response"]
     assert final_response["turn_plan"]["execution"]["local_semantic_write_policy"] == "disabled"
+    assert final_response["turn_plan"]["artifact_write_authority"]["action"] == "artifact_publish"
+    assert final_response["turn_plan"]["artifact_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["artifact_write_authority"]["denied_reason"] == "preserve_visible_surface"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
@@ -1717,6 +1720,9 @@ def test_close_surface_blocks_local_semantic_artifact_save(
     assert {path.stem for path in (repo_root / "artifacts").glob("*.md")} == artifact_ids_before
     final_response = _latest_trace_payload(repo_root)["final_response"]
     assert final_response["turn_plan"]["execution"]["local_semantic_write_policy"] == "disabled"
+    assert final_response["turn_plan"]["artifact_write_authority"]["action"] == "artifact_save"
+    assert final_response["turn_plan"]["artifact_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["artifact_write_authority"]["denied_reason"] == "close_visible_surface"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
@@ -2099,6 +2105,9 @@ def test_open_only_blocks_local_semantic_artifact_save(
     assert {path.stem for path in (repo_root / "artifacts").glob("*.md")} == artifact_ids_before
     final_response = _latest_trace_payload(repo_root)["final_response"]
     assert final_response["turn_plan"]["execution"]["local_semantic_write_policy"] == "disabled"
+    assert final_response["turn_plan"]["artifact_write_authority"]["action"] == "artifact_save"
+    assert final_response["turn_plan"]["artifact_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["artifact_write_authority"]["denied_reason"] == "open_only_ui_handoff"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
@@ -2919,6 +2928,9 @@ def test_semantic_policy_saves_visible_whiteboard_without_chat_guessing(tmp_path
     turn_plan = final_response["turn_plan"]
     assert turn_plan["write_projection"]["intended_write_kind"] == "artifact_save"
     assert turn_plan["write_projection"]["effect_agreement"] == "aligned"
+    assert turn_plan["artifact_write_authority"]["action"] == "artifact_save"
+    assert turn_plan["artifact_write_authority"]["allowed"] is True
+    assert turn_plan["artifact_write_authority"]["denied_reason"] is None
     assert turn_plan["validation"]["warnings"] == []
 
 
@@ -2993,6 +3005,9 @@ def test_semantic_policy_publishes_visible_whiteboard_as_artifact(tmp_path: Path
     turn_plan = final_response["turn_plan"]
     assert turn_plan["write_projection"]["intended_write_kind"] == "artifact_publish"
     assert turn_plan["write_projection"]["effect_agreement"] == "aligned"
+    assert turn_plan["artifact_write_authority"]["action"] == "artifact_publish"
+    assert turn_plan["artifact_write_authority"]["allowed"] is True
+    assert turn_plan["artifact_write_authority"]["denied_reason"] is None
     assert turn_plan["validation"]["warnings"] == []
 
 

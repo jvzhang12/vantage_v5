@@ -590,6 +590,11 @@ class ChatService:
         created_record = self._created_record_payload(executed_action)
         if created_record is not None and created_record.get("source") == "memory" and memory_mode == "remember":
             assistant_message = _memory_write_assistant_receipt(assistant_message)
+        if _protocol_write_denied_by_hard_no_write(protocol_turn.protocol_write_authority):
+            assistant_message = _protocol_write_denied_assistant_receipt(
+                protocol_turn.protocol_write_authority,
+                surface_invocation=surface_invocation,
+            )
         protocol_record_payload = self._created_record_payload(protocol_action)
         learned_records = [
             record
@@ -1782,6 +1787,49 @@ def _concept_write_denied_rationale(reason: str | None) -> str:
     if reason == "concept_write_target_unavailable_or_ambiguous":
         return "TurnPlan could not identify a safe concept target, so no concept was created."
     return "TurnPlan did not find structured concept-write authority, so no concept was created."
+
+
+def _protocol_write_denied_by_hard_no_write(authority: dict[str, Any] | None) -> bool:
+    if not isinstance(authority, dict):
+        return False
+    if authority.get("allowed") is True:
+        return False
+    if str(authority.get("action") or "").strip() != "protocol_write":
+        return False
+    return str(authority.get("denied_reason") or "").strip() in {
+        "open_only_ui_handoff",
+        "close_visible_surface",
+        "preserve_visible_surface",
+    }
+
+
+def _protocol_write_denied_assistant_receipt(
+    authority: dict[str, Any] | None,
+    *,
+    surface_invocation: dict[str, Any] | None,
+) -> str:
+    reason = str((authority or {}).get("denied_reason") or "").strip()
+    if reason == "preserve_visible_surface":
+        return "I kept the current view unchanged. I did not update the protocol."
+    if reason == "open_only_ui_handoff":
+        return "I opened the selected material in the whiteboard. I did not update the protocol."
+    if reason == "close_visible_surface":
+        target = _surface_invocation_target_label(surface_invocation)
+        return f"Closed the {target} from view. I did not update the protocol."
+    return "I did not update the protocol."
+
+
+def _surface_invocation_target_label(surface_invocation: dict[str, Any] | None) -> str:
+    invocation = surface_invocation if isinstance(surface_invocation, dict) else {}
+    action = invocation.get("surface_action")
+    if isinstance(action, dict):
+        raw = action.get("target_kind") or action.get("target") or action.get("surface")
+    else:
+        raw = invocation.get("primary_surface")
+    label = str(raw or "visible surface").strip().replace("_", " ")
+    if label in {"", "chat", "none"}:
+        return "visible surface"
+    return label
 
 
 def _memory_write_assistant_receipt(message: str) -> str:

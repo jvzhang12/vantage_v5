@@ -3860,6 +3860,13 @@ def test_email_protocol_is_learned_and_recalled_for_matching_draft(tmp_path: Pat
     assert learned_payload["created_record"]["id"] == "email-drafting-protocol"
     assert learned_payload["created_record"]["type"] == "protocol"
     assert learned_payload["graph_action"]["type"] == "upsert_protocol"
+    assert learned_payload["surface_invocation"]["intent"] == "protocol_write"
+    assert learned_payload["surface_invocation"]["write_behavior"] == "committed_write"
+    learned_trace = _latest_trace_payload(repo_root)["final_response"]
+    assert learned_trace["turn_plan"]["write_ledger"]["categories"] == ["protocol_write"]
+    assert learned_trace["turn_plan"]["write_projection"]["intended_write_kind"] == "protocol_write"
+    assert learned_trace["turn_plan"]["write_projection"]["effect_agreement"] == "aligned"
+    assert learned_trace["turn_plan"]["protocol_write_authority"]["allowed"] is True
 
     protocols = client.get("/api/protocols")
     assert protocols.status_code == 200
@@ -3969,6 +3976,8 @@ def test_visible_artifact_qna_does_not_suppress_protocol_update(tmp_path: Path, 
     assert final_response["turn_plan"]["protocol_write_authority"]["action"] == "protocol_write"
     assert final_response["turn_plan"]["protocol_write_authority"]["allowed"] is True
     assert final_response["protocol_write_authority"]["allowed"] is True
+    assert final_response["turn_plan"]["write_ledger"]["categories"] == ["protocol_write"]
+    assert final_response["turn_plan"]["write_projection"]["intended_write_kind"] == "protocol_write"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
@@ -4048,6 +4057,7 @@ def test_hard_no_write_blocks_protocol_update_candidate(tmp_path: Path, monkeypa
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["assistant_message"] == "I kept the current view unchanged. I did not update the protocol."
     assert payload["surface_invocation"]["intent"] == "preserve_visible_surface"
     assert payload["workspace_update"] is None
     assert payload["created_record"] is None
@@ -4058,6 +4068,78 @@ def test_hard_no_write_blocks_protocol_update_candidate(tmp_path: Path, monkeypa
     assert final_response["turn_plan"]["protocol_write_authority"]["action"] == "protocol_write"
     assert final_response["turn_plan"]["protocol_write_authority"]["allowed"] is False
     assert final_response["turn_plan"]["protocol_write_authority"]["denied_reason"] == "preserve_visible_surface"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
+def test_close_surface_with_protocol_update_intent_closes_without_protocol_write(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    artifact = ArtifactStore(repo_root / "artifacts").create_artifact(
+        title="Midterm Study Plan",
+        card="Study plan for graph algorithms and priorities.",
+        body="# Midterm Study Plan\n\nPrioritize graph traversals.",
+    )
+    visible_artifacts = [
+        {
+            "id": artifact.id,
+            "kind": "whiteboard",
+            "title": artifact.title,
+            "summary": artifact.card,
+            "content": artifact.body,
+        }
+    ]
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.91,
+            reason="Navigator interpreted a visible-surface close request.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "close_surface",
+                        "target": "whiteboard",
+                        "reason": "The user asked to close the visible whiteboard.",
+                    },
+                    {"type": "respond", "reason": "Acknowledge the close action."},
+                ],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService.reply",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Close visible surface should be handled before protocol writes.")
+        ),
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "close the whiteboard and always sign emails with Morgan Lee",
+            "history": [],
+            "workspace_id": artifact.id,
+            "workspace_scope": "visible",
+            "workspace_content": artifact.body,
+            "visible_artifacts": visible_artifacts,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_action"]["type"] == "close_visible_surface"
+    assert payload["workspace_update"] is None
+    assert payload["created_record"] is None
+    assert payload["graph_action"] is None
+    assert payload["artifact_actions"] == []
+    assert not (repo_root / "concepts" / "email-drafting-protocol.md").exists()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["ui_surface_action"]["mode"] == "close"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
@@ -5448,7 +5530,7 @@ def test_best_guess_response_uses_metadata_without_legacy_preface(tmp_path: Path
     assert payload["learned"] == []
 
 
-def test_fallback_turn_can_create_concept_without_openai_key(tmp_path: Path, monkeypatch) -> None:
+def test_fallback_turn_blocks_concept_without_structured_intent(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path)
     concept_path = repo_root / "concepts" / "what-are-the-rules-of-reverse-brainstorming.md"
 
@@ -5465,11 +5547,13 @@ def test_fallback_turn_can_create_concept_without_openai_key(tmp_path: Path, mon
     assert response.status_code == 200
     payload = response.json()
     assert payload["response_mode"]["kind"] == "best_guess"
-    assert payload["meta_action"]["action"] == "create_concept"
-    assert payload["graph_action"]["type"] == "create_concept"
-    assert payload["created_record"]["source"] == "concept"
-    assert payload["learned"][0]["source"] == "concept"
-    assert concept_path.exists()
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["meta_action"]["blocked_action"] == "create_concept"
+    assert payload["meta_action"]["blocked_reason"] == "missing_structured_concept_write_intent"
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["learned"] == []
+    assert not concept_path.exists()
 
 
 def test_fallback_turn_skips_freshness_marker_qa_without_openai_key(tmp_path: Path, monkeypatch) -> None:
@@ -5538,8 +5622,9 @@ def test_explicit_save_as_concept_with_freshness_marker_still_creates_concept(tm
     assert (repo_root / "concepts" / f"{executed.record_id}.md").exists()
 
 
-def test_include_word_without_freshness_marker_still_creates_concept(tmp_path: Path, monkeypatch) -> None:
+def test_include_word_without_freshness_marker_still_blocks_unstructured_concept(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path)
+    before_concepts = {path.name for path in (repo_root / "concepts").glob("*.md")}
 
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
 
@@ -5554,14 +5639,18 @@ def test_include_word_without_freshness_marker_still_creates_concept(tmp_path: P
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["meta_action"]["action"] == "create_concept"
-    assert payload["graph_action"]["type"] == "create_concept"
-    assert payload["created_record"]["source"] == "concept"
-    assert (repo_root / "concepts" / f"{payload['created_record']['id']}.md").exists()
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["meta_action"]["blocked_action"] == "create_concept"
+    assert payload["meta_action"]["blocked_reason"] == "missing_structured_concept_write_intent"
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["learned"] == []
+    assert {path.name for path in (repo_root / "concepts").glob("*.md")} == before_concepts
 
 
-def test_smoke_test_topic_without_response_marker_still_creates_concept(tmp_path: Path, monkeypatch) -> None:
+def test_smoke_test_topic_without_response_marker_still_blocks_unstructured_concept(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path)
+    before_concepts = {path.name for path in (repo_root / "concepts").glob("*.md")}
 
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
 
@@ -5576,10 +5665,13 @@ def test_smoke_test_topic_without_response_marker_still_creates_concept(tmp_path
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["meta_action"]["action"] == "create_concept"
-    assert payload["graph_action"]["type"] == "create_concept"
-    assert payload["created_record"]["source"] == "concept"
-    assert (repo_root / "concepts" / f"{payload['created_record']['id']}.md").exists()
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["meta_action"]["blocked_action"] == "create_concept"
+    assert payload["meta_action"]["blocked_reason"] == "missing_structured_concept_write_intent"
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["learned"] == []
+    assert {path.name for path in (repo_root / "concepts").glob("*.md")} == before_concepts
 
 
 def test_chat_turn_writes_memory_trace_and_can_recall_it_without_promoting_it(tmp_path: Path, monkeypatch) -> None:
@@ -5669,7 +5761,7 @@ def test_scenario_lab_turn_writes_memory_trace(tmp_path: Path, monkeypatch) -> N
     assert (repo_root / "memory_trace" / f"{payload['memory_trace_record']['id']}.md").exists()
 
 
-def test_fallback_turn_creates_linked_concept_when_topic_is_related_but_not_duplicate(tmp_path: Path, monkeypatch) -> None:
+def test_fallback_turn_blocks_linked_concept_without_structured_intent(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path)
     concept_path = repo_root / "concepts" / "what-are-the-rules-of-hangman.md"
     matching_concept = _concept_candidate_for_tests(
@@ -5702,16 +5794,17 @@ def test_fallback_turn_creates_linked_concept_when_topic_is_related_but_not_dupl
     assert response.status_code == 200
     payload = response.json()
     assert payload["response_mode"]["kind"] == "grounded"
-    assert payload["meta_action"]["action"] == "create_concept"
-    assert payload["graph_action"]["type"] == "create_concept"
-    assert payload["created_record"]["source"] == "concept"
-    assert payload["created_record"]["links_to"] == [matching_concept.id]
-    assert payload["learned"] == [payload["created_record"]]
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["meta_action"]["blocked_action"] == "create_concept"
+    assert payload["meta_action"]["blocked_reason"] == "missing_structured_concept_write_intent"
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["learned"] == []
     assert payload["vetting"]["selected_ids"] == [matching_concept.id]
-    assert concept_path.exists()
+    assert not concept_path.exists()
 
 
-def test_fallback_turn_links_only_related_concepts(tmp_path: Path, monkeypatch) -> None:
+def test_fallback_turn_does_not_link_unstructured_concept_candidates(tmp_path: Path, monkeypatch) -> None:
     client, _ = _client(tmp_path)
     related_concept = _concept_candidate_for_tests(
         id="hangman-word-game",
@@ -5745,8 +5838,12 @@ def test_fallback_turn_links_only_related_concepts(tmp_path: Path, monkeypatch) 
     )
     assert response.status_code == 200
     payload = response.json()
-    assert payload["meta_action"]["action"] == "create_concept"
-    assert payload["created_record"]["links_to"] == [related_concept.id]
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["meta_action"]["blocked_action"] == "create_concept"
+    assert payload["meta_action"]["blocked_reason"] == "missing_structured_concept_write_intent"
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["learned"] == []
 
 
 def test_fallback_turn_can_create_revision_for_explicit_concept_update(tmp_path: Path, monkeypatch) -> None:
@@ -5772,6 +5869,23 @@ def test_fallback_turn_can_create_revision_for_explicit_concept_update(tmp_path:
         }
 
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _vet)
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="The user explicitly asked to revise an existing concept.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {"type": "create_revision", "reason": "The user asked to revise this concept."},
+                    {"type": "respond", "reason": "Confirm the concept revision."},
+                ],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
 
     response = client.post(
         "/api/chat",
@@ -6533,6 +6647,22 @@ def test_concept_write_with_valid_meta_candidate_is_allowed(
 ) -> None:
     client, repo_root = _client(tmp_path, openai_api_key="test-key")
 
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="The user explicitly asked to create concept knowledge.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {"type": "create_concept", "reason": "The user asked to make this a concept."},
+                    {"type": "respond", "reason": "Confirm the concept write."},
+                ],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
     monkeypatch.setattr(
         "vantage_v5.services.chat.ChatService._openai_reply",
@@ -6569,7 +6699,7 @@ def test_concept_write_with_valid_meta_candidate_is_allowed(
     concept_authority = final_response["turn_plan"]["concept_write_authority"]
     assert concept_authority["action"] == "concept_write"
     assert concept_authority["allowed"] is True
-    assert concept_authority["authority"] == "meta_decision"
+    assert concept_authority["authority"] == "control_panel"
     assert concept_authority["content_available"] is True
     assert final_response["turn_plan"]["write_ledger"]["categories"] == ["concept_write"]
     assert final_response["turn_plan"]["write_projection"]["intended_write_kind"] == "concept_write"
@@ -6583,6 +6713,22 @@ def test_concept_write_with_empty_candidate_content_is_denied(
 ) -> None:
     client, repo_root = _client(tmp_path)
 
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="The user explicitly asked to create concept knowledge.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {"type": "create_concept", "reason": "The user asked to make this a concept."},
+                    {"type": "respond", "reason": "Confirm the concept write."},
+                ],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
     monkeypatch.setattr(
         "vantage_v5.services.chat.ChatService._openai_reply",
@@ -6621,6 +6767,65 @@ def test_concept_write_with_empty_candidate_content_is_denied(
     assert concept_authority["content_available"] is False
     assert concept_authority["denied_reason"] == "concept_write_content_unavailable_or_unsafe"
     assert final_response["turn_plan"]["write_ledger"]["categories"] == ["none"]
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
+def test_ordinary_qna_does_not_create_concept_from_meta_candidate(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.88,
+            reason="The user asked an ordinary Q&A question.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [{"type": "respond", "reason": "Answer in chat."}],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "BFS explores vertices in breadth-first layers using a queue.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="create_concept",
+            title="Breadth-First Search",
+            card="BFS explores graph vertices layer by layer.",
+            body="Breadth-first search explores graph vertices in increasing distance from a start node.",
+            rationale="The meta layer over-eagerly proposed a concept candidate for ordinary Q&A.",
+        ),
+    )
+
+    concept_ids_before = {path.stem for path in (repo_root / "concepts").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={"message": "What is BFS?", "history": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "BFS explores vertices in breadth-first layers using a queue."
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["meta_action"]["blocked_action"] == "create_concept"
+    assert payload["meta_action"]["blocked_reason"] == "missing_structured_concept_write_intent"
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["learned"] == []
+    assert {path.stem for path in (repo_root / "concepts").glob("*.md")} == concept_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    concept_authority = final_response["turn_plan"]["concept_write_authority"]
+    assert concept_authority["action"] == "concept_write"
+    assert concept_authority["allowed"] is False
+    assert concept_authority["denied_reason"] == "missing_structured_concept_write_intent"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 

@@ -1103,13 +1103,19 @@ class TurnPlanBuilder:
         structured_source_count = len(sources)
         effect_sources = _effect_write_sources(write_ledger)
         all_sources = tuple([*sources, *effect_sources])
-        intended_kinds = _dedupe(source.get("kind") for source in all_sources)
+        intended_kinds = _prioritized_intended_write_kinds(all_sources, write_ledger)
         actual_categories = tuple(category for category in write_ledger.categories if category not in NO_WRITE_LEDGER_CATEGORIES)
         authority = "none"
-        if sources:
-            authority = str(sources[0].get("source") or "structured_intent")
-        elif effect_sources:
-            authority = "existing_write_effect"
+        if intended_kinds:
+            authority_source = next(
+                (
+                    source
+                    for source in sources
+                    if source.get("kind") == intended_kinds[0]
+                ),
+                None,
+            )
+            authority = str((authority_source or {}).get("source") or "structured_intent") if authority_source else "existing_write_effect"
         return WriteProjectionPlan(
             intended_write_kind=intended_kinds[0] if intended_kinds else None,
             intended_write_kinds=intended_kinds,
@@ -1246,6 +1252,7 @@ class TurnPlanBuilder:
             for source in write_projection.sources
             if source.get("kind") == "concept_write"
             and source.get("source") != "existing_write_effect"
+            and source.get("source") != "meta_decision"
         )
         has_concept_effect = any(
             source.get("kind") == "concept_write" and source.get("source") == "existing_write_effect"
@@ -1765,11 +1772,7 @@ class TurnPlanBuilder:
             for entry in write_ledger.entries
         )
         has_protocol_effect = any(
-            entry.category == "concept_write"
-            and (
-                str(entry.target_kind or "").strip().lower() == "protocol"
-                or str(entry.operation or "").strip().lower() == "upsert_protocol"
-            )
+            entry.category == "protocol_write"
             for entry in write_ledger.entries
         )
         if (
@@ -2212,23 +2215,6 @@ def _structured_write_intent_sources(
             )
         )
 
-    meta_action = _dict_or_empty(response_payload.get("meta_action"))
-    meta_action_type = _concept_write_candidate_action(response_payload)
-    if meta_action_type is not None:
-        field_path = "meta_action.candidate_action"
-        if str(meta_action.get("action") or "").strip().lower() == meta_action_type:
-            field_path = "meta_action.action"
-        elif str(meta_action.get("blocked_action") or "").strip().lower() == meta_action_type:
-            field_path = "meta_action.blocked_action"
-        sources.append(
-            _write_source(
-                source="meta_decision",
-                field_path=field_path,
-                kind="concept_write",
-                action=meta_action_type,
-            )
-        )
-
     semantic_action = str(semantic.semantic_action or "").strip().lower()
     semantic_kind = _semantic_write_kind(semantic_action)
     if semantic_kind is not None:
@@ -2476,6 +2462,24 @@ def _effect_write_sources(write_ledger: WriteLedgerPlan) -> tuple[dict[str, Any]
     return tuple(_dedupe_write_sources(sources))
 
 
+def _prioritized_intended_write_kinds(
+    sources: tuple[dict[str, Any], ...],
+    write_ledger: WriteLedgerPlan,
+) -> tuple[str, ...]:
+    kinds = list(_dedupe(source.get("kind") for source in sources))
+    if "protocol_write" not in kinds:
+        return tuple(kinds)
+    protocol_effect = any(entry.category == "protocol_write" for entry in write_ledger.entries)
+    protocol_source = any(
+        source.get("kind") == "protocol_write"
+        and source.get("source") in {"protocol_interpreter", "existing_write_effect"}
+        for source in sources
+    )
+    if not (protocol_effect or protocol_source):
+        return tuple(kinds)
+    return tuple(["protocol_write", *[kind for kind in kinds if kind != "protocol_write"]])
+
+
 def _write_source(*, source: str, field_path: str, kind: str, action: str | None) -> dict[str, Any]:
     return {
         "source": source,
@@ -2570,8 +2574,10 @@ def _effect_write_kind(entry: WriteLedgerEntry) -> str:
         if "promote" in operation or "publish" in operation:
             return "artifact_publish"
         return "artifact_save"
+    if entry.category == "protocol_write":
+        return "protocol_write"
     if entry.category == "concept_write":
-        return "protocol_write" if str(entry.target_kind or "").strip().lower() == "protocol" else "concept_write"
+        return "concept_write"
     if entry.category == "memory_write":
         return "memory_write"
     if entry.category in {"proposed_calendar_task_mutation", "accepted_calendar_task_mutation"}:
@@ -2606,8 +2612,10 @@ def _write_projection_agreement(
 def _write_kind_matches_category(kind: str, category: str) -> bool:
     if kind in {"artifact_save", "artifact_publish"}:
         return category == "artifact_save_or_promotion"
-    if kind in {"concept_write", "protocol_write"}:
+    if kind == "concept_write":
         return category == "concept_write"
+    if kind == "protocol_write":
+        return category == "protocol_write"
     if kind == "memory_write":
         return category == "memory_write"
     if kind in {"whiteboard_draft", "whiteboard_offer"}:
@@ -2638,6 +2646,8 @@ def _write_projection_compatibility(response_payload: dict[str, Any]) -> dict[st
 
 def _surface_intent_for_write_projection(projected_kind: str | None, legacy_intent: str | None) -> str | None:
     if not legacy_intent or legacy_intent in {"general", "general_chat", "chat_only"}:
+        return projected_kind
+    if projected_kind == "protocol_write" and legacy_intent in {"memory_write", "concept_write"}:
         return projected_kind
     return None
 
@@ -2975,6 +2985,8 @@ def _record_write_category(
     record_id = str(record.get("id") or "").strip().lower()
     if record_kind in {"memory", "saved_note"} or action_kind in {"create_memory", "upsert_memory", "save_memory"}:
         return "memory_write"
+    if record_kind == "protocol" or action_kind == "upsert_protocol":
+        return "protocol_write"
     if (
         record_kind in {"artifact", "workspace", "whiteboard"}
         or bool(record.get("artifact_lifecycle"))

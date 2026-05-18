@@ -1197,7 +1197,7 @@ def test_turn_plan_memory_write_effect_without_authority_warns() -> None:
     assert "compatibility_no_write_with_write_effect" in _warning_codes(plan)
 
 
-def test_turn_plan_concept_write_authority_allows_meta_concept_candidate() -> None:
+def test_turn_plan_concept_write_authority_requires_structured_intent_beyond_meta_candidate() -> None:
     authority = build_turn_plan_concept_write_authority(
         response_payload={
             "surface_invocation": {
@@ -1218,11 +1218,11 @@ def test_turn_plan_concept_write_authority_allows_meta_concept_candidate() -> No
 
     assert authority.action == "concept_write"
     assert authority.candidate_action == "create_concept"
-    assert authority.allowed is True
-    assert authority.authority == "meta_decision"
+    assert authority.allowed is False
+    assert authority.authority == "none"
     assert authority.content_available is True
     assert authority.target_available is True
-    assert authority.denied_reason is None
+    assert authority.denied_reason == "missing_structured_concept_write_intent"
 
 
 def test_turn_plan_concept_write_authority_allows_control_panel_conceptualize() -> None:
@@ -1249,7 +1249,6 @@ def test_turn_plan_concept_write_authority_allows_control_panel_conceptualize() 
     assert authority.authority == "control_panel"
     assert authority.source_field_paths == (
         "turn_interpretation.control_panel.actions[0].type",
-        "meta_action.candidate_action",
     )
 
 
@@ -1346,7 +1345,7 @@ def test_turn_plan_concept_write_authority_denies_missing_content() -> None:
     assert authority.action == "concept_write"
     assert authority.allowed is False
     assert authority.content_available is False
-    assert authority.denied_reason == "concept_write_content_unavailable_or_unsafe"
+    assert authority.denied_reason == "missing_structured_concept_write_intent"
 
 
 def test_turn_plan_concept_write_authority_denies_revision_without_target() -> None:
@@ -1371,7 +1370,7 @@ def test_turn_plan_concept_write_authority_denies_revision_without_target() -> N
     assert authority.allowed is False
     assert authority.content_available is True
     assert authority.target_available is False
-    assert authority.denied_reason == "concept_write_target_unavailable_or_ambiguous"
+    assert authority.denied_reason == "missing_structured_concept_write_intent"
 
 
 def test_turn_plan_concept_write_effect_without_authority_warns() -> None:
@@ -1415,13 +1414,56 @@ def test_turn_plan_protocol_write_authority_lifts_artifact_qna_no_write() -> Non
 
     assert plan["side_effect_policy"]["allow_auto_graph_write"] is True
     assert plan["side_effect_policy"]["suppress_auto_graph_writes_reason"] is None
-    assert plan["write_ledger"]["categories"] == ["concept_write"]
+    assert plan["write_ledger"]["categories"] == ["protocol_write"]
     assert plan["write_projection"]["intended_write_kind"] == "protocol_write"
     assert plan["write_projection"]["authority"] == "protocol_interpreter"
     assert plan["protocol_write_authority"]["action"] == "protocol_write"
     assert plan["protocol_write_authority"]["allowed"] is True
     assert plan["protocol_write_authority"]["authority"] == "protocol_interpreter"
     assert "visible_artifact_qna_with_durable_write" not in _warning_codes(plan)
+
+
+def test_turn_plan_protocol_write_projection_overrides_legacy_memory_surface_intent() -> None:
+    response = {
+        "surface_invocation": {
+            "intent": "memory_write",
+            "primary_surface": "chat",
+            "write_behavior": "none",
+            "whiteboard_mode": "chat",
+            "resolved_whiteboard_mode": "chat",
+        },
+        "protocol_write_authority": {
+            "action": "protocol_write",
+            "allowed": True,
+            "denied_reason": None,
+            "authority": "protocol_interpreter",
+            "source_field_paths": ["protocol_write_candidate.action"],
+            "content_available": True,
+            "target_available": True,
+            "candidate_action": "upsert_protocol",
+            "no_write_reason": None,
+        },
+        "graph_action": {"type": "upsert_protocol", "record_id": "email-drafting-protocol"},
+        "created_record": {"id": "email-drafting-protocol", "type": "protocol"},
+    }
+
+    projected = project_write_intent_compatibility(
+        request_payload={"message": "For emails, always sign drafts with Jordan Zhang.", "memory_intent": "auto"},
+        response_payload=response,
+    )
+    plan = TurnPlanBuilder().build(
+        request_payload={"message": "For emails, always sign drafts with Jordan Zhang.", "memory_intent": "auto"},
+        response_payload=projected,
+    ).to_dict()
+
+    assert projected["surface_invocation"]["intent"] == "protocol_write"
+    assert projected["surface_invocation"]["legacy_intent"] == "memory_write"
+    assert projected["surface_invocation"]["write_behavior"] == "committed_write"
+    assert plan["write_ledger"]["categories"] == ["protocol_write"]
+    assert plan["write_projection"]["intended_write_kind"] == "protocol_write"
+    assert plan["write_projection"]["authority"] == "protocol_interpreter"
+    assert plan["write_projection"]["effect_agreement"] == "aligned"
+    assert plan["validation"]["warnings"] == []
 
 
 def test_turn_plan_protocol_write_authority_allows_structured_candidate() -> None:

@@ -1756,6 +1756,176 @@ def test_preserve_surface_denied_save_receipt_does_not_claim_saved(
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
+def test_save_whiteboard_accepts_camel_case_visible_workspace_payload(
+    tmp_path: Path,
+) -> None:
+    client, repo_root = _client(tmp_path)
+    content = "# API Visible Save Target\n\nThe live whiteboard buffer is the save target."
+    artifact_path = repo_root / "artifacts" / "api-visible-save-target.md"
+    artifact_path.unlink(missing_ok=True)
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Save this whiteboard",
+            "history": [],
+            "workspaceId": "api-visible-save-target",
+            "workspaceScope": "visible",
+            "workspaceContent": content,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "I saved API Visible Save Target as a whiteboard snapshot."
+    assert payload["workspace"]["context_scope"] == "visible"
+    assert payload["semantic_policy"]["action_type"] == "artifact_save"
+    assert payload["semantic_policy"]["should_clarify"] is False
+    assert payload["graph_action"]["type"] == "save_workspace_iteration_artifact"
+    assert payload["created_record"]["source"] == "artifact"
+    assert payload["created_record"]["id"] == "api-visible-save-target"
+    assert artifact_path.exists()
+    assert "The live whiteboard buffer is the save target." in artifact_path.read_text(encoding="utf-8")
+
+
+def test_preserve_surface_denied_concept_receipt_does_not_claim_learned(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    content = "# Midterm Study Plan\n\nPractice graph traversal first."
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Navigator chose preserve-visible-surface plus concept intent.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "preserve_surface",
+                        "target": "whiteboard",
+                        "reason": "The user asked to keep the current whiteboard open.",
+                    },
+                    {
+                        "type": "learn",
+                        "target": "concept",
+                        "reason": "The user also asked to learn this as a concept.",
+                    },
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService.reply",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Denied mixed preserve/concept turns should not ask chat to write the receipt.")
+        ),
+    )
+
+    concept_ids_before = {path.stem for path in (repo_root / "concepts").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "keep the whiteboard open and learn this as a concept: DFS uses a stack or recursion.",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": content,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "I kept the whiteboard open. I did not learn it as a concept."
+    assert "treat this as a concept" not in payload["assistant_message"].lower()
+    assert payload["surface_invocation"]["intent"] == "preserve_visible_surface"
+    assert payload["workspace_update"] is None
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["artifact_actions"] == []
+    assert {path.stem for path in (repo_root / "concepts").glob("*.md")} == concept_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["concept_write_authority"]["action"] == "concept_write"
+    assert final_response["turn_plan"]["concept_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["concept_write_authority"]["denied_reason"] == "preserve_visible_surface"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
+def test_close_visible_workspace_with_concept_intent_closes_and_denies_concept(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    content = "# Midterm Study Plan\n\nPractice graph traversal first."
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Navigator chose close-visible-surface plus concept intent.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "close_surface",
+                        "target": "whiteboard",
+                        "reason": "The user asked to close the current whiteboard.",
+                    },
+                    {
+                        "type": "learn",
+                        "target": "concept",
+                        "reason": "The user also asked to learn this as a concept.",
+                    },
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService.reply",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Close-visible-surface should return before ChatService.reply().")
+        ),
+    )
+
+    concept_ids_before = {path.stem for path in (repo_root / "concepts").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "close the whiteboard and learn this as a concept: topological sorting works on DAGs.",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": content,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "Closed Midterm Study Plan from view. I did not learn it as a concept."
+    assert payload["surface_action"]["type"] == "close_visible_surface"
+    assert payload["surface_action"]["status"] == "requested"
+    assert payload["surface_action"]["target_kind"] == "whiteboard"
+    assert payload["surface_action"]["title"] == "Midterm Study Plan"
+    assert payload["workspace_update"] is None
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["artifact_actions"] == []
+    assert {path.stem for path in (repo_root / "concepts").glob("*.md")} == concept_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["concept_write_authority"]["action"] == "concept_write"
+    assert final_response["turn_plan"]["concept_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["concept_write_authority"]["denied_reason"] == "close_visible_surface"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
 def test_close_surface_blocks_local_semantic_artifact_save(
     tmp_path: Path,
     monkeypatch,

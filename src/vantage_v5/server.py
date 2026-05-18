@@ -16,7 +16,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from vantage_v5.config import AppConfig
@@ -105,28 +105,79 @@ PWA_ICON_FILES = frozenset(
 
 
 class ChatRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     message: str = Field(min_length=1)
     history: list[dict[str, str]] = Field(default_factory=list)
-    workspace_id: str | None = None
-    workspace_scope: str = "auto"
-    workspace_content: str | None = None
-    whiteboard_mode: str = "auto"
-    pinned_context_id: str | None = None
-    selected_record_id: str | None = None
-    memory_intent: str = "auto"
-    pending_workspace_update: dict[str, Any] | None = None
-    visible_artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    workspace_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("workspace_id", "workspaceId"),
+    )
+    workspace_scope: str = Field(
+        default="auto",
+        validation_alias=AliasChoices("workspace_scope", "workspaceScope"),
+    )
+    workspace_content: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("workspace_content", "workspaceContent"),
+    )
+    whiteboard_mode: str = Field(
+        default="auto",
+        validation_alias=AliasChoices("whiteboard_mode", "whiteboardMode"),
+    )
+    pinned_context_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("pinned_context_id", "pinnedContextId"),
+    )
+    selected_record_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("selected_record_id", "selectedRecordId"),
+    )
+    memory_intent: str = Field(
+        default="auto",
+        validation_alias=AliasChoices("memory_intent", "memoryIntent"),
+    )
+    pending_workspace_update: dict[str, Any] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("pending_workspace_update", "pendingWorkspaceUpdate"),
+    )
+    visible_artifacts: list[dict[str, Any]] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("visible_artifacts", "visibleArtifacts"),
+    )
 
 
 class WhiteboardAcceptRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     history: list[dict[str, str]] = Field(default_factory=list)
-    workspace_id: str | None = None
-    workspace_scope: str = "auto"
-    workspace_content: str | None = None
-    pinned_context_id: str | None = None
-    selected_record_id: str | None = None
-    memory_intent: str = "auto"
-    pending_workspace_update: dict[str, Any]
+    workspace_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("workspace_id", "workspaceId"),
+    )
+    workspace_scope: str = Field(
+        default="auto",
+        validation_alias=AliasChoices("workspace_scope", "workspaceScope"),
+    )
+    workspace_content: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("workspace_content", "workspaceContent"),
+    )
+    pinned_context_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("pinned_context_id", "pinnedContextId"),
+    )
+    selected_record_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("selected_record_id", "selectedRecordId"),
+    )
+    memory_intent: str = Field(
+        default="auto",
+        validation_alias=AliasChoices("memory_intent", "memoryIntent"),
+    )
+    pending_workspace_update: dict[str, Any] = Field(
+        validation_alias=AliasChoices("pending_workspace_update", "pendingWorkspaceUpdate"),
+    )
 
 
 class WorkspaceUpdateRequest(BaseModel):

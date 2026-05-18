@@ -107,7 +107,11 @@ class TurnOrchestrator:
                 navigation.attention_selection,
             )
         selected_attention_payload = [resource.to_dict() for resource in selected_attention_resources]
-        model_visible_artifacts = context.visible_artifacts
+        model_visible_artifacts = _visible_artifacts_with_current_workspace(
+            context.visible_artifacts,
+            workspace=context.workspace,
+            workspace_scope=context.normalized_workspace_scope,
+        )
         surface_invocation = build_surface_invocation(
             user_message=request.message,
             requested_whiteboard_mode=request.whiteboard_mode,
@@ -255,6 +259,9 @@ class TurnOrchestrator:
         )
         close_surface_action = surface_authority.surface_action if surface_authority.is_close else None
         if close_surface_action is not None:
+            assistant_message = _close_surface_assistant_message(close_surface_action)
+            if _has_structured_concept_write_action(navigation, semantic_policy):
+                assistant_message = f"{assistant_message} {_denied_concept_write_sentence()}"
             local_context = LocalTurnContext(
                 user_message=request.message,
                 history=request.history,
@@ -273,7 +280,7 @@ class TurnOrchestrator:
                 build_local_turn_parts(
                     local_context,
                     turn_body=LocalTurnBodyParts(
-                        assistant_message=_close_surface_assistant_message(close_surface_action),
+                        assistant_message=assistant_message,
                         mode="local_action",
                     ),
                     turn_interpretation=turn_interpretation_parts,
@@ -292,6 +299,11 @@ class TurnOrchestrator:
             artifact_write_authority.blocks_candidate_write
             and local_semantic_write_action
             and not local_semantic_clarification
+        )
+        concept_write_blocked_by_hard_no_write = (
+            surface_authority.suppress_auto_graph_writes
+            and _has_structured_concept_write_action(navigation, semantic_policy)
+            and _artifact_write_denied_by_hard_no_write(surface_authority.no_write_reason)
         )
         if local_semantic_blocked_by_artifact_authority and _artifact_write_denied_by_hard_no_write(
             artifact_write_authority.denied_reason
@@ -318,6 +330,34 @@ class TurnOrchestrator:
                             surface_authority,
                             artifact_write_authority,
                         ),
+                        mode="local_action",
+                    ),
+                    turn_interpretation=turn_interpretation_parts,
+                    turn_stage=turn_stage,
+                )
+            )
+            payload.update(attention_state_payload)
+            return payload
+        if concept_write_blocked_by_hard_no_write:
+            local_context = LocalTurnContext(
+                user_message=request.message,
+                history=request.history,
+                workspace=context.workspace,
+                workspace_scope=context.normalized_workspace_scope,
+                runtime_scope=context.runtime["scope"],
+                transient_workspace=context.transient_workspace,
+                semantic_frame=semantic_frame,
+                semantic_policy=semantic_policy,
+                pinned_context_id=request.pinned_context_id,
+                pinned_context=context.pinned_context,
+                experiment=self.local_semantic_actions.session_info(context.session),
+                surface_invocation=surface_invocation_payload,
+            )
+            payload = assemble_local_turn_payload(
+                build_local_turn_parts(
+                    local_context,
+                    turn_body=LocalTurnBodyParts(
+                        assistant_message=_denied_concept_write_assistant_message(surface_authority),
                         mode="local_action",
                     ),
                     turn_interpretation=turn_interpretation_parts,
@@ -552,9 +592,89 @@ def _close_surface_assistant_message(action: dict[str, Any]) -> str:
     return f"Closed the {target} from view."
 
 
+def _visible_artifacts_with_current_workspace(
+    visible_artifacts: list[dict[str, Any]],
+    *,
+    workspace: WorkspaceDocument,
+    workspace_scope: str,
+) -> list[dict[str, Any]]:
+    artifacts = [dict(artifact) for artifact in visible_artifacts if isinstance(artifact, dict)]
+    if workspace_scope == "excluded" or not workspace.content.strip():
+        return artifacts
+    if any(_visible_artifact_is_whiteboard_like(artifact) for artifact in artifacts):
+        return artifacts
+    artifacts.append(
+        {
+            "id": f"workspace:{workspace.workspace_id}",
+            "kind": "whiteboard",
+            "title": workspace.title or "Whiteboard",
+            "summary": f"Visible whiteboard: {workspace.title or 'Whiteboard'}.",
+            "content": workspace.content,
+            "workspace_id": workspace.workspace_id,
+        }
+    )
+    return artifacts
+
+
+def _visible_artifact_is_whiteboard_like(artifact: dict[str, Any]) -> bool:
+    kind = str(artifact.get("kind") or "").strip().lower()
+    if kind in {"whiteboard", "artifact"}:
+        return True
+    item_id = str(artifact.get("id") or "").strip().lower()
+    return item_id.startswith("artifact:") or item_id.startswith("workspace:")
+
+
 def _semantic_policy_has_local_write_action(policy: dict[str, Any]) -> bool:
-    action_type = str(policy.get("action_type") or policy.get("semantic_action") or "").strip()
-    return action_type in {"artifact_save", "artifact_publish"}
+    return any(
+        str(value or "").strip().lower() in {"artifact_save", "artifact_publish"}
+        for value in (policy.get("action_type"), policy.get("semantic_action"))
+    )
+
+
+def _has_structured_concept_write_action(
+    navigation: NavigationDecision,
+    semantic_policy: dict[str, Any],
+) -> bool:
+    return _navigation_has_concept_action(navigation) or _semantic_policy_has_concept_action(semantic_policy)
+
+
+def _navigation_has_concept_action(navigation: NavigationDecision) -> bool:
+    control_panel = navigation.control_panel if isinstance(navigation.control_panel, dict) else {}
+    actions = control_panel.get("actions")
+    if not isinstance(actions, list):
+        return False
+    return any(
+        isinstance(action, dict)
+        and str(action.get("type") or action.get("action") or "").strip().lower()
+        in {
+            "learn",
+            "conceptualize",
+            "create_concept",
+            "create_revision",
+            "revise_concept",
+            "concept_write",
+            "save_concept",
+            "upsert_concept",
+        }
+        for action in actions
+    )
+
+
+def _semantic_policy_has_concept_action(policy: dict[str, Any]) -> bool:
+    return any(
+        str(value or "").strip().lower()
+        in {
+            "learn",
+            "conceptualize",
+            "create_concept",
+            "create_revision",
+            "revise_concept",
+            "concept_write",
+            "save_concept",
+            "upsert_concept",
+        }
+        for value in (policy.get("action_type"), policy.get("semantic_action"))
+    )
 
 
 def _semantic_policy_should_clarify(policy: dict[str, Any]) -> bool:
@@ -617,6 +737,22 @@ def _denied_artifact_write_sentence(action: str) -> str:
     if action == "artifact_publish":
         return "I did not publish it."
     return "I did not save it."
+
+
+def _denied_concept_write_assistant_message(surface_authority: Any) -> str:
+    reason = str(surface_authority.no_write_reason or "")
+    if reason == "preserve_visible_surface":
+        target = _surface_target_label(surface_authority)
+        return f"I kept the {target} open. {_denied_concept_write_sentence()}"
+    if reason == "open_only_ui_handoff":
+        return f"I opened the selected material in the whiteboard. {_denied_concept_write_sentence()}"
+    if reason == "close_visible_surface":
+        return f"Closed the {_surface_target_label(surface_authority)} from view. {_denied_concept_write_sentence()}"
+    return _denied_concept_write_sentence()
+
+
+def _denied_concept_write_sentence() -> str:
+    return "I did not learn it as a concept."
 
 
 def _surface_target_label(surface_authority: Any) -> str:

@@ -153,6 +153,8 @@ def _target_surface(
 ) -> str:
     if navigation.mode == "scenario_lab":
         return "scenario_lab"
+    if _navigation_has_concept_action(navigation):
+        return "concept"
     if _PUBLISH_RE.search(message) or _SAVE_RE.search(message):
         return "artifact"
     if _INSPECT_RE.search(message):
@@ -173,6 +175,8 @@ def _task_type(
 ) -> str:
     if navigation.mode == "scenario_lab" or _SCENARIO_RE.search(message) and navigation.mode == "scenario_lab":
         return "scenario_comparison"
+    if _navigation_has_concept_action(navigation):
+        return "concept_write"
     if _PUBLISH_RE.search(message):
         return "artifact_publish"
     if _SAVE_RE.search(message):
@@ -255,12 +259,16 @@ def _commitments(
         commitments.append("Make the reasoning and context path inspectable.")
     elif target_surface == "artifact":
         commitments.append("Treat the current work product as something reusable.")
+    elif target_surface == "concept":
+        commitments.append("Preserve this as durable concept knowledge only when the concept write path validates it.")
     else:
         commitments.append("Answer directly in chat.")
     if preserve_pinned_context is True and referenced_object:
         commitments.append("Keep the pinned context active for this turn.")
     if task_type in {"artifact_save", "artifact_publish"}:
         commitments.append("Preserve the useful work product for later reuse.")
+    if task_type == "concept_write":
+        commitments.append("Keep concept persistence separate from memories and artifacts.")
     return commitments
 
 
@@ -276,6 +284,8 @@ def _user_goal(
         return "Publish the current work product as a reusable artifact."
     if task_type == "artifact_save":
         return "Save the current work product for reuse."
+    if task_type == "concept_write":
+        return "Create durable concept knowledge if the concept write candidate is safe."
     if task_type == "context_inspection":
         return "Inspect what shaped the answer."
     if task_type == "experiment_management":
@@ -289,8 +299,21 @@ def _user_goal(
 
 def _confidence(navigation: NavigationDecision, *, task_type: str, follow_up_type: str) -> float:
     confidence = navigation.confidence if navigation.confidence else 0.72
-    if task_type in {"artifact_save", "artifact_publish", "context_inspection", "experiment_management"}:
+    if task_type in {"artifact_save", "artifact_publish", "concept_write", "context_inspection", "experiment_management"}:
         confidence = max(confidence, 0.84)
     if follow_up_type in {"acceptance", "deictic_reference"}:
         confidence = max(confidence, 0.8)
     return max(0.0, min(1.0, round(float(confidence), 2)))
+
+
+def _navigation_has_concept_action(navigation: NavigationDecision) -> bool:
+    control_panel = navigation.control_panel if isinstance(navigation.control_panel, dict) else {}
+    actions = control_panel.get("actions")
+    if not isinstance(actions, list):
+        return False
+    return any(
+        isinstance(action, dict)
+        and str(action.get("type") or action.get("action") or "").strip().lower()
+        in {"learn", "conceptualize", "create_concept", "concept_write", "save_concept"}
+        for action in actions
+    )

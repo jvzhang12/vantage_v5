@@ -30,6 +30,7 @@ Deterministic semantic policy read-model for Vantage turns.
 - `scenario_compare`: Scenario Lab comparison.
 - `artifact_save`: save the current work product.
 - `artifact_publish`: publish a reusable artifact.
+- `concept_write`: create or revise durable concept knowledge when Navigator/control-panel supplied structured concept intent and the downstream meta candidate passes TurnPlan authority.
 - `experiment_manage`: manage an experiment session.
 - `context_inspect`: inspect reasoning or context provenance.
 
@@ -45,4 +46,4 @@ Deterministic semantic policy read-model for Vantage turns.
 - The module is deterministic and side-effect free.
 - It does not import server code, make model calls, or mutate frame fields.
 - `SemanticPolicyDecision.to_dict()` and `SemanticPolicyContext.to_dict()` are provided for response payloads and inspect surfaces.
-- `LocalSemanticActionEngine` now consumes this policy for narrow local actions before generic chat: visible-whiteboard save, visible-whiteboard publish, ambiguous save/publish clarification, and experiment-mode status/exit explanation.
+- `LocalSemanticActionEngine` now consumes this policy for narrow local actions before generic chat: visible-whiteboard save, visible-whiteboard publish, ambiguous save/publish clarification, and experiment-mode status/exit explanation. Concept-write policy remains on the chat/meta path so TurnPlan can gate the existing concept candidate before persistence.

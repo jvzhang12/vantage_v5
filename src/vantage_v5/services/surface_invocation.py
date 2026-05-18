@@ -211,6 +211,19 @@ def build_surface_invocation(
             whiteboard_mode="chat",
             status="handled_by_memory_write",
         )
+    concept_action = _concept_write_action_from_navigation(navigation)
+    if concept_action is not None:
+        return _invocation(
+            intent="concept_write",
+            primary=SURFACE_CHAT,
+            supporting=(),
+            write_behavior="none",
+            reason=_clean(concept_action.get("reason"))
+            or "The user asked Vantage to create durable concept knowledge, so the turn stays in chat.",
+            confidence=_action_confidence(concept_action, default=0.82),
+            whiteboard_mode="chat",
+            status="handled_by_concept_write",
+        )
     if navigation_mode == "scenario_lab":
         return _invocation(
             intent="scenario_comparison",
@@ -507,6 +520,14 @@ def _control_panel_surface_action(navigation: Any | None, action_type: str) -> d
         if not isinstance(action, dict):
             continue
         if _clean(action.get("type")).lower() == action_type:
+            return action
+    return None
+
+
+def _concept_write_action_from_navigation(navigation: Any | None) -> dict[str, Any] | None:
+    for action_type in ("learn", "conceptualize", "create_concept"):
+        action = _control_panel_surface_action(navigation, action_type)
+        if action is not None:
             return action
     return None
 

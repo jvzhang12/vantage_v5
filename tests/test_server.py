@@ -6265,6 +6265,103 @@ def test_memory_write_with_empty_candidate_content_is_denied(
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
+def test_concept_write_with_valid_meta_candidate_is_allowed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "That concept is worth keeping.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="create_concept",
+            title="Graph Traversal Review Priority",
+            card="BFS and DFS review should anchor graph exam preparation.",
+            body="Graph exam preparation should prioritize BFS and DFS review before broader graph topics.",
+            rationale="The existing meta interpreter produced a structured concept candidate.",
+        ),
+    )
+
+    concept_ids_before = {path.stem for path in (repo_root / "concepts").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Make this a concept: graph exam prep should start with BFS and DFS review.",
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta_action"]["action"] == "create_concept"
+    assert payload["graph_action"]["type"] == "create_concept"
+    assert payload["created_record"]["source"] == "concept"
+    assert payload["created_record"]["id"] not in concept_ids_before
+    assert (repo_root / "concepts" / f"{payload['created_record']['id']}.md").exists()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    concept_authority = final_response["turn_plan"]["concept_write_authority"]
+    assert concept_authority["action"] == "concept_write"
+    assert concept_authority["allowed"] is True
+    assert concept_authority["authority"] == "meta_decision"
+    assert concept_authority["content_available"] is True
+    assert final_response["turn_plan"]["write_ledger"]["categories"] == ["concept_write"]
+    assert final_response["turn_plan"]["write_projection"]["intended_write_kind"] == "concept_write"
+    assert final_response["turn_plan"]["write_projection"]["effect_agreement"] == "aligned"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
+def test_concept_write_with_empty_candidate_content_is_denied(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path)
+
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "I can discuss that in chat.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="create_concept",
+            rationale="Malformed concept candidate without persisted content fields.",
+        ),
+    )
+
+    concept_ids_before = {path.stem for path in (repo_root / "concepts").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "Concept note: raw user text should not count as candidate content.",
+            "history": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["meta_action"]["blocked_action"] == "create_concept"
+    assert payload["meta_action"]["blocked_reason"] == "concept_write_content_unavailable_or_unsafe"
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["learned"] == []
+    assert {path.stem for path in (repo_root / "concepts").glob("*.md")} == concept_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    concept_authority = final_response["turn_plan"]["concept_write_authority"]
+    assert concept_authority["action"] == "concept_write"
+    assert concept_authority["allowed"] is False
+    assert concept_authority["content_available"] is False
+    assert concept_authority["denied_reason"] == "concept_write_content_unavailable_or_unsafe"
+    assert final_response["turn_plan"]["write_ledger"]["categories"] == ["none"]
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
 @pytest.mark.parametrize(
     "message",
     [

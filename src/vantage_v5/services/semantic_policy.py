@@ -158,6 +158,8 @@ def _has_artifact_target(frame: SemanticFrame, context: SemanticPolicyContext) -
 def _default_action_type(frame: SemanticFrame) -> str:
     if frame.task_type == "scenario_comparison":
         return "scenario_compare"
+    if frame.task_type == "concept_write":
+        return "concept_write"
     if frame.task_type in {"drafting", "revision", "whiteboard_follow_up"}:
         return "whiteboard_draft" if frame.target_surface == "whiteboard" else "chat_response"
     if frame.target_surface == "vantage_inspect":

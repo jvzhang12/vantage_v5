@@ -16,10 +16,11 @@ Deterministic semantic read-model builder for Vantage turns.
 ## Notable Behavior
 
 - Stays deterministic for the first slice so the frame is safe to expose and easy to test.
-- Treats Scenario Lab routing, explicit save/publish wording, context-inspection wording, experiment-management wording, whiteboard drafting, pinned-context continuity, and pending-whiteboard acceptance as separate semantic cases.
+- Treats Scenario Lab routing, explicit save/publish wording, structured concept-write control-panel actions, context-inspection wording, experiment-management wording, whiteboard drafting, pinned-context continuity, and pending-whiteboard acceptance as separate semantic cases.
 - Requires actual save/publish/finalize/ship wording for artifact-save/publish semantics; bare references to an `artifact` can remain ordinary chat over the visible item.
 - Keeps context-inspection matching narrow so ordinary `why` questions remain direct chat unless the user asks to inspect what shaped an answer or context path.
 - Prefers pinned context as the referenced object when present; otherwise it references the active whiteboard when the whiteboard is the target surface or explicitly in scope.
 - Keeps clarification fields on the frame itself conservative; the sibling semantic policy layer decides whether to interrupt, clarify, or act.
 - Keeps `remember` out of artifact-save matching so explicit memory requests still flow through the memory/meta pipeline instead of being mistaken for whiteboard saves.
+- Keeps structured concept-write actions out of artifact-save matching so explicit learn/conceptualize/create-concept turns flow through the concept/meta pipeline instead of being mistaken for Whiteboard artifact saves.
 - Produces commitments that can later become product policy, such as keeping pinned context active, drafting visibly in the whiteboard, or making reasoning inspectable.

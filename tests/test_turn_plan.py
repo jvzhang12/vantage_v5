@@ -6,6 +6,7 @@ from vantage_v5.services.chat import build_final_response_trace_payload
 from vantage_v5.services.turn_plan import project_write_intent_compatibility
 from vantage_v5.services.turn_plan import TurnPlanBuilder
 from vantage_v5.services.turn_plan import build_turn_plan_artifact_write_authority
+from vantage_v5.services.turn_plan import build_turn_plan_concept_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_memory_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 
@@ -1193,6 +1194,198 @@ def test_turn_plan_memory_write_effect_without_authority_warns() -> None:
     assert "memory_write_effect_without_authority" in _warning_codes(plan)
     assert "write_effect_without_projected_intent" not in _warning_codes(plan)
     assert "compatibility_no_write_with_write_effect" in _warning_codes(plan)
+
+
+def test_turn_plan_concept_write_authority_allows_meta_concept_candidate() -> None:
+    authority = build_turn_plan_concept_write_authority(
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "meta_action": {
+                "candidate_action": "create_concept",
+                "title": "Graph traversal priority",
+                "card": "BFS and DFS are priority review topics.",
+                "body": "BFS and DFS should anchor graph exam review.",
+            },
+        },
+    )
+
+    assert authority.action == "concept_write"
+    assert authority.candidate_action == "create_concept"
+    assert authority.allowed is True
+    assert authority.authority == "meta_decision"
+    assert authority.content_available is True
+    assert authority.target_available is True
+    assert authority.denied_reason is None
+
+
+def test_turn_plan_concept_write_authority_allows_control_panel_conceptualize() -> None:
+    authority = build_turn_plan_concept_write_authority(
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "turn_interpretation": {"control_panel": {"actions": [{"type": "conceptualize"}]}},
+            "meta_action": {
+                "candidate_action": "create_concept",
+                "title": "Conceptual framing",
+                "body": "A durable conceptual framing produced by the existing meta path.",
+            },
+        },
+    )
+
+    assert authority.action == "concept_write"
+    assert authority.allowed is True
+    assert authority.authority == "control_panel"
+    assert authority.source_field_paths == (
+        "turn_interpretation.control_panel.actions[0].type",
+        "meta_action.candidate_action",
+    )
+
+
+@pytest.mark.parametrize(
+    ("response_payload", "expected_reason"),
+    [
+        (
+            {
+                "surface_invocation": {
+                    "intent": "attention_selected_context",
+                    "primary_surface": "whiteboard",
+                    "write_behavior": "open_only",
+                    "whiteboard_mode": "chat",
+                    "resolved_whiteboard_mode": "chat",
+                },
+                "navigator_selection": {
+                    "primary_resource_id": "artifact:midterm-study-plan",
+                    "surface_to_open": "whiteboard",
+                },
+                "meta_action": {
+                    "candidate_action": "create_concept",
+                    "title": "Study plan concept",
+                    "body": "A blocked concept candidate.",
+                },
+            },
+            "open_only_ui_handoff",
+        ),
+        (
+            {
+                "surface_invocation": {
+                    "intent": "preserve_visible_surface",
+                    "primary_surface": "chat",
+                    "write_behavior": "none",
+                    "whiteboard_mode": "chat",
+                    "resolved_whiteboard_mode": "chat",
+                },
+                "turn_interpretation": {
+                    "control_panel": {"actions": [{"type": "preserve_surface", "target": "whiteboard"}]},
+                },
+                "meta_action": {
+                    "candidate_action": "create_concept",
+                    "title": "Study plan concept",
+                    "body": "A blocked concept candidate.",
+                },
+            },
+            "preserve_visible_surface",
+        ),
+        (
+            {
+                "surface_action": {"type": "close_visible_surface", "target": "whiteboard"},
+                "surface_invocation": {
+                    "intent": "close_visible_surface",
+                    "primary_surface": "chat",
+                    "write_behavior": "none",
+                    "whiteboard_mode": "chat",
+                    "resolved_whiteboard_mode": "chat",
+                },
+                "meta_action": {
+                    "candidate_action": "create_concept",
+                    "title": "Study plan concept",
+                    "body": "A blocked concept candidate.",
+                },
+            },
+            "close_visible_surface",
+        ),
+    ],
+)
+def test_turn_plan_concept_write_authority_hard_no_write_wins(
+    response_payload: dict,
+    expected_reason: str,
+) -> None:
+    authority = build_turn_plan_concept_write_authority(response_payload=response_payload)
+
+    assert authority.action == "concept_write"
+    assert authority.allowed is False
+    assert authority.blocks_candidate_write is True
+    assert authority.denied_reason == expected_reason
+
+
+def test_turn_plan_concept_write_authority_denies_missing_content() -> None:
+    authority = build_turn_plan_concept_write_authority(
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "meta_action": {"candidate_action": "create_concept"},
+        },
+    )
+
+    assert authority.action == "concept_write"
+    assert authority.allowed is False
+    assert authority.content_available is False
+    assert authority.denied_reason == "concept_write_content_unavailable_or_unsafe"
+
+
+def test_turn_plan_concept_write_authority_denies_revision_without_target() -> None:
+    authority = build_turn_plan_concept_write_authority(
+        response_payload={
+            "surface_invocation": {
+                "intent": "general_chat",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "meta_action": {
+                "candidate_action": "create_revision",
+                "title": "Rules revision",
+                "body": "A revised rules concept.",
+            },
+        },
+    )
+
+    assert authority.action == "concept_write"
+    assert authority.allowed is False
+    assert authority.content_available is True
+    assert authority.target_available is False
+    assert authority.denied_reason == "concept_write_target_unavailable_or_ambiguous"
+
+
+def test_turn_plan_concept_write_effect_without_authority_warns() -> None:
+    plan = _plan(
+        message="Summarize this in chat.",
+        response={
+            "graph_action": {"type": "create_concept", "record_id": "concept:raw-concept"},
+            "created_record": {"id": "concept:raw-concept", "source": "concept"},
+        },
+    )
+
+    assert plan["concept_write_authority"]["action"] == "concept_write"
+    assert plan["concept_write_authority"]["allowed"] is False
+    assert plan["concept_write_authority"]["denied_reason"] == "missing_structured_concept_write_intent"
+    assert "concept_write_effect_without_authority" in _warning_codes(plan)
 
 
 def test_turn_plan_protocol_write_authority_lifts_artifact_qna_no_write() -> None:

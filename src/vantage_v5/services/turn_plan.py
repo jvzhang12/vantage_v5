@@ -12,6 +12,18 @@ NO_WRITE_EXECUTION_CATEGORIES = {
     "preserve_visible_surface": "preserve_visible_surface",
     "artifact_qna_chat_first": "visible_selected_artifact_qna",
 }
+_CONCEPT_WRITE_ACTIONS = frozenset(
+    {
+        "learn",
+        "conceptualize",
+        "create_concept",
+        "create_revision",
+        "revise_concept",
+        "concept_write",
+        "save_concept",
+        "upsert_concept",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,6 +288,38 @@ class TurnPlanMemoryWriteAuthority:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnPlanConceptWriteAuthority:
+    """Execution-facing permission for concept write candidates."""
+
+    action: str | None
+    allowed: bool
+    denied_reason: str | None
+    authority: str
+    source_field_paths: tuple[str, ...]
+    content_available: bool
+    target_available: bool
+    candidate_action: str | None
+    no_write_reason: str | None
+
+    @property
+    def blocks_candidate_write(self) -> bool:
+        return self.action == "concept_write" and not self.allowed
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "allowed": self.allowed,
+            "denied_reason": self.denied_reason,
+            "authority": self.authority,
+            "source_field_paths": list(self.source_field_paths),
+            "content_available": self.content_available,
+            "target_available": self.target_available,
+            "candidate_action": self.candidate_action,
+            "no_write_reason": self.no_write_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class WriteIntentPlan:
     kind: str
     whiteboard_mode: str | None
@@ -519,6 +563,7 @@ class TurnPlan:
     write_projection: WriteProjectionPlan
     artifact_write_authority: TurnPlanArtifactWriteAuthority
     memory_write_authority: TurnPlanMemoryWriteAuthority
+    concept_write_authority: TurnPlanConceptWriteAuthority
     protocols: ProtocolPlan
     semantic: SemanticPlan
     execution: ExecutionPlan
@@ -539,6 +584,7 @@ class TurnPlan:
             "write_projection": self.write_projection.to_dict(),
             "artifact_write_authority": self.artifact_write_authority.to_dict(),
             "memory_write_authority": self.memory_write_authority.to_dict(),
+            "concept_write_authority": self.concept_write_authority.to_dict(),
             "protocols": self.protocols.to_dict(),
             "semantic": self.semantic.to_dict(),
             "execution": self.execution.to_dict(),
@@ -591,6 +637,12 @@ class TurnPlanBuilder:
             write_projection=write_projection,
             side_effect_policy=side_effect_policy,
         )
+        concept_write_authority = self._concept_write_authority_plan(
+            request_payload=request_payload,
+            response_payload=response_payload,
+            write_projection=write_projection,
+            side_effect_policy=side_effect_policy,
+        )
         execution = self._execution_plan(response_payload, write_intent, side_effect_policy, ui_surface_action)
         compatibility = self._compatibility_plan(response_payload, write_intent)
         validation = self._validation_plan(
@@ -606,6 +658,7 @@ class TurnPlanBuilder:
             write_projection=write_projection,
             artifact_write_authority=artifact_write_authority,
             memory_write_authority=memory_write_authority,
+            concept_write_authority=concept_write_authority,
             semantic=semantic,
             execution=execution,
         )
@@ -622,6 +675,7 @@ class TurnPlanBuilder:
             write_projection=write_projection,
             artifact_write_authority=artifact_write_authority,
             memory_write_authority=memory_write_authority,
+            concept_write_authority=concept_write_authority,
             protocols=protocols,
             semantic=semantic,
             execution=execution,
@@ -1137,6 +1191,66 @@ class TurnPlanBuilder:
             no_write_reason=no_write_reason,
         )
 
+    def _concept_write_authority_plan(
+        self,
+        *,
+        request_payload: dict[str, Any],
+        response_payload: dict[str, Any],
+        write_projection: WriteProjectionPlan,
+        side_effect_policy: SideEffectPolicy,
+    ) -> TurnPlanConceptWriteAuthority:
+        sources = tuple(
+            source
+            for source in write_projection.sources
+            if source.get("kind") == "concept_write"
+            and source.get("source") != "existing_write_effect"
+        )
+        has_concept_effect = any(
+            source.get("kind") == "concept_write" and source.get("source") == "existing_write_effect"
+            for source in write_projection.sources
+        )
+        candidate_action = _concept_write_candidate_action(response_payload)
+        action = "concept_write" if sources or has_concept_effect or candidate_action is not None else None
+        source_field_paths = tuple(
+            path
+            for path in (_optional_str(source.get("field_path")) for source in sources)
+            if path
+        )
+        content_available = _concept_write_content_available(
+            request_payload=request_payload,
+            response_payload=response_payload,
+        )
+        target_available = _concept_write_target_available(
+            response_payload=response_payload,
+            candidate_action=candidate_action,
+        )
+        no_write_reason = side_effect_policy.suppress_auto_graph_writes_reason
+        denied_reason = None
+        allowed = False
+        if action is None:
+            denied_reason = None
+        elif no_write_reason is not None:
+            denied_reason = no_write_reason
+        elif not sources:
+            denied_reason = "missing_structured_concept_write_intent"
+        elif not content_available:
+            denied_reason = "concept_write_content_unavailable_or_unsafe"
+        elif not target_available:
+            denied_reason = "concept_write_target_unavailable_or_ambiguous"
+        else:
+            allowed = True
+        return TurnPlanConceptWriteAuthority(
+            action=action,
+            allowed=allowed,
+            denied_reason=denied_reason,
+            authority=str(sources[0].get("source") or "structured_intent") if sources else "none",
+            source_field_paths=source_field_paths,
+            content_available=content_available,
+            target_available=target_available,
+            candidate_action=candidate_action,
+            no_write_reason=no_write_reason,
+        )
+
     def _execution_plan(
         self,
         response_payload: dict[str, Any],
@@ -1198,6 +1312,7 @@ class TurnPlanBuilder:
         write_projection: WriteProjectionPlan,
         artifact_write_authority: TurnPlanArtifactWriteAuthority,
         memory_write_authority: TurnPlanMemoryWriteAuthority,
+        concept_write_authority: TurnPlanConceptWriteAuthority,
         semantic: SemanticPlan,
         execution: ExecutionPlan,
     ) -> TurnPlanValidation:
@@ -1520,6 +1635,28 @@ class TurnPlanBuilder:
                 )
             )
 
+        has_non_protocol_concept_effect = any(
+            entry.category == "concept_write"
+            and str(entry.target_kind or "").strip().lower() != "protocol"
+            and str(entry.operation or "").strip().lower() != "upsert_protocol"
+            for entry in write_ledger.entries
+        )
+        if (
+            has_non_protocol_concept_effect
+            and not concept_write_authority.allowed
+            and concept_write_authority.action == "concept_write"
+        ):
+            warnings.append(
+                _validation_warning(
+                    "concept_write_effect_without_authority",
+                    "A concept write effect appeared after TurnPlan denied concept write authority.",
+                    [
+                        "turn_plan.concept_write_authority",
+                        *write_side_effects,
+                    ],
+                )
+            )
+
         return TurnPlanValidation(warnings=tuple(warnings))
 
 
@@ -1620,6 +1757,38 @@ def build_turn_plan_memory_write_authority(
         semantic=semantic,
     )
     return builder._memory_write_authority_plan(
+        request_payload=request_payload or {},
+        response_payload=payload,
+        write_projection=write_projection,
+        side_effect_policy=side_effect_policy,
+    )
+
+
+def build_turn_plan_concept_write_authority(
+    *,
+    response_payload: dict[str, Any],
+    request_payload: dict[str, Any] | None = None,
+) -> TurnPlanConceptWriteAuthority:
+    """Build the TurnPlan permission gate for concept write candidates."""
+
+    payload = _with_nested_surface_action(response_payload)
+    builder = TurnPlanBuilder()
+    retrieval = builder._retrieval_plan(payload)
+    ui_surface_action = builder._ui_surface_action_plan(payload, retrieval)
+    write_intent = builder._write_intent_plan(payload, ui_surface_action)
+    side_effect_policy = builder._side_effect_policy(request_payload or {}, payload, write_intent)
+    write_ledger = builder._write_ledger_plan(payload, write_intent, ui_surface_action)
+    route = builder._route_plan(payload)
+    semantic = builder._semantic_plan(payload)
+    write_projection = builder._write_projection_plan(
+        request_payload=request_payload or {},
+        response_payload=payload,
+        route=route,
+        write_intent=write_intent,
+        write_ledger=write_ledger,
+        semantic=semantic,
+    )
+    return builder._concept_write_authority_plan(
         request_payload=request_payload or {},
         response_payload=payload,
         write_projection=write_projection,
@@ -1804,6 +1973,14 @@ def _control_panel_has_write_action(interpretation: dict[str, Any]) -> bool:
             "create_memory",
             "memory_write",
             "save_memory",
+            "learn",
+            "conceptualize",
+            "create_concept",
+            "create_revision",
+            "revise_concept",
+            "concept_write",
+            "save_concept",
+            "upsert_concept",
         }:
             return True
     return False
@@ -1851,6 +2028,23 @@ def _structured_write_intent_sources(
                 field_path=f"turn_interpretation.control_panel.actions[{index}].type",
                 kind=kind,
                 action=action_type,
+            )
+        )
+
+    meta_action = _dict_or_empty(response_payload.get("meta_action"))
+    meta_action_type = _concept_write_candidate_action(response_payload)
+    if meta_action_type is not None:
+        field_path = "meta_action.candidate_action"
+        if str(meta_action.get("action") or "").strip().lower() == meta_action_type:
+            field_path = "meta_action.action"
+        elif str(meta_action.get("blocked_action") or "").strip().lower() == meta_action_type:
+            field_path = "meta_action.blocked_action"
+        sources.append(
+            _write_source(
+                source="meta_decision",
+                field_path=field_path,
+                kind="concept_write",
+                action=meta_action_type,
             )
         )
 
@@ -1948,6 +2142,33 @@ def _memory_write_content_available(
     return False
 
 
+def _concept_write_content_available(
+    *,
+    request_payload: dict[str, Any],
+    response_payload: dict[str, Any] | None = None,
+) -> bool:
+    explicit = request_payload.get("concept_write_content_available")
+    if isinstance(explicit, bool):
+        return explicit
+    meta_action = _dict_or_empty((response_payload or {}).get("meta_action"))
+    for key in ("title", "card", "body"):
+        value = meta_action.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
+
+
+def _concept_write_target_available(
+    *,
+    response_payload: dict[str, Any],
+    candidate_action: str | None,
+) -> bool:
+    if candidate_action != "create_revision":
+        return True
+    meta_action = _dict_or_empty(response_payload.get("meta_action"))
+    return bool(str(meta_action.get("target_concept_id") or "").strip())
+
+
 def _has_memory_write_candidate(response_payload: dict[str, Any]) -> bool:
     meta_action = _dict_or_empty(response_payload.get("meta_action"))
     blocked_action = str(meta_action.get("blocked_action") or "").strip().lower()
@@ -1957,6 +2178,15 @@ def _has_memory_write_candidate(response_payload: dict[str, Any]) -> bool:
         "memory_write",
         "save_memory",
     }
+
+
+def _concept_write_candidate_action(response_payload: dict[str, Any]) -> str | None:
+    meta_action = _dict_or_empty(response_payload.get("meta_action"))
+    for key in ("candidate_action", "blocked_action", "action", "type"):
+        action = str(meta_action.get(key) or "").strip().lower()
+        if action in _CONCEPT_WRITE_ACTIONS:
+            return action
+    return None
 
 
 def _effect_write_sources(write_ledger: WriteLedgerPlan) -> tuple[dict[str, Any], ...]:
@@ -2012,7 +2242,13 @@ def _control_panel_write_kind(action_type: str) -> str | None:
         "memory_write": "memory_write",
         "save_memory": "memory_write",
         "learn": "concept_write",
+        "conceptualize": "concept_write",
         "create_concept": "concept_write",
+        "create_revision": "concept_write",
+        "revise_concept": "concept_write",
+        "concept_write": "concept_write",
+        "save_concept": "concept_write",
+        "upsert_concept": "concept_write",
         "create_artifact": "artifact_save",
     }.get(normalized)
 
@@ -2031,7 +2267,13 @@ def _semantic_write_kind(action_type: str) -> str | None:
         "memory_write": "memory_write",
         "save_memory": "memory_write",
         "learn": "concept_write",
+        "conceptualize": "concept_write",
         "create_concept": "concept_write",
+        "create_revision": "concept_write",
+        "revise_concept": "concept_write",
+        "concept_write": "concept_write",
+        "save_concept": "concept_write",
+        "upsert_concept": "concept_write",
         "create_artifact": "artifact_save",
     }.get(normalized)
 
@@ -2169,7 +2411,13 @@ def _payload_has_explicit_write_authority(
             "memory_write",
             "save_memory",
             "learn",
+            "conceptualize",
             "create_concept",
+            "create_revision",
+            "revise_concept",
+            "concept_write",
+            "save_concept",
+            "upsert_concept",
             "create_artifact",
         }
     ):
@@ -2185,7 +2433,13 @@ def _payload_has_explicit_write_authority(
         "memory_write",
         "save_memory",
         "learn",
+        "conceptualize",
         "create_concept",
+        "create_revision",
+        "revise_concept",
+        "concept_write",
+        "save_concept",
+        "upsert_concept",
         "create_artifact",
         "artifact_save",
         "artifact_publish",
@@ -2199,7 +2453,13 @@ def _payload_has_explicit_write_authority(
         "memory_write",
         "save_memory",
         "learn",
+        "conceptualize",
         "create_concept",
+        "create_revision",
+        "revise_concept",
+        "concept_write",
+        "save_concept",
+        "upsert_concept",
         "create_artifact",
         "artifact_save",
         "artifact_publish",
@@ -2285,6 +2545,14 @@ def _has_explicit_write_authority(
             "create_memory",
             "memory_write",
             "save_memory",
+            "learn",
+            "conceptualize",
+            "create_concept",
+            "create_revision",
+            "revise_concept",
+            "concept_write",
+            "save_concept",
+            "upsert_concept",
         }
     ):
         return True
@@ -2307,7 +2575,13 @@ def _has_explicit_write_authority(
             "memory_write",
             "save_memory",
             "learn",
+            "conceptualize",
             "create_concept",
+            "create_revision",
+            "revise_concept",
+            "concept_write",
+            "save_concept",
+            "upsert_concept",
             "create_artifact",
             "artifact_save",
             "artifact_publish",
@@ -2320,7 +2594,14 @@ def _has_explicit_write_authority(
             "create_memory",
             "memory_write",
             "save_memory",
+            "learn",
+            "conceptualize",
             "create_concept",
+            "create_revision",
+            "revise_concept",
+            "concept_write",
+            "save_concept",
+            "upsert_concept",
             "create_artifact",
             "artifact_save",
             "artifact_publish",
@@ -2409,7 +2690,16 @@ def _record_write_category(
     if (
         record_kind in {"concept", "protocol"}
         or record_id.startswith("concept:")
-        or action_kind in {"create_concept", "upsert_concept", "upsert_protocol", "save_concept"}
+        or action_kind
+        in {
+            "create_concept",
+            "create_revision",
+            "revise_concept",
+            "concept_write",
+            "upsert_concept",
+            "upsert_protocol",
+            "save_concept",
+        }
     ):
         return "concept_write"
     if action_kind.startswith(("calendar_", "task_")):

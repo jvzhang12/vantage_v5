@@ -29,6 +29,7 @@ from vantage_v5.services.turn_staging import initial_stage_progress
 from vantage_v5.services.turn_staging import stage_progress_event
 from vantage_v5.services.turn_staging import StageAuditResult
 from vantage_v5.services.turn_staging import TurnStage
+from vantage_v5.services.turn_plan import build_turn_plan_concept_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_memory_write_authority
 from vantage_v5.services.turn_plan import turn_plan_trace_payload
 from vantage_v5.services.vetting import anchor_selected_record_candidate
@@ -550,6 +551,31 @@ class ChatService:
                         rationale=_memory_write_denied_rationale(memory_authority.denied_reason),
                         blocked_action="create_memory",
                         blocked_reason=memory_authority.denied_reason,
+                    )
+                    executed_action = None
+                else:
+                    executed_action = self.executor.execute(meta, workspace=workspace)
+            elif meta.action in {"create_concept", "create_revision"}:
+                candidate_meta_action = meta.to_dict()
+                candidate_meta_action["candidate_action"] = meta.action
+                concept_authority = build_turn_plan_concept_write_authority(
+                    response_payload={
+                        "surface_invocation": surface_invocation or {},
+                        "turn_interpretation": turn_interpretation or {},
+                        "semantic_policy": semantic_policy or {},
+                        "meta_action": candidate_meta_action,
+                    },
+                    request_payload={
+                        "memory_intent": memory_intent,
+                        "concept_write_content_available": _concept_write_candidate_has_content(meta),
+                    },
+                )
+                if concept_authority.blocks_candidate_write:
+                    meta = MetaDecision(
+                        action="no_op",
+                        rationale=_concept_write_denied_rationale(concept_authority.denied_reason),
+                        blocked_action=meta.action,
+                        blocked_reason=concept_authority.denied_reason,
                     )
                     executed_action = None
                 else:
@@ -1712,6 +1738,19 @@ def _memory_write_candidate_has_content(
     )
 
 
+def _concept_write_candidate_has_content(
+    decision: MetaDecision,
+) -> bool:
+    return any(
+        bool(str(value or "").strip())
+        for value in (
+            decision.title,
+            decision.card,
+            decision.body,
+        )
+    )
+
+
 def _memory_write_denied_rationale(reason: str | None) -> str:
     if reason == "open_only_ui_handoff":
         return "TurnPlan opened existing material as a UI-only handoff, so no memory was saved."
@@ -1722,6 +1761,20 @@ def _memory_write_denied_rationale(reason: str | None) -> str:
     if reason == "memory_write_content_unavailable_or_unsafe":
         return "TurnPlan could not identify safe memory content to save, so no memory was created."
     return "TurnPlan did not find structured memory-write authority, so no memory was created."
+
+
+def _concept_write_denied_rationale(reason: str | None) -> str:
+    if reason == "open_only_ui_handoff":
+        return "TurnPlan opened existing material as a UI-only handoff, so no concept was created."
+    if reason == "close_visible_surface":
+        return "TurnPlan closed the visible surface, so no concept was created."
+    if reason == "preserve_visible_surface":
+        return "TurnPlan preserved the visible surface, so no concept was created."
+    if reason == "concept_write_content_unavailable_or_unsafe":
+        return "TurnPlan could not identify safe concept content to save, so no concept was created."
+    if reason == "concept_write_target_unavailable_or_ambiguous":
+        return "TurnPlan could not identify a safe concept target, so no concept was created."
+    return "TurnPlan did not find structured concept-write authority, so no concept was created."
 
 
 def _memory_write_assistant_receipt(message: str) -> str:

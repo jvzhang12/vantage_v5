@@ -10,6 +10,7 @@ Deterministic policy layer for deciding which Vantage surface should be summoned
 - Return a structured `surface_action` when Navigator/control-panel supplies a validated close-surface action so the UI can hide the visible surface without deleting saved data.
 - Treat structured Navigator/control-panel preserve-surface actions as authoritative no-op surface intent before raw text classifiers run.
 - Treat structured Navigator/control-panel remember actions as chat-first memory-write intent before raw task/calendar classifiers run, so content like "priority" is remembered instead of opening task focus.
+- Treat structured Navigator/control-panel concept actions (`learn`, `conceptualize`, `create_concept`) as chat-first concept-write intent before raw text classifiers run, leaving persistence to the existing meta path and TurnPlan concept-write authority.
 - Override old timid whiteboard routing for durable work products so emails, essays, plans, code, outlines, proposals, and similar outputs draft directly into the whiteboard unless the user explicitly asks for chat-only or offer mode.
 
 ## Key Classes / Functions
@@ -26,6 +27,7 @@ Deterministic policy layer for deciding which Vantage surface should be summoned
 - Structured Navigator/control-panel `close_surface` actions over a visible Whiteboard, artifact, Today/calendar, or task surface produce `intent="close_visible_surface"` with `write_behavior="none"` and a `close_visible_surface` action. Raw close/hide/remove wording alone stays chat/no-op unless the Navigator supplied that structured action.
 - Structured Navigator/control-panel `preserve_surface` actions produce `intent="preserve_visible_surface"` with `write_behavior="none"`, no `surface_action`, and no downstream calendar/task/whiteboard classification from the same raw text.
 - Structured Navigator/control-panel `remember` actions produce `intent="memory_write"` with chat as the primary surface, leaving memory persistence to the existing meta path and preventing task/calendar foregrounding from the same raw text.
+- Structured Navigator/control-panel concept actions produce `intent="concept_write"` with chat as the primary surface, leaving concept persistence to the existing meta path and preventing surface foregrounding from the same raw text.
 - Current-material questions that mention an item such as `this study plan` stay chat-first even when the item is selected but not yet visible; the noun `study plan` alone no longer implies a draft.
 - Schedule lookup requests summon `calendar_day`.
 - Schedule planning requests summon `calendar_day` with `task_focus` and `whiteboard` support.

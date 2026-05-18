@@ -22,6 +22,9 @@ ALLOWED_CONTROL_PANEL_ACTIONS = {
     "save_whiteboard",
     "publish_artifact",
     "remember",
+    "learn",
+    "conceptualize",
+    "create_concept",
     "close_surface",
     "preserve_surface",
     "manage_experiment",
@@ -223,6 +226,9 @@ class NavigatorService:
                 "save_whiteboard",
                 "publish_artifact",
                 "remember",
+                "learn",
+                "conceptualize",
+                "create_concept",
                 "close_surface",
                 "preserve_surface",
                 "manage_experiment",
@@ -256,6 +262,8 @@ class NavigatorService:
                 "If close/hide intent is ambiguous, prefer respond/chat and do not add close_surface. "
                 "When the user explicitly asks Vantage to remember or save something as memory, add a remember action and keep the response in chat. "
                 "Do not open calendar, task focus, or another operational surface merely because the content to remember mentions a day, task, focus, priority, or deadline. "
+                "When the user explicitly asks Vantage to learn something as a concept, conceptualize it, or create/save a concept, add learn, conceptualize, or create_concept and keep the response in chat. "
+                "Concept actions mean durable concept-write intent only; they do not imply opening Whiteboard, saving an artifact, or publishing an artifact. "
                 "Scenario Lab is for structured comparison across alternative futures, plans, or options that should become durable scenario branches and a comparison artifact. "
                 "Use scenario_lab only when the user is clearly asking for comparative what-if reasoning, option analysis, or branchable alternatives. "
                 "The workspace payload may include scenario metadata when the currently open workspace is already a saved scenario branch. "

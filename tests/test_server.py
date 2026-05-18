@@ -1649,6 +1649,84 @@ def test_preserve_surface_blocks_local_semantic_artifact_publish(
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
+def test_preserve_surface_denied_save_receipt_does_not_claim_saved(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    visible_artifact = {
+        "id": "artifact:midterm-study-plan",
+        "kind": "whiteboard",
+        "title": "Midterm Study Plan",
+        "summary": "Study plan for graph algorithms and priorities.",
+        "content": "# Midterm Study Plan\n\nPractice graph traversal first.",
+    }
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Navigator chose preserve-visible-surface.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "preserve_surface",
+                        "target": "whiteboard",
+                        "reason": "The user asked to keep the current whiteboard open.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr(
+        "vantage_v5.services.turn_orchestrator.decide_semantic_policy",
+        lambda *args, **kwargs: SemanticPolicyDecision(
+            action_type="artifact_save",
+            should_clarify=False,
+            reason="Synthetic local save policy for mixed preserve/save receipt coverage.",
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService.reply",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Denied mixed preserve/save turns should not ask chat to write the receipt.")
+        ),
+    )
+
+    artifact_ids_before = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "keep the whiteboard open and save this whiteboard",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": visible_artifact["content"],
+            "visible_artifacts": [visible_artifact],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assistant_message"] == "I kept the whiteboard open. I did not save it."
+    assert "saved" not in payload["assistant_message"].lower()
+    assert payload["surface_invocation"]["intent"] == "preserve_visible_surface"
+    assert payload["workspace_update"] is None
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["artifact_actions"] == []
+    assert {path.stem for path in (repo_root / "artifacts").glob("*.md")} == artifact_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["artifact_write_authority"]["action"] == "artifact_save"
+    assert final_response["turn_plan"]["artifact_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["artifact_write_authority"]["denied_reason"] == "preserve_visible_surface"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
 def test_close_surface_blocks_local_semantic_artifact_save(
     tmp_path: Path,
     monkeypatch,
@@ -2073,8 +2151,10 @@ def test_open_only_blocks_local_semantic_artifact_save(
     )
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
     monkeypatch.setattr(
-        "vantage_v5.services.chat.ChatService._openai_reply",
-        lambda self, **kwargs: "Opened the Midterm Study Plan without saving anything.",
+        "vantage_v5.services.chat.ChatService.reply",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Denied mixed open/save turns should not ask chat to write the receipt.")
+        ),
     )
     monkeypatch.setattr(
         "vantage_v5.services.meta.MetaService.decide",
@@ -2097,6 +2177,8 @@ def test_open_only_blocks_local_semantic_artifact_save(
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["assistant_message"] == "I opened the selected material in the whiteboard. I did not save it."
+    assert "saved" not in payload["assistant_message"].lower()
     assert payload["surface_invocation"]["write_behavior"] == "open_only"
     assert payload["workspace_update"] is None
     assert payload["graph_action"] is None
@@ -2904,6 +2986,7 @@ def test_semantic_policy_saves_visible_whiteboard_without_chat_guessing(tmp_path
     assert payload["semantic_frame"]["task_type"] == "artifact_save"
     assert payload["semantic_policy"]["action_type"] == "artifact_save"
     assert payload["semantic_policy"]["should_clarify"] is False
+    assert "saved" in payload["assistant_message"].lower()
     assert payload["surface_invocation"]["intent"] == "artifact_save"
     assert payload["surface_invocation"]["legacy_write_behavior"] == "none"
     assert payload["surface_invocation"]["write_behavior"] == "committed_write"
@@ -2991,6 +3074,7 @@ def test_semantic_policy_publishes_visible_whiteboard_as_artifact(tmp_path: Path
     assert payload["semantic_frame"]["task_type"] == "artifact_publish"
     assert payload["semantic_policy"]["action_type"] == "artifact_publish"
     assert payload["semantic_policy"]["should_clarify"] is False
+    assert "published" in payload["assistant_message"].lower()
     assert payload["surface_invocation"]["intent"] == "artifact_publish"
     assert payload["surface_invocation"]["legacy_write_behavior"] == "none"
     assert payload["surface_invocation"]["write_behavior"] == "committed_write"

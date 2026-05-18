@@ -288,6 +288,39 @@ class TurnOrchestrator:
             and local_semantic_write_action
             and not local_semantic_clarification
         )
+        if local_semantic_blocked_by_artifact_authority and _artifact_write_denied_by_hard_no_write(
+            artifact_write_authority.denied_reason
+        ):
+            local_context = LocalTurnContext(
+                user_message=request.message,
+                history=request.history,
+                workspace=context.workspace,
+                workspace_scope=context.normalized_workspace_scope,
+                runtime_scope=context.runtime["scope"],
+                transient_workspace=context.transient_workspace,
+                semantic_frame=semantic_frame,
+                semantic_policy=semantic_policy,
+                pinned_context_id=request.pinned_context_id,
+                pinned_context=context.pinned_context,
+                experiment=self.local_semantic_actions.session_info(context.session),
+                surface_invocation=surface_invocation_payload,
+            )
+            payload = assemble_local_turn_payload(
+                build_local_turn_parts(
+                    local_context,
+                    turn_body=LocalTurnBodyParts(
+                        assistant_message=_denied_artifact_write_assistant_message(
+                            surface_authority,
+                            artifact_write_authority,
+                        ),
+                        mode="local_action",
+                    ),
+                    turn_interpretation=turn_interpretation_parts,
+                    turn_stage=turn_stage,
+                )
+            )
+            payload.update(attention_state_payload)
+            return payload
         if not (local_semantic_blocked_by_surface or local_semantic_blocked_by_artifact_authority):
             local_semantic_parts = self.local_semantic_actions.build_turn_parts(
                 LocalSemanticTurnContext(
@@ -515,6 +548,49 @@ def _semantic_policy_has_local_write_action(policy: dict[str, Any]) -> bool:
 
 def _semantic_policy_should_clarify(policy: dict[str, Any]) -> bool:
     return bool(policy.get("should_clarify") or policy.get("needs_clarification"))
+
+
+def _artifact_write_denied_by_hard_no_write(reason: str | None) -> bool:
+    return reason in {
+        "open_only_ui_handoff",
+        "close_visible_surface",
+        "preserve_visible_surface",
+    }
+
+
+def _denied_artifact_write_assistant_message(surface_authority: Any, artifact_write_authority: Any) -> str:
+    denied_sentence = _denied_artifact_write_sentence(str(artifact_write_authority.action or "artifact_save"))
+    reason = str(artifact_write_authority.denied_reason or "")
+    if reason == "preserve_visible_surface":
+        target = _surface_target_label(surface_authority)
+        return f"I kept the {target} open. {denied_sentence}"
+    if reason == "open_only_ui_handoff":
+        return f"I opened the selected material in the whiteboard. {denied_sentence}"
+    if reason == "close_visible_surface":
+        return f"Closed the {_surface_target_label(surface_authority)} from view. {denied_sentence}"
+    return denied_sentence
+
+
+def _denied_artifact_write_sentence(action: str) -> str:
+    if action == "artifact_publish":
+        return "I did not publish it."
+    return "I did not save it."
+
+
+def _surface_target_label(surface_authority: Any) -> str:
+    raw = (
+        getattr(surface_authority.ui_surface_action, "target_resource_kind", None)
+        or getattr(surface_authority.ui_surface_action, "surface", None)
+        or "surface"
+    )
+    label = str(raw).strip().replace("_", " ")
+    if label in {"none", ""}:
+        return "surface"
+    if label in {"calendar day", "calendar week"}:
+        return "calendar"
+    if label == "today briefing":
+        return "Today"
+    return label
 
 
 def _safe_scenario_lab_error_message(error: Exception) -> str:

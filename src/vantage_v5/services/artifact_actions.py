@@ -186,6 +186,7 @@ class ArtifactActionPlanner:
         *,
         message: str,
         visible_artifacts: list[dict[str, Any]] | None = None,
+        persist: bool = True,
     ) -> ArtifactActionPlan:
         events = _visible_calendar_events(visible_artifacts or [])
         tasks = _visible_tasks(visible_artifacts or [])
@@ -200,7 +201,7 @@ class ArtifactActionPlanner:
 
             action = self._calendar_action(message=message, events=events)
             if action.artifact_actions or action.assistant_message:
-                return self._save_action_plan(action)
+                return self.save_action_plan(action) if persist else action
 
         if (_looks_like_artifact_mutation(message) or _looks_like_task_mutation(message)) and (tasks or _looks_task_specific(message)):
             if not self.task_provider or not self.task_provider.writable:
@@ -212,15 +213,15 @@ class ArtifactActionPlanner:
 
             action = self._task_action(message=message, tasks=tasks)
             if action.artifact_actions or action.assistant_message:
-                return self._save_action_plan(action)
+                return self.save_action_plan(action) if persist else action
 
         capture_action = self._capture_action(message=message, events=events, visible_artifacts=visible_artifacts or [])
         if capture_action.artifact_actions or capture_action.assistant_message:
-            return self._save_action_plan(capture_action)
+            return self.save_action_plan(capture_action) if persist else capture_action
 
         return ArtifactActionPlan(artifact_actions=[])
 
-    def _save_action_plan(self, action: ArtifactActionPlan) -> ArtifactActionPlan:
+    def save_action_plan(self, action: ArtifactActionPlan) -> ArtifactActionPlan:
         saved_actions = [self.action_store.save(item) for item in action.artifact_actions]
         return ArtifactActionPlan(
             artifact_actions=saved_actions,

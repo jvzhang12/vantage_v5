@@ -49,6 +49,7 @@ class ArtifactMutationCompiler:
         user_message: str,
         semantic_action: str,
         visible_artifacts: list[dict[str, Any]] | None = None,
+        persist: bool = True,
     ) -> ArtifactActionPlan:
         if not _should_compile(user_message=user_message, semantic_action=semantic_action, visible_artifacts=visible_artifacts or []):
             return ArtifactActionPlan(artifact_actions=[])
@@ -65,16 +66,20 @@ class ArtifactMutationCompiler:
             app_interface=interface,
         )
         command = normalized or semantic_action or user_message
-        plan = self.planner.plan_for_turn(message=command, visible_artifacts=visible_artifacts)
+        plan = self.planner.plan_for_turn(message=command, visible_artifacts=visible_artifacts, persist=False)
         if not plan.artifact_actions and command != user_message:
-            plan = self.planner.plan_for_turn(message=user_message, visible_artifacts=visible_artifacts)
-        return _annotate_plan(
+            plan = self.planner.plan_for_turn(message=user_message, visible_artifacts=visible_artifacts, persist=False)
+        annotated = _annotate_plan(
             plan,
             semantic_action=semantic_action,
             compiler_input=command,
             app_interface=interface,
             used_model=normalized is not None,
         )
+        return self.persist_plan(annotated) if persist else annotated
+
+    def persist_plan(self, plan: ArtifactActionPlan) -> ArtifactActionPlan:
+        return self.planner.save_action_plan(plan)
 
     def _normalize_with_model(
         self,

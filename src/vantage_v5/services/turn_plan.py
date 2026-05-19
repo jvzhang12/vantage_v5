@@ -24,6 +24,20 @@ _CONCEPT_WRITE_ACTIONS = frozenset(
         "upsert_concept",
     }
 )
+_OPERATIONAL_ARTIFACT_KINDS = frozenset({"calendar", "task", "tasks"})
+_OPERATIONAL_COMMITTED_STATUSES = frozenset({"accepted", "applied", "completed"})
+_OPERATIONAL_CALENDAR_CREATE_OPERATIONS = frozenset({"create_event"})
+_OPERATIONAL_TASK_CREATE_OPERATIONS = frozenset({"create_task"})
+_OPERATIONAL_TARGETED_OPERATIONS = frozenset(
+    {
+        "update_event",
+        "move_event",
+        "replace_event",
+        "cancel_event",
+        "update_task",
+        "complete_task",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -352,6 +366,44 @@ class TurnPlanProtocolWriteAuthority:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnPlanOperationalProposalAuthority:
+    """Execution-facing permission for calendar/task proposal candidates."""
+
+    action: str | None
+    allowed: bool
+    denied_reason: str | None
+    authority: str
+    source_field_paths: tuple[str, ...]
+    candidate_count: int
+    candidate_kinds: tuple[str, ...]
+    candidate_operations: tuple[str, ...]
+    content_available: bool
+    target_available: bool
+    requires_confirmation: bool
+    no_write_reason: str | None
+
+    @property
+    def blocks_candidate_write(self) -> bool:
+        return self.action == "operational_proposal" and not self.allowed
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "allowed": self.allowed,
+            "denied_reason": self.denied_reason,
+            "authority": self.authority,
+            "source_field_paths": list(self.source_field_paths),
+            "candidate_count": self.candidate_count,
+            "candidate_kinds": list(self.candidate_kinds),
+            "candidate_operations": list(self.candidate_operations),
+            "content_available": self.content_available,
+            "target_available": self.target_available,
+            "requires_confirmation": self.requires_confirmation,
+            "no_write_reason": self.no_write_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class WriteIntentPlan:
     kind: str
     whiteboard_mode: str | None
@@ -597,6 +649,7 @@ class TurnPlan:
     memory_write_authority: TurnPlanMemoryWriteAuthority
     concept_write_authority: TurnPlanConceptWriteAuthority
     protocol_write_authority: TurnPlanProtocolWriteAuthority
+    operational_proposal_authority: TurnPlanOperationalProposalAuthority
     protocols: ProtocolPlan
     semantic: SemanticPlan
     execution: ExecutionPlan
@@ -619,6 +672,7 @@ class TurnPlan:
             "memory_write_authority": self.memory_write_authority.to_dict(),
             "concept_write_authority": self.concept_write_authority.to_dict(),
             "protocol_write_authority": self.protocol_write_authority.to_dict(),
+            "operational_proposal_authority": self.operational_proposal_authority.to_dict(),
             "protocols": self.protocols.to_dict(),
             "semantic": self.semantic.to_dict(),
             "execution": self.execution.to_dict(),
@@ -683,6 +737,12 @@ class TurnPlanBuilder:
             write_projection=write_projection,
             side_effect_policy=side_effect_policy,
         )
+        operational_proposal_authority = self._operational_proposal_authority_plan(
+            response_payload=response_payload,
+            route=route,
+            write_ledger=write_ledger,
+            side_effect_policy=side_effect_policy,
+        )
         execution = self._execution_plan(response_payload, write_intent, side_effect_policy, ui_surface_action)
         compatibility = self._compatibility_plan(response_payload, write_intent)
         validation = self._validation_plan(
@@ -700,6 +760,7 @@ class TurnPlanBuilder:
             memory_write_authority=memory_write_authority,
             concept_write_authority=concept_write_authority,
             protocol_write_authority=protocol_write_authority,
+            operational_proposal_authority=operational_proposal_authority,
             semantic=semantic,
             execution=execution,
         )
@@ -718,6 +779,7 @@ class TurnPlanBuilder:
             memory_write_authority=memory_write_authority,
             concept_write_authority=concept_write_authority,
             protocol_write_authority=protocol_write_authority,
+            operational_proposal_authority=operational_proposal_authority,
             protocols=protocols,
             semantic=semantic,
             execution=execution,
@@ -1381,6 +1443,89 @@ class TurnPlanBuilder:
             no_write_reason=no_write_reason,
         )
 
+    def _operational_proposal_authority_plan(
+        self,
+        *,
+        response_payload: dict[str, Any],
+        route: RoutePlan,
+        write_ledger: WriteLedgerPlan,
+        side_effect_policy: SideEffectPolicy,
+    ) -> TurnPlanOperationalProposalAuthority:
+        actions = _operational_proposal_actions(response_payload)
+        existing_authority = _dict_or_empty(response_payload.get("operational_proposal_authority"))
+        sources = _operational_proposal_sources(
+            route=route,
+            actions=actions,
+            write_ledger=write_ledger,
+            existing_authority=existing_authority,
+        )
+        action = (
+            "operational_proposal"
+            if sources
+            or actions
+            or str(existing_authority.get("action") or "").strip() == "operational_proposal"
+            else None
+        )
+        source_field_paths = tuple(
+            path
+            for path in (_optional_str(source.get("field_path")) for source in sources)
+            if path
+        )
+        if not source_field_paths and isinstance(existing_authority.get("source_field_paths"), list):
+            source_field_paths = tuple(
+                path
+                for path in (_optional_str(item) for item in existing_authority["source_field_paths"])
+                if path
+            )
+        content_available = _operational_proposal_content_available(actions, existing_authority=existing_authority)
+        target_available = _operational_proposal_target_available(actions, existing_authority=existing_authority)
+        requires_confirmation = _operational_proposal_requires_confirmation(actions, existing_authority=existing_authority)
+        no_write_reason = side_effect_policy.suppress_auto_graph_writes_reason
+        prior_denied_reason = _optional_str(existing_authority.get("denied_reason"))
+        prior_allowed = existing_authority.get("allowed")
+        denied_reason = None
+        allowed = False
+        if action is None:
+            denied_reason = None
+        elif no_write_reason is not None:
+            denied_reason = no_write_reason
+        elif prior_allowed is False and prior_denied_reason:
+            denied_reason = prior_denied_reason
+        elif not sources:
+            denied_reason = "missing_structured_operational_mutation_intent"
+        elif not content_available:
+            denied_reason = "operational_proposal_content_unavailable_or_unsafe"
+        elif not target_available:
+            denied_reason = "operational_proposal_target_unavailable_or_ambiguous"
+        elif not requires_confirmation:
+            denied_reason = "operational_proposal_requires_confirmation"
+        else:
+            allowed = True
+        return TurnPlanOperationalProposalAuthority(
+            action=action,
+            allowed=allowed,
+            denied_reason=denied_reason,
+            authority=(
+                str(sources[0].get("source") or "structured_intent")
+                if sources
+                else (_optional_str(existing_authority.get("authority")) or "none")
+            ),
+            source_field_paths=source_field_paths,
+            candidate_count=len(actions) or _optional_int(existing_authority.get("candidate_count")) or 0,
+            candidate_kinds=(
+                _dedupe(action.get("artifact_kind") or action.get("kind") or action.get("app") for action in actions)
+                or _tuple_of_strings(existing_authority.get("candidate_kinds"))
+            ),
+            candidate_operations=(
+                _dedupe(action.get("operation") or action.get("type") or action.get("intent") for action in actions)
+                or _tuple_of_strings(existing_authority.get("candidate_operations"))
+            ),
+            content_available=content_available,
+            target_available=target_available,
+            requires_confirmation=requires_confirmation,
+            no_write_reason=no_write_reason,
+        )
+
     def _execution_plan(
         self,
         response_payload: dict[str, Any],
@@ -1444,6 +1589,7 @@ class TurnPlanBuilder:
         memory_write_authority: TurnPlanMemoryWriteAuthority,
         concept_write_authority: TurnPlanConceptWriteAuthority,
         protocol_write_authority: TurnPlanProtocolWriteAuthority,
+        operational_proposal_authority: TurnPlanOperationalProposalAuthority,
         semantic: SemanticPlan,
         execution: ExecutionPlan,
     ) -> TurnPlanValidation:
@@ -1776,6 +1922,10 @@ class TurnPlanBuilder:
             entry.category == "protocol_write"
             for entry in write_ledger.entries
         )
+        has_operational_proposal_effect = any(
+            entry.category == "proposed_calendar_task_mutation"
+            for entry in write_ledger.entries
+        )
         if (
             has_non_protocol_concept_effect
             and not concept_write_authority.allowed
@@ -1802,6 +1952,21 @@ class TurnPlanBuilder:
                     "A protocol write effect appeared after TurnPlan denied protocol write authority.",
                     [
                         "turn_plan.protocol_write_authority",
+                        *write_side_effects,
+                    ],
+                )
+            )
+        if (
+            has_operational_proposal_effect
+            and not operational_proposal_authority.allowed
+            and operational_proposal_authority.action == "operational_proposal"
+        ):
+            warnings.append(
+                _validation_warning(
+                    "operational_proposal_effect_without_authority",
+                    "A calendar/task proposal effect appeared after TurnPlan denied operational proposal authority.",
+                    [
+                        "turn_plan.operational_proposal_authority",
                         *write_side_effects,
                     ],
                 )
@@ -1974,6 +2139,29 @@ def build_turn_plan_protocol_write_authority(
         request_payload=request_payload or {},
         response_payload=payload,
         write_projection=write_projection,
+        side_effect_policy=side_effect_policy,
+    )
+
+
+def build_turn_plan_operational_proposal_authority(
+    *,
+    response_payload: dict[str, Any],
+    request_payload: dict[str, Any] | None = None,
+) -> TurnPlanOperationalProposalAuthority:
+    """Build the TurnPlan permission gate for calendar/task proposal candidates."""
+
+    payload = _with_nested_surface_action(response_payload)
+    builder = TurnPlanBuilder()
+    retrieval = builder._retrieval_plan(payload)
+    ui_surface_action = builder._ui_surface_action_plan(payload, retrieval)
+    write_intent = builder._write_intent_plan(payload, ui_surface_action)
+    side_effect_policy = builder._side_effect_policy(request_payload or {}, payload, write_intent)
+    write_ledger = builder._write_ledger_plan(payload, write_intent, ui_surface_action)
+    route = builder._route_plan(payload)
+    return builder._operational_proposal_authority_plan(
+        response_payload=payload,
+        route=route,
+        write_ledger=write_ledger,
         side_effect_policy=side_effect_policy,
     )
 
@@ -2467,6 +2655,155 @@ def _protocol_write_target_available(
         str(candidate.get("protocol_id") or "").strip()
         and str(candidate.get("protocol_kind") or "").strip()
     )
+
+
+def _operational_proposal_actions(response_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        action
+        for action in _list_of_dicts(response_payload.get("artifact_actions"))
+        if str(action.get("artifact_kind") or action.get("kind") or action.get("app") or "").strip().lower()
+        in _OPERATIONAL_ARTIFACT_KINDS
+    ]
+
+
+def _operational_proposal_sources(
+    *,
+    route: RoutePlan,
+    actions: list[dict[str, Any]],
+    write_ledger: WriteLedgerPlan,
+    existing_authority: dict[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    sources: list[dict[str, Any]] = []
+    for index, action in enumerate(actions):
+        sources.append(
+            _write_source(
+                source="artifact_mutation_compiler",
+                field_path=f"artifact_actions[{index}]",
+                kind="calendar_task_mutation",
+                action=_optional_str(action.get("operation") or action.get("type") or action.get("intent")),
+            )
+        )
+
+    for index, action in enumerate(_list_of_dicts(route.control_panel.get("actions"))):
+        action_type = str(action.get("type") or action.get("action") or "").strip().lower()
+        if action_type in {
+            "calendar_mutation",
+            "task_mutation",
+            "propose_calendar_mutation",
+            "propose_task_mutation",
+            "calendar_proposal",
+            "task_proposal",
+        }:
+            sources.append(
+                _write_source(
+                    source="control_panel",
+                    field_path=f"turn_interpretation.control_panel.actions[{index}].type",
+                    kind="calendar_task_mutation",
+                    action=action_type,
+                )
+            )
+
+    if str(existing_authority.get("action") or "").strip() == "operational_proposal":
+        field_paths = _tuple_of_strings(existing_authority.get("source_field_paths")) or (
+            "operational_proposal_authority",
+        )
+        sources.append(
+            _write_source(
+                source=_optional_str(existing_authority.get("authority")) or "turn_plan_authority",
+                field_path=field_paths[0],
+                kind="calendar_task_mutation",
+                action="operational_proposal",
+            )
+        )
+
+    if any(entry.category == "proposed_calendar_task_mutation" for entry in write_ledger.entries):
+        sources.append(
+            _write_source(
+                source="existing_write_effect",
+                field_path="artifact_actions",
+                kind="calendar_task_mutation",
+                action="proposed_calendar_task_mutation",
+            )
+        )
+
+    return tuple(_dedupe_write_sources(sources))
+
+
+def _operational_proposal_content_available(
+    actions: list[dict[str, Any]],
+    *,
+    existing_authority: dict[str, Any],
+) -> bool:
+    if not actions and isinstance(existing_authority.get("content_available"), bool):
+        return bool(existing_authority.get("content_available"))
+    if not actions:
+        return False
+    return all(_operational_action_has_content(action) for action in actions)
+
+
+def _operational_action_has_content(action: dict[str, Any]) -> bool:
+    operation = str(action.get("operation") or action.get("type") or action.get("intent") or "").strip().lower()
+    if not operation:
+        return False
+    payload = _dict_or_empty(action.get("payload"))
+    preview = _dict_or_empty(action.get("preview"))
+    summary = _optional_str(action.get("summary"))
+    if operation in _OPERATIONAL_CALENDAR_CREATE_OPERATIONS:
+        return bool(
+            _optional_str(payload.get("title"))
+            and _optional_str(payload.get("start"))
+            and _optional_str(payload.get("end"))
+        )
+    if operation in _OPERATIONAL_TASK_CREATE_OPERATIONS:
+        return bool(_optional_str(payload.get("title")))
+    return bool(payload or preview or summary)
+
+
+def _operational_proposal_target_available(
+    actions: list[dict[str, Any]],
+    *,
+    existing_authority: dict[str, Any],
+) -> bool:
+    if not actions and isinstance(existing_authority.get("target_available"), bool):
+        return bool(existing_authority.get("target_available"))
+    if not actions:
+        return False
+    return all(_operational_action_target_available(action) for action in actions)
+
+
+def _operational_action_target_available(action: dict[str, Any]) -> bool:
+    operation = str(action.get("operation") or action.get("type") or action.get("intent") or "").strip().lower()
+    if operation in _OPERATIONAL_CALENDAR_CREATE_OPERATIONS | _OPERATIONAL_TASK_CREATE_OPERATIONS:
+        return True
+    if operation not in _OPERATIONAL_TARGETED_OPERATIONS:
+        return True
+    payload = _dict_or_empty(action.get("payload"))
+    if _optional_str(action.get("target_id") or action.get("artifact_id")):
+        return True
+    if _list_of_dicts(action.get("target_refs")):
+        return True
+    return any(
+        _optional_str(payload.get(key))
+        for key in ("event_id", "task_id", "id", "target_id", "target")
+    )
+
+
+def _operational_proposal_requires_confirmation(
+    actions: list[dict[str, Any]],
+    *,
+    existing_authority: dict[str, Any],
+) -> bool:
+    if not actions and isinstance(existing_authority.get("requires_confirmation"), bool):
+        return bool(existing_authority.get("requires_confirmation"))
+    if not actions:
+        return False
+    for action in actions:
+        status = str(action.get("status") or "").strip().lower()
+        if status in _OPERATIONAL_COMMITTED_STATUSES:
+            return False
+        if action.get("requires_confirmation") is not True:
+            return False
+    return True
 
 
 def _effect_write_sources(write_ledger: WriteLedgerPlan) -> tuple[dict[str, Any], ...]:
@@ -3190,11 +3527,26 @@ def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)]
 
 
+def _tuple_of_strings(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(text for text in (_optional_str(item) for item in value) if text)
+
+
 def _optional_str(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _optional_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _optional_float(value: Any) -> float | None:

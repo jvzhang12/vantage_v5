@@ -43,6 +43,41 @@ def test_calendar_action_planner_proposes_replace_from_visible_calendar(tmp_path
     assert json.loads(events_path.read_text(encoding="utf-8"))["events"][0]["title"] == "Advisor check-in"
 
 
+def test_calendar_action_planner_can_return_unsaved_proposal_candidate(tmp_path: Path) -> None:
+    events_path = _write_calendar_events(
+        tmp_path / "events.json",
+        events=[
+            {
+                "id": "advisor-check-in",
+                "title": "Advisor check-in",
+                "start": "2026-05-14T11:00:00",
+                "end": "2026-05-14T11:30:00",
+            }
+        ],
+    )
+    action_store = ArtifactActionStore(tmp_path / "actions")
+    planner = ArtifactActionPlanner(
+        calendar_provider=LocalCalendarProvider(events_path=events_path, writable=True),
+        action_store=action_store,
+    )
+
+    candidate = planner.plan_for_turn(
+        message="replace Advisor check-in with Grocery shopping",
+        visible_artifacts=[_today_surface()],
+        persist=False,
+    )
+
+    assert len(candidate.artifact_actions) == 1
+    action = candidate.artifact_actions[0]
+    assert not (tmp_path / "actions" / f"{action['id']}.json").exists()
+
+    saved = planner.save_action_plan(candidate)
+
+    assert saved.artifact_actions[0]["id"] == action["id"]
+    assert (tmp_path / "actions" / f"{action['id']}.json").exists()
+    assert "after you confirm" in saved.assistant_message
+
+
 def test_calendar_action_planner_rejects_ambiguous_visible_event_matches(tmp_path: Path) -> None:
     planner = ArtifactActionPlanner(
         calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),

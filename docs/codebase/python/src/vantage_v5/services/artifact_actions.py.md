@@ -12,7 +12,7 @@ Generic artifact-action planning and execution layer for Vantage.
 ## Key Classes / Functions
 
 - `ArtifactActionStore`: stores proposed/accepted/rejected action JSON under `state/artifact_actions`.
-- `ArtifactActionPlanner`: detects supported artifact mutations and builds proposed calendar actions from visible calendar surfaces.
+- `ArtifactActionPlanner`: detects supported artifact mutations and builds proposed calendar/task actions from visible operational surfaces. By default it persists proposed actions immediately, but callers can request an unsaved candidate with `persist=False` and later commit it with `save_action_plan()`.
 - `execute_artifact_action()`: commits accepted calendar actions through `LocalCalendarProvider`.
 - `reject_artifact_action()`: marks a pending action as rejected without mutating data.
 - `action_surface_context()` and `action_graph_payload()`: adapt action data for refreshed surfaces and Vantage/Inspect receipts.
@@ -20,6 +20,7 @@ Generic artifact-action planning and execution layer for Vantage.
 ## Notable Behavior
 
 - All actions start as `proposed` and require confirmation.
+- Unsaved proposal candidates use the same validation and payload shape as persisted proposals, letting higher-level TurnPlan authority inspect candidate safety before an action file is written.
 - Calendar actions use visible artifacts first, so the currently displayed calendar day/week is the target context.
 - Supported v1 calendar operations are create, update/rename, move/reschedule, replace, and soft-cancel.
 - Ambiguous or missing target events return clarification text instead of an unsafe action.

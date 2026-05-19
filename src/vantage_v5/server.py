@@ -29,6 +29,7 @@ from vantage_v5.services.artifact_actions import execute_artifact_action
 from vantage_v5.services.artifact_actions import reject_artifact_action
 from vantage_v5.services.artifact_mutation_compiler import ArtifactMutationCompiler
 from vantage_v5.services.attention import AttentionEngine
+from vantage_v5.services.attention_role_projection import build_working_memory_view_payload
 from vantage_v5.services.calendar import LocalCalendarProvider
 from vantage_v5.services.calendar import resolve_calendar_date
 from vantage_v5.services.capabilities import build_app_capability_manifest
@@ -69,6 +70,7 @@ from vantage_v5.services.tasks import LocalTaskProvider
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 from vantage_v5.services.turn_plan import build_turn_plan_operational_proposal_authority
 from vantage_v5.services.turn_plan import project_write_intent_compatibility
+from vantage_v5.services.turn_plan import turn_plan_trace_payload
 from vantage_v5.services.turn_payloads import attach_safe_turn_state
 from vantage_v5.services.turn_orchestrator import TurnOrchestrator
 from vantage_v5.services.turn_orchestrator import TurnOrchestratorHooks
@@ -1024,25 +1026,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             response_payload=payload,
             request_payload={"message": message, "memory_intent": memory_intent},
         )
+        final_trace_request_payload = _chat_final_trace_request_payload(
+            message=message,
+            history=history,
+            workspace_id=workspace_id,
+            workspace_scope=workspace_scope,
+            workspace_content=workspace_content,
+            whiteboard_mode=whiteboard_mode,
+            pinned_context_id=pinned_context_id,
+            memory_intent=memory_intent,
+            pending_workspace_update=pending_workspace_update,
+            visible_artifacts=visible_artifacts,
+            force_pending_workspace_update=force_pending_workspace_update,
+        )
+        final_turn_plan = turn_plan_trace_payload(
+            request_payload=final_trace_request_payload,
+            response_payload=payload,
+        )
+        payload["working_memory_view"] = build_working_memory_view_payload(
+            request_payload=final_trace_request_payload,
+            response_payload=payload,
+            turn_plan=final_turn_plan,
+        )
         trace_path = payload.pop("_turn_trace_path", None)
         final_payload = attach_safe_turn_state(payload)
         try:
             persist_final_chat_response_trace(
                 traces_dir=_final_response_trace_dir(durable_scope, final_payload),
                 trace_path=trace_path,
-                request_payload=_chat_final_trace_request_payload(
-                    message=message,
-                    history=history,
-                    workspace_id=workspace_id,
-                    workspace_scope=workspace_scope,
-                    workspace_content=workspace_content,
-                    whiteboard_mode=whiteboard_mode,
-                    pinned_context_id=pinned_context_id,
-                    memory_intent=memory_intent,
-                    pending_workspace_update=pending_workspace_update,
-                    visible_artifacts=visible_artifacts,
-                    force_pending_workspace_update=force_pending_workspace_update,
-                ),
+                request_payload=final_trace_request_payload,
                 response_payload=final_payload,
             )
         except Exception:

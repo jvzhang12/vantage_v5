@@ -545,6 +545,7 @@ def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     assert "recall" in payload
     assert "working_memory" in payload
     assert "attention_recall_role_projection" not in payload
+    assert payload["working_memory_view"]["schema"] == "working_memory_view.v1"
     assert payload["recall"] == payload["working_memory"]
     assert isinstance(payload["working_memory"], list)
     assert "response_mode" in payload
@@ -597,6 +598,19 @@ def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     assert any(
         resource["kind"] == "concept" and "recall_context" in resource["roles"]
         for resource in role_projection["resources"]
+    )
+    working_memory_view = payload["working_memory_view"]
+    assert final_response["working_memory_view"] == working_memory_view
+    assert working_memory_view["roles"]["recall_context"]
+    assert working_memory_view["execution_summary"]["writes"]["categories"] == ["none"]
+    assert not _payload_has_key(working_memory_view, "content")
+    assert not _payload_has_key(working_memory_view, "body")
+    assert not _payload_has_key(working_memory_view, "raw_prompt")
+    assert not _payload_has_key(working_memory_view, "chain_of_thought")
+    assert all(len(item.get("excerpt") or "") <= 320 for item in working_memory_view["resources"])
+    assert any(
+        resource["kind"] == "concept" and "recall_context" in resource["roles"]
+        for resource in working_memory_view["resources"]
     )
 
 
@@ -1030,7 +1044,8 @@ def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: 
         assert "Algorithms lab" in captured[key][0]["content"]
     assert captured["reply_app_capabilities"]["policy_version"] == "app-capability-v1"
     assert "calendar.read_week" in {tool["name"] for tool in captured["reply_app_capabilities"]["tools"]}
-    role_projection = _latest_trace_payload(repo_root)["final_response"]["attention_recall_role_projection"]
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    role_projection = final_response["attention_recall_role_projection"]
     visible_resource = next(
         resource
         for resource in role_projection["resources"]
@@ -1041,6 +1056,17 @@ def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: 
     assert "answer_context" in visible_resource["roles"]
     assert "current_visible_context" in visible_resource["origins"]
     assert "attention_selection" in visible_resource["origins"]
+    working_memory_view = payload["working_memory_view"]
+    assert final_response["working_memory_view"] == working_memory_view
+    visible_working_memory_resource = next(
+        resource
+        for resource in working_memory_view["resources"]
+        if resource["resource_id"] == "visible:calendar-week-2026-05-11"
+    )
+    assert visible_working_memory_resource["flags"]["visible"] is True
+    assert visible_working_memory_resource["flags"]["selected"] is True
+    assert "answer_context" in visible_working_memory_resource["roles"]
+    assert len(visible_working_memory_resource.get("excerpt") or "") <= 320
 
 
 @pytest.mark.parametrize(
@@ -2285,6 +2311,19 @@ def test_chat_attention_open_directive_prefers_source_artifact_over_opened_copy(
     assert selected_resource["flags"]["selected"] is True
     assert selected_resource["sent_to_response_llm"] is True
     assert len(selected_resource.get("excerpt") or "") <= 320
+    working_memory_view = payload["working_memory_view"]
+    assert final_response["working_memory_view"] == working_memory_view
+    assert working_memory_view["roles"]["surface_to_open"][0]["resource_id"] == f"artifact:{source_artifact.id}"
+    assert working_memory_view["execution_summary"]["surface"]["mode"] == "open_only"
+    assert working_memory_view["execution_summary"]["surface"]["surface"] == "whiteboard"
+    assert working_memory_view["execution_summary"]["writes"]["categories"] == ["open_only_no_write"]
+    wm_selected_resource = next(
+        resource
+        for resource in working_memory_view["resources"]
+        if resource["resource_id"] == f"artifact:{source_artifact.id}"
+    )
+    assert wm_selected_resource["influence"]["ui_surface_action"] is True
+    assert len(wm_selected_resource.get("excerpt") or "") <= 320
 
 
 def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(
@@ -2990,6 +3029,15 @@ def test_chat_task_create_slides_titles_are_clean_without_memory_write(
     final_response = _latest_trace_payload(repo_root / "users" / "eden")["final_response"]
     assert final_response["workspace_update"] is None
     assert final_response["turn_plan"]["write_ledger"]["categories"] == ["proposed_calendar_task_mutation"]
+    working_memory_view = payload["working_memory_view"]
+    assert final_response["working_memory_view"] == working_memory_view
+    assert working_memory_view["execution_summary"]["writes"]["categories"] == [
+        "proposed_calendar_task_mutation"
+    ]
+    assert working_memory_view["execution_summary"]["writes"]["proposal_count"] == 1
+    assert working_memory_view["execution_summary"]["writes"]["artifact_action_count"] == 1
+    assert not _payload_has_key(working_memory_view, "content")
+    assert not _payload_has_key(working_memory_view, "body")
 
 
 def test_task_proposal_suppresses_conflicting_whiteboard_offer(tmp_path: Path, monkeypatch) -> None:
@@ -4360,6 +4408,17 @@ def test_email_protocol_is_learned_and_recalled_for_matching_draft(tmp_path: Pat
     assert {"recall_context", "protocol_guidance"} <= set(protocol_resources[0]["roles"])
     assert "protocol_guidance" in protocol_resources[0]["origins"]
     assert role_projection["roles"]["protocol_guidance"][0]["resource_id"] == "email-drafting-protocol"
+    working_memory_view = draft_payload["working_memory_view"]
+    assert draft_trace["working_memory_view"]["roles"]["protocol_guidance"]
+    assert working_memory_view["roles"]["protocol_guidance"][0]["resource_id"] == "email-drafting-protocol"
+    protocol_working_memory_resources = [
+        resource
+        for resource in working_memory_view["resources"]
+        if resource["resource_id"] == "email-drafting-protocol"
+    ]
+    assert protocol_working_memory_resources
+    assert {"recall_context", "protocol_guidance"} <= set(protocol_working_memory_resources[0]["roles"])
+    assert len(protocol_working_memory_resources[0].get("excerpt") or "") <= 320
     assert (repo_root / "concepts" / "email-drafting-protocol.md").exists()
 
 

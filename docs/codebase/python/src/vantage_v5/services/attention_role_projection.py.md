@@ -1,16 +1,18 @@
 # `src/vantage_v5/services/attention_role_projection.py`
 
-Trace-only observability helpers for projecting finalized `/api/chat` context into product roles.
+Helpers for projecting finalized `/api/chat` context into product-safe Attention/Recall and Working Memory roles.
 
 ## Purpose
 
-- Build `final_response.attention_recall_role_projection` for JSON traces without changing public API payloads or execution.
+- Build `final_response.attention_recall_role_projection` for JSON traces without changing execution.
+- Build the public latest-turn `/api/chat` `working_memory_view` contract from the same role projection plus compact TurnPlan execution/write summaries.
 - Group finalized selected Attention resources, visible context, pinned context, surface-open targets, and legacy Recall/`working_memory` records into compact role views.
 - Make the future Vantage Working Memory model inspectable: Attention is the broad turn selection layer, Recall is the memory-grounding role over that selection, and Working Memory is all selected or in-scope context.
 
 ## Key Functions
 
 - `build_attention_recall_role_projection()`: consumes only finalized request/response dictionaries and returns the trace payload.
+- `build_working_memory_view_payload()`: consumes finalized request/response dictionaries plus an optional role projection and TurnPlan trace payload, then returns the bounded public Working Memory view.
 
 ## Notable Behavior
 
@@ -18,3 +20,4 @@ Trace-only observability helpers for projecting finalized `/api/chat` context in
 - Resource entries include ids, kind/type, title/label, roles, provenance, selected/visible/pinned flags, compact summary/excerpt fields, and a best-effort `sent_to_response_llm` marker.
 - The projection compares selected Attention ids with legacy Recall ids so trace readers can see overlap and gaps while `ChatService.search_context()` remains unchanged.
 - Excerpts are bounded and intended for provenance/debugging only; this module does not expose hidden model reasoning or full artifact bodies.
+- `working_memory_view` is public by default in `/api/chat`, but it stays compact: resources carry ids, titles, roles, origins, flags, provenance, short excerpts, LLM-sent markers, and influence flags; execution summary carries surface mode plus write/proposal categories rather than full created content.

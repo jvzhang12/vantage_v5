@@ -62,7 +62,9 @@ Product `Working Memory` means the full bounded context used for generation: cur
 
 `Attention` is the broad turn selection mechanism across saved memory, visible surfaces, app resources, protocols, openable artifacts, and other resources. `Recall` is the memory-grounding role/view over selected Attention resources.
 
-API `recall` is currently narrower: the vetted retrieved subset from Memory Trace and Library sources. Legacy `working_memory` is still emitted as an alias for that recalled subset, not the full product concept. `ChatService.search_context()` remains a transitional independent retrieval path; final-response traces include an observability-only Attention/Recall role projection that compares selected Attention resources with legacy Recall output but does not change prompt context or generation.
+API `recall` is currently narrower: the vetted retrieved subset from Memory Trace and Library sources. Legacy `working_memory` is still emitted as an alias for that recalled subset, not the full product concept. `ChatService.search_context()` remains a transitional independent retrieval path; final-response traces include an Attention/Recall role projection that compares selected Attention resources with legacy Recall output but does not change prompt context or generation.
+
+The latest-turn `/api/chat` response also includes `working_memory_view`, a bounded product-safe contract for the future Vantage Working Memory UI. It groups compact resources by `answer_context`, `recall_context`, `protocol_guidance`, `surface_to_open`, and `pinned_or_continuity_context`, then adds a compact execution summary from TurnPlan surface actions and write/proposal ledger categories. This payload exposes grounding/context/provenance and finalized UI/write decisions; it does not expose hidden chain-of-thought, raw prompts, or full artifact/memory/concept/protocol bodies.
 
 Protocol candidates can be injected into the candidate memory set before vetting. That is how non-obvious but relevant reasoning guidance, such as Scenario Lab first-principles/counterfactual reasoning, can reach the model without brittle semantic search.
 

@@ -13,6 +13,14 @@ from vantage_v5.services.turn_plan import build_turn_plan_protocol_write_authori
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 
 
+def _payload_has_key(value: object, forbidden_key: str) -> bool:
+    if isinstance(value, dict):
+        return forbidden_key in value or any(_payload_has_key(item, forbidden_key) for item in value.values())
+    if isinstance(value, list):
+        return any(_payload_has_key(item, forbidden_key) for item in value)
+    return False
+
+
 def _plan(
     *,
     message: str = "Hello?",
@@ -2194,3 +2202,10 @@ def test_final_response_trace_payload_includes_turn_plan() -> None:
     assert plan["write_ledger"]["categories"] == ["open_only_no_write"]
     assert plan["validation"]["status"] == "ok"
     assert plan["validation"]["warnings"] == []
+    working_memory_view = final_response["working_memory_view"]
+    assert working_memory_view["schema"] == "working_memory_view.v1"
+    assert working_memory_view["roles"]["surface_to_open"][0]["resource_id"] == "artifact:midterm-study-plan"
+    assert working_memory_view["execution_summary"]["surface"]["mode"] == "open_only"
+    assert working_memory_view["execution_summary"]["writes"]["categories"] == ["open_only_no_write"]
+    assert not _payload_has_key(working_memory_view, "content")
+    assert not _payload_has_key(working_memory_view, "body")

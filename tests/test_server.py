@@ -2968,7 +2968,7 @@ def test_task_proposal_suppresses_conflicting_whiteboard_offer(tmp_path: Path, m
     )
     monkeypatch.setattr(
         "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler._normalize_with_model",
-        lambda self, **kwargs: 'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
+        lambda self, **kwargs: 'Create a task titled "Create slides". Requires confirmation before applying',
     )
 
     response = client.post(
@@ -3002,7 +3002,7 @@ def test_task_proposal_preserves_explicit_whiteboard_offer_request(tmp_path: Pat
     )
     monkeypatch.setattr(
         "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler._normalize_with_model",
-        lambda self, **kwargs: 'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
+        lambda self, **kwargs: 'Create a task titled "Create slides". Requires confirmation before applying',
     )
 
     response = client.post(
@@ -3072,7 +3072,7 @@ def test_chat_remember_to_task_proposal_does_not_also_write_memory(tmp_path: Pat
     )
     monkeypatch.setattr(
         "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler._normalize_with_model",
-        lambda self, **kwargs: 'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
+        lambda self, **kwargs: 'Create a task titled "Create slides". Requires confirmation before applying',
     )
 
     memory_ids_before = {path.stem for path in (repo_root / "users" / "eden" / "memories").glob("*.md")}

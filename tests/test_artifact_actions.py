@@ -233,6 +233,43 @@ def test_compiler_marks_raw_message_fallback_source_when_normalized_command_fail
     assert compiler_metadata["compiler_input"] == "Add a calendar event tomorrow at 3 PM called Graph study review."
 
 
+def test_compiler_uses_raw_task_capture_when_normalized_command_loses_due_date(tmp_path: Path) -> None:
+    planner = ArtifactActionPlanner(
+        calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),
+        task_provider=LocalTaskProvider(tasks_path=tmp_path / "tasks.json", writable=True),
+        action_store=ArtifactActionStore(tmp_path / "actions"),
+    )
+    compiler = ArtifactMutationCompiler(planner=planner, app_capabilities={}, model="test")
+    compiler._normalize_with_model = (  # type: ignore[method-assign]
+        lambda **kwargs: 'Create a task titled "Create slides". Requires confirmation before applying'
+    )
+
+    result = compiler.compile_for_turn(
+        user_message="Remember to create slides tomorrow.",
+        semantic_action="I can capture that task.",
+        visible_artifacts=[],
+        persist=False,
+    )
+
+    assert len(result.artifact_actions) == 1
+    action = result.artifact_actions[0]
+    assert action["artifact_kind"] == "task"
+    assert action["operation"] == "create_task"
+    assert action["payload"]["title"] == "Create slides"
+    assert action["payload"]["due_date"] == "2026-05-20"
+    compiler_metadata = action["compiler"]
+    assert compiler_metadata["source"] == "model_normalized"
+    assert compiler_metadata["model_normalized"] is True
+    assert compiler_metadata["compiler_input"] == 'Create a task titled "Create slides". Requires confirmation before applying'
+    assert compiler_metadata["repairs"] == [
+        {
+            "kind": "task_due_date",
+            "source": "deterministic_fallback",
+            "compiler_input": "Remember to create slides tomorrow.",
+        }
+    ]
+
+
 def test_calendar_capture_missing_time_asks_for_clarification(tmp_path: Path) -> None:
     planner = ArtifactActionPlanner(
         calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),
@@ -281,6 +318,7 @@ def test_task_capture_preserves_meaningful_leading_create_verbs(tmp_path: Path) 
 
     examples = {
         "Add a task to create slides tonight.": ("create slides", "2026-05-19"),
+        "Remember to create slides tonight.": ("create slides", "2026-05-19"),
         "Remember to create slides tomorrow.": ("create slides", "2026-05-20"),
         "I need to create slides tomorrow.": ("create slides", "2026-05-20"),
     }

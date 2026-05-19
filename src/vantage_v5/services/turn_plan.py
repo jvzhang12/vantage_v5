@@ -1479,6 +1479,7 @@ class TurnPlanBuilder:
             )
         content_available = _operational_proposal_content_available(actions, existing_authority=existing_authority)
         target_available = _operational_proposal_target_available(actions, existing_authority=existing_authority)
+        status_is_proposed = _operational_proposal_status_is_proposed(actions, existing_authority=existing_authority)
         requires_confirmation = _operational_proposal_requires_confirmation(actions, existing_authority=existing_authority)
         no_write_reason = side_effect_policy.suppress_auto_graph_writes_reason
         prior_denied_reason = _optional_str(existing_authority.get("denied_reason"))
@@ -1497,6 +1498,8 @@ class TurnPlanBuilder:
             denied_reason = "operational_proposal_content_unavailable_or_unsafe"
         elif not target_available:
             denied_reason = "operational_proposal_target_unavailable_or_ambiguous"
+        elif not status_is_proposed:
+            denied_reason = "operational_proposal_requires_proposed_status"
         elif not requires_confirmation:
             denied_reason = "operational_proposal_requires_confirmation"
         else:
@@ -1923,7 +1926,7 @@ class TurnPlanBuilder:
             for entry in write_ledger.entries
         )
         has_operational_proposal_effect = any(
-            entry.category == "proposed_calendar_task_mutation"
+            entry.category in {"proposed_calendar_task_mutation", "invalid_calendar_task_mutation"}
             for entry in write_ledger.entries
         )
         if (
@@ -2798,12 +2801,21 @@ def _operational_proposal_requires_confirmation(
     if not actions:
         return False
     for action in actions:
-        status = str(action.get("status") or "").strip().lower()
-        if status in _OPERATIONAL_COMMITTED_STATUSES:
-            return False
         if action.get("requires_confirmation") is not True:
             return False
     return True
+
+
+def _operational_proposal_status_is_proposed(
+    actions: list[dict[str, Any]],
+    *,
+    existing_authority: dict[str, Any],
+) -> bool:
+    if not actions and isinstance(existing_authority.get("status_is_proposed"), bool):
+        return bool(existing_authority.get("status_is_proposed"))
+    if not actions:
+        return False
+    return all(str(action.get("status") or "").strip().lower() == "proposed" for action in actions)
 
 
 def _effect_write_sources(write_ledger: WriteLedgerPlan) -> tuple[dict[str, Any], ...]:
@@ -2963,7 +2975,11 @@ def _effect_write_kind(entry: WriteLedgerEntry) -> str:
         return "concept_write"
     if entry.category == "memory_write":
         return "memory_write"
-    if entry.category in {"proposed_calendar_task_mutation", "accepted_calendar_task_mutation"}:
+    if entry.category in {
+        "proposed_calendar_task_mutation",
+        "accepted_calendar_task_mutation",
+        "invalid_calendar_task_mutation",
+    }:
         return "calendar_task_mutation"
     if entry.category == "pending_whiteboard_draft":
         return "whiteboard_draft"
@@ -3011,7 +3027,11 @@ def _write_kind_matches_category(kind: str, category: str) -> bool:
     if kind == "artifact_action_proposal":
         return category in {"proposed_calendar_task_mutation", "artifact_save_or_promotion"}
     if kind == "calendar_task_mutation":
-        return category in {"proposed_calendar_task_mutation", "accepted_calendar_task_mutation"}
+        return category in {
+            "proposed_calendar_task_mutation",
+            "accepted_calendar_task_mutation",
+            "invalid_calendar_task_mutation",
+        }
     if kind == "scenario_branching":
         return category in {"artifact_save_or_promotion", "draft_snapshot_workspace_update"}
     return kind == category
@@ -3406,7 +3426,12 @@ def _artifact_action_ledger_entry(action: dict[str, Any], *, index: int) -> Writ
     status = str(action.get("status") or "").strip().lower()
     committed = status in {"accepted", "applied", "completed"}
     if artifact_kind in {"calendar", "task", "tasks"}:
-        category = "accepted_calendar_task_mutation" if committed else "proposed_calendar_task_mutation"
+        if status == "proposed":
+            category = "proposed_calendar_task_mutation"
+        elif committed:
+            category = "accepted_calendar_task_mutation"
+        else:
+            category = "invalid_calendar_task_mutation"
     else:
         category = "artifact_save_or_promotion"
     requires_confirmation = action.get("requires_confirmation")
@@ -3478,7 +3503,7 @@ def _calendar_task_mutation_fields(response_payload: dict[str, Any]) -> list[str
             continue
         status = str(action.get("status") or "").strip().lower()
         requires_confirmation = action.get("requires_confirmation")
-        if write_behavior != "proposal_only" or status in {"accepted", "applied", "completed"} or requires_confirmation is False:
+        if write_behavior != "proposal_only" or status != "proposed" or requires_confirmation is not True:
             warnings.append(f"artifact_actions[{index}]")
     return warnings
 

@@ -1875,7 +1875,7 @@ def test_turn_plan_close_surface_with_writes_warns() -> None:
     }.issubset(_warning_codes(plan))
     assert plan["write_ledger"]["categories"] == [
         "pending_whiteboard_draft",
-        "proposed_calendar_task_mutation",
+        "invalid_calendar_task_mutation",
     ]
 
 
@@ -2095,6 +2095,52 @@ def test_turn_plan_operational_proposal_authority_requires_confirmation() -> Non
     assert authority.allowed is False
     assert authority.denied_reason == "operational_proposal_requires_confirmation"
     assert authority.blocks_candidate_write is True
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_category"),
+    [
+        (None, "invalid_calendar_task_mutation"),
+        ("ready", "invalid_calendar_task_mutation"),
+        ("applied", "accepted_calendar_task_mutation"),
+    ],
+)
+def test_turn_plan_operational_proposal_authority_requires_proposed_status(
+    status: str | None,
+    expected_category: str,
+) -> None:
+    action = {
+        "id": "action-1",
+        "artifact_kind": "task",
+        "operation": "create_task",
+        "payload": {"title": "finish homework 2"},
+        "requires_confirmation": True,
+    }
+    if status is not None:
+        action["status"] = status
+
+    plan = _plan(
+        message="Add this task.",
+        response={
+            "surface_invocation": {
+                "intent": "task_capture",
+                "primary_surface": "task_focus",
+                "write_behavior": "proposal_only",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "artifact_actions": [action],
+        },
+    )
+
+    authority = plan["operational_proposal_authority"]
+    assert authority["action"] == "operational_proposal"
+    assert authority["allowed"] is False
+    assert authority["denied_reason"] == "operational_proposal_requires_proposed_status"
+    assert plan["write_ledger"]["categories"] == [expected_category]
+    assert plan["write_ledger"]["categories"] != ["proposed_calendar_task_mutation"]
+    assert "mutation_without_confirmation" in _warning_codes(plan)
+    if expected_category == "invalid_calendar_task_mutation":
+        assert "operational_proposal_effect_without_authority" in _warning_codes(plan)
 
 
 def test_final_response_trace_payload_includes_turn_plan() -> None:

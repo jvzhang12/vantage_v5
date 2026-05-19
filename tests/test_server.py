@@ -2512,7 +2512,7 @@ def test_chat_returns_proposed_calendar_action_without_mutating_user_file(tmp_pa
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
-def test_turn_plan_denies_unsafe_calendar_proposal_candidate_before_persisting(
+def test_turn_plan_denies_malformed_calendar_proposal_candidate_before_persisting(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -2526,7 +2526,7 @@ def test_turn_plan_denies_unsafe_calendar_proposal_candidate_before_persisting(
                     "id": "artifact-action-unsafe",
                     "artifact_kind": "calendar",
                     "operation": "create_event",
-                    "status": "proposed",
+                    "status": "ready",
                     "summary": "Create unsafe event.",
                     "payload": {
                         "title": "grocery shopping",
@@ -2557,7 +2557,7 @@ def test_turn_plan_denies_unsafe_calendar_proposal_candidate_before_persisting(
     payload = response.json()
     assert payload["artifact_actions"] == []
     assert payload["operational_proposal_authority"]["allowed"] is False
-    assert payload["operational_proposal_authority"]["denied_reason"] == "operational_proposal_requires_confirmation"
+    assert payload["operational_proposal_authority"]["denied_reason"] == "operational_proposal_requires_proposed_status"
     assert not (actions_dir / "artifact-action-unsafe.json").exists()
     final_response = _latest_trace_payload(repo_root / "users" / "eden")["final_response"]
     assert final_response["turn_plan"]["operational_proposal_authority"]["allowed"] is False

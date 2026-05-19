@@ -2904,15 +2904,17 @@ def test_chat_capture_task_statement_proposes_task_and_opens_task_focus(tmp_path
 
 
 @pytest.mark.parametrize(
-    ("message", "normalized_command"),
+    ("message", "normalized_command", "expected_due_date"),
     [
         (
             "Add a task to create slides tonight.",
             'Create a task titled "Create slides" with due_date 2026-05-19. Requires confirmation before applying',
+            "2026-05-19",
         ),
         (
             "I need to create slides tomorrow.",
             'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
+            "2026-05-20",
         ),
     ],
 )
@@ -2921,6 +2923,7 @@ def test_chat_task_create_slides_titles_are_clean_without_memory_write(
     monkeypatch,
     message: str,
     normalized_command: str,
+    expected_due_date: str,
 ) -> None:
     client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
     memory_ids_before = {path.stem for path in (repo_root / "users" / "eden" / "memories").glob("*.md")}
@@ -2942,10 +2945,49 @@ def test_chat_task_create_slides_titles_are_clean_without_memory_write(
     assert action["artifact_kind"] == "task"
     assert action["operation"] == "create_task"
     assert action["payload"]["title"] == "Create slides"
+    assert action["payload"]["due_date"] == expected_due_date
     assert "Requires confirmation" not in action["payload"]["title"]
+    assert payload["workspace_update"] is None
     assert payload["graph_action"] is None
     assert payload["created_record"] is None
     assert {path.stem for path in (repo_root / "users" / "eden" / "memories").glob("*.md")} == memory_ids_before
+    final_response = _latest_trace_payload(repo_root / "users" / "eden")["final_response"]
+    assert final_response["workspace_update"] is None
+    assert final_response["turn_plan"]["write_ledger"]["categories"] == ["proposed_calendar_task_mutation"]
+
+
+def test_task_proposal_suppresses_conflicting_whiteboard_offer(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"}, openai_api_key="test-key")
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: (
+            "CHAT_RESPONSE: I can capture that task.\n"
+            "WHITEBOARD_OFFER: I can draft a small task plan in the whiteboard."
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler._normalize_with_model",
+        lambda self, **kwargs: 'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
+    )
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={"message": "I need to create slides tomorrow.", "history": [], "visible_artifacts": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    action = payload["artifact_actions"][0]
+    assert action["artifact_kind"] == "task"
+    assert action["operation"] == "create_task"
+    assert action["payload"]["title"] == "Create slides"
+    assert action["payload"]["due_date"] == "2026-05-20"
+    assert payload["workspace_update"] is None
+    final_response = _latest_trace_payload(repo_root / "users" / "eden")["final_response"]
+    assert final_response["workspace_update"] is None
+    assert final_response["turn_plan"]["write_ledger"]["categories"] == ["proposed_calendar_task_mutation"]
 
 
 def test_chat_remember_to_task_proposal_does_not_also_write_memory(tmp_path: Path, monkeypatch) -> None:
@@ -3002,6 +3044,8 @@ def test_chat_remember_to_task_proposal_does_not_also_write_memory(tmp_path: Pat
     assert action["artifact_kind"] == "task"
     assert action["operation"] == "create_task"
     assert action["payload"]["title"] == "Create slides"
+    assert action["payload"]["due_date"] == "2026-05-20"
+    assert payload["workspace_update"] is None
     assert payload["meta_action"]["action"] == "no_op"
     assert payload["meta_action"]["blocked_action"] == "create_memory"
     assert payload["meta_action"]["blocked_reason"] == "missing_structured_memory_write_intent"

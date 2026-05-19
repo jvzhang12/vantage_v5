@@ -280,19 +280,20 @@ def test_task_capture_preserves_meaningful_leading_create_verbs(tmp_path: Path) 
     )
 
     examples = {
-        "Add a task to create slides tonight.": "create slides",
-        "Remember to create slides tomorrow.": "create slides",
-        "I need to create slides tomorrow.": "create slides",
+        "Add a task to create slides tonight.": ("create slides", "2026-05-19"),
+        "Remember to create slides tomorrow.": ("create slides", "2026-05-20"),
+        "I need to create slides tomorrow.": ("create slides", "2026-05-20"),
     }
 
-    for message, expected_prefix in examples.items():
+    for message, (expected_title, expected_due_date) in examples.items():
         result = planner.plan_for_turn(message=message, visible_artifacts=[], persist=False)
 
         assert len(result.artifact_actions) == 1
         action = result.artifact_actions[0]
         assert action["artifact_kind"] == "task"
         assert action["operation"] == "create_task"
-        assert action["payload"]["title"] == expected_prefix
+        assert action["payload"]["title"] == expected_title
+        assert action["payload"]["due_date"] == expected_due_date
 
 
 def test_task_capture_cleans_compiler_scaffolding_from_titles(tmp_path: Path) -> None:
@@ -302,12 +303,12 @@ def test_task_capture_cleans_compiler_scaffolding_from_titles(tmp_path: Path) ->
         action_store=ArtifactActionStore(tmp_path / "actions"),
     )
 
-    examples = [
-        'Create a task titled "Create slides" with due_date 2026-05-19. Requires confirmation before applying',
-        'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
-    ]
+    examples = {
+        'Create a task titled "Create slides" with due_date 2026-05-19. Requires confirmation before applying': "2026-05-19",
+        'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying': "2026-05-20",
+    }
 
-    for message in examples:
+    for message, expected_due_date in examples.items():
         result = planner.plan_for_turn(message=message, visible_artifacts=[], persist=False)
 
         assert len(result.artifact_actions) == 1
@@ -315,6 +316,7 @@ def test_task_capture_cleans_compiler_scaffolding_from_titles(tmp_path: Path) ->
         assert action["artifact_kind"] == "task"
         assert action["operation"] == "create_task"
         assert action["payload"]["title"] == "Create slides"
+        assert action["payload"]["due_date"] == expected_due_date
         assert "Requires confirmation" not in action["payload"]["title"]
 
 

@@ -108,6 +108,24 @@ const todaySurface = {
   },
 };
 
+const taskFocusSurface = {
+  id: "task-focus-2026-05-19",
+  kind: "task_focus" as const,
+  title: "Tasks",
+  summary: "3 active tasks",
+  sourceRefs: [],
+  data: {
+    tasks: {
+      groups: {
+        must_do_today: [{ id: "review", title: "Review graph traversal notes", project: "Midterm" }],
+        good_next: [{ id: "practice", title: "Solve one BFS problem", project: "Midterm" }],
+        can_defer: [],
+        unscheduled: [{ id: "mistake-log", title: "Update mistake log", project: "Midterm" }],
+      },
+    },
+  },
+};
+
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -276,6 +294,54 @@ describe("App", () => {
       expect(screen.getByText("Use the open focus block for graph traversal review.")).toBeTruthy();
     });
     expect(screen.getByText("Data Structures")).toBeTruthy();
+  });
+
+  it("keeps the assistant answer and pending state visible while Task Focus stays open", async () => {
+    let resolveFollowUp: (value: NormalizedTurn) => void = () => {};
+    api.sendChat
+      .mockResolvedValueOnce(turn({
+        userMessage: "Show my task focus",
+        assistantMessage: "Start with graph traversal review, then solve one BFS problem.",
+        surfacePayloads: [taskFocusSurface],
+        activeSurfaceId: taskFocusSurface.id,
+      }))
+      .mockReturnValueOnce(new Promise<NormalizedTurn>((resolve) => {
+        resolveFollowUp = resolve;
+      }));
+
+    render(<App />);
+
+    const composer = await screen.findByLabelText("Ask Vantage");
+    fireEvent.change(composer, { target: { value: "Show my task focus" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByText("Start with graph traversal review, then solve one BFS problem.")).toBeTruthy();
+    expect(screen.getByText("Solve one BFS problem")).toBeTruthy();
+    expect(screen.getByLabelText("Ask Vantage")).toBeTruthy();
+
+    fireEvent.change(composer, { target: { value: "What should I do first?" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByLabelText("Pending Vantage answer")).toBeTruthy();
+    expect(screen.getByText("Vantage is thinking...")).toBeTruthy();
+    expect(screen.getByText("Solve one BFS problem")).toBeTruthy();
+    expect((screen.getByLabelText("Working") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getAllByLabelText("Pending Vantage answer")).toHaveLength(1);
+
+    await act(async () => {
+      resolveFollowUp(turn({
+        userMessage: "What should I do first?",
+        assistantMessage: "Use the open block for graph traversal review.",
+        visibleArtifacts: [{ id: taskFocusSurface.id, kind: taskFocusSurface.kind }],
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Pending Vantage answer")).toBeNull();
+      expect(screen.getByText("Use the open block for graph traversal review.")).toBeTruthy();
+    });
+    expect(screen.getByText("Solve one BFS problem")).toBeTruthy();
+    expect(screen.getByLabelText("Ask Vantage")).toBeTruthy();
   });
 
   it("stops sending visible whiteboard context after a backend close action hides it", async () => {

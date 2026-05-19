@@ -3862,9 +3862,13 @@ def test_email_protocol_is_learned_and_recalled_for_matching_draft(tmp_path: Pat
     assert learned_payload["graph_action"]["type"] == "upsert_protocol"
     assert learned_payload["surface_invocation"]["intent"] == "protocol_write"
     assert learned_payload["surface_invocation"]["write_behavior"] == "committed_write"
+    assert learned_payload["surface_invocation"].get("status") != "handled_by_memory_write"
+    assert learned_payload["surface_invocation"].get("legacy_intent") != "memory_write"
+    assert learned_payload["surface_invocation"]["write_intent"]["kinds"] == ["protocol_write"]
     learned_trace = _latest_trace_payload(repo_root)["final_response"]
     assert learned_trace["turn_plan"]["write_ledger"]["categories"] == ["protocol_write"]
     assert learned_trace["turn_plan"]["write_projection"]["intended_write_kind"] == "protocol_write"
+    assert learned_trace["turn_plan"]["write_projection"]["intended_write_kinds"] == ["protocol_write"]
     assert learned_trace["turn_plan"]["write_projection"]["effect_agreement"] == "aligned"
     assert learned_trace["turn_plan"]["protocol_write_authority"]["allowed"] is True
 

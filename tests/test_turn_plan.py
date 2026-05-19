@@ -1431,6 +1431,7 @@ def test_turn_plan_protocol_write_projection_overrides_legacy_memory_surface_int
             "write_behavior": "none",
             "whiteboard_mode": "chat",
             "resolved_whiteboard_mode": "chat",
+            "status": "handled_by_memory_write",
         },
         "protocol_write_authority": {
             "action": "protocol_write",
@@ -1457,10 +1458,13 @@ def test_turn_plan_protocol_write_projection_overrides_legacy_memory_surface_int
     ).to_dict()
 
     assert projected["surface_invocation"]["intent"] == "protocol_write"
-    assert projected["surface_invocation"]["legacy_intent"] == "memory_write"
+    assert "legacy_intent" not in projected["surface_invocation"]
+    assert projected["surface_invocation"]["status"] == "handled_by_protocol_write"
     assert projected["surface_invocation"]["write_behavior"] == "committed_write"
+    assert projected["surface_invocation"]["write_intent"]["kinds"] == ["protocol_write"]
     assert plan["write_ledger"]["categories"] == ["protocol_write"]
     assert plan["write_projection"]["intended_write_kind"] == "protocol_write"
+    assert plan["write_projection"]["intended_write_kinds"] == ["protocol_write"]
     assert plan["write_projection"]["authority"] == "protocol_interpreter"
     assert plan["write_projection"]["effect_agreement"] == "aligned"
     assert plan["validation"]["warnings"] == []

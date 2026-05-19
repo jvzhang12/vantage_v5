@@ -1104,6 +1104,7 @@ class TurnPlanBuilder:
         effect_sources = _effect_write_sources(write_ledger)
         all_sources = tuple([*sources, *effect_sources])
         intended_kinds = _prioritized_intended_write_kinds(all_sources, write_ledger)
+        projection_sources = _projection_sources_for_kinds(all_sources, intended_kinds)
         actual_categories = tuple(category for category in write_ledger.categories if category not in NO_WRITE_LEDGER_CATEGORIES)
         authority = "none"
         if intended_kinds:
@@ -1120,7 +1121,7 @@ class TurnPlanBuilder:
             intended_write_kind=intended_kinds[0] if intended_kinds else None,
             intended_write_kinds=intended_kinds,
             authority=authority,
-            sources=all_sources,
+            sources=projection_sources,
             structured_source_count=structured_source_count,
             actual_write_categories=actual_categories,
             actual_write_effect_count=write_ledger.actual_write_effect_count,
@@ -2016,8 +2017,14 @@ def project_write_intent_compatibility(
     legacy_intent = _optional_str(invocation.get("intent"))
     projected_intent = _surface_intent_for_write_projection(projection.intended_write_kind, legacy_intent)
     if projected_intent and projected_intent != legacy_intent:
-        invocation["legacy_intent"] = legacy_intent
+        if projected_intent == "protocol_write" and legacy_intent in {"memory_write", "concept_write"}:
+            invocation.pop("legacy_intent", None)
+        else:
+            invocation["legacy_intent"] = legacy_intent
         invocation["intent"] = projected_intent
+    if (projected_intent or projection.intended_write_kind) == "protocol_write":
+        if str(invocation.get("status") or "").strip() in {"handled_by_memory_write", "handled_by_concept_write"}:
+            invocation["status"] = "handled_by_protocol_write"
 
     legacy_write_behavior = _normalized_write_behavior(invocation)
     projected_write_behavior = _surface_write_behavior_for_projection(projection, legacy_write_behavior)
@@ -2477,7 +2484,30 @@ def _prioritized_intended_write_kinds(
     )
     if not (protocol_effect or protocol_source):
         return tuple(kinds)
-    return tuple(["protocol_write", *[kind for kind in kinds if kind != "protocol_write"]])
+    memory_effect = any(entry.category == "memory_write" for entry in write_ledger.entries)
+    concept_effect = any(entry.category == "concept_write" for entry in write_ledger.entries)
+    return tuple(
+        [
+            "protocol_write",
+            *[
+                kind
+                for kind in kinds
+                if kind != "protocol_write"
+                and (kind != "memory_write" or memory_effect)
+                and (kind != "concept_write" or concept_effect)
+            ],
+        ]
+    )
+
+
+def _projection_sources_for_kinds(
+    sources: tuple[dict[str, Any], ...],
+    intended_kinds: tuple[str, ...],
+) -> tuple[dict[str, Any], ...]:
+    if "protocol_write" not in intended_kinds:
+        return sources
+    allowed = set(intended_kinds)
+    return tuple(source for source in sources if source.get("kind") in allowed)
 
 
 def _write_source(*, source: str, field_path: str, kind: str, action: str | None) -> dict[str, Any]:

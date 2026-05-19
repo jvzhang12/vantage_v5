@@ -2903,6 +2903,117 @@ def test_chat_capture_task_statement_proposes_task_and_opens_task_focus(tmp_path
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
+@pytest.mark.parametrize(
+    ("message", "normalized_command"),
+    [
+        (
+            "Add a task to create slides tonight.",
+            'Create a task titled "Create slides" with due_date 2026-05-19. Requires confirmation before applying',
+        ),
+        (
+            "I need to create slides tomorrow.",
+            'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
+        ),
+    ],
+)
+def test_chat_task_create_slides_titles_are_clean_without_memory_write(
+    tmp_path: Path,
+    monkeypatch,
+    message: str,
+    normalized_command: str,
+) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
+    memory_ids_before = {path.stem for path in (repo_root / "users" / "eden" / "memories").glob("*.md")}
+
+    monkeypatch.setattr(
+        "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler._normalize_with_model",
+        lambda self, **kwargs: normalized_command,
+    )
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={"message": message, "history": [], "visible_artifacts": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    action = payload["artifact_actions"][0]
+    assert action["artifact_kind"] == "task"
+    assert action["operation"] == "create_task"
+    assert action["payload"]["title"] == "Create slides"
+    assert "Requires confirmation" not in action["payload"]["title"]
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert {path.stem for path in (repo_root / "users" / "eden" / "memories").glob("*.md")} == memory_ids_before
+
+
+def test_chat_remember_to_task_proposal_does_not_also_write_memory(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Navigator interpreted the leading remember verb as memory intent.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "remember",
+                        "reason": "The user asked Vantage to remember information.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "I can capture that.",
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: MetaDecision(
+            action="create_memory",
+            title="Reminder: create slides tomorrow",
+            card="Create slides tomorrow.",
+            body="The user asked to create slides tomorrow.",
+            rationale="Synthetic memory candidate for a reminder-shaped task command.",
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler._normalize_with_model",
+        lambda self, **kwargs: 'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
+    )
+
+    memory_ids_before = {path.stem for path in (repo_root / "users" / "eden" / "memories").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={"message": "Remember to create slides tomorrow.", "history": [], "visible_artifacts": []},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    action = payload["artifact_actions"][0]
+    assert action["artifact_kind"] == "task"
+    assert action["operation"] == "create_task"
+    assert action["payload"]["title"] == "Create slides"
+    assert payload["meta_action"]["action"] == "no_op"
+    assert payload["meta_action"]["blocked_action"] == "create_memory"
+    assert payload["meta_action"]["blocked_reason"] == "missing_structured_memory_write_intent"
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert {path.stem for path in (repo_root / "users" / "eden" / "memories").glob("*.md")} == memory_ids_before
+    final_response = _latest_trace_payload(repo_root / "users" / "eden")["final_response"]
+    assert final_response["turn_plan"]["write_ledger"]["categories"] == ["proposed_calendar_task_mutation"]
+    assert final_response["turn_plan"]["memory_write_authority"]["allowed"] is False
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
 def test_accept_task_capture_creates_user_task_and_refreshes_task_focus(tmp_path: Path) -> None:
     client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password", "sam": "sam-password"})
     headers = _basic_auth_header("eden", "eden-password")

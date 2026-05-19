@@ -66,6 +66,7 @@ TASK_RENAME_RE = re.compile(
 TASK_MUTATION_RE = re.compile(r"\b(?:complete|mark)\b|\b(?:rename|change|update)\s+task\b", re.IGNORECASE)
 TIME_PATTERN = r"\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?"
 DATE_PATTERN = r"today|tomorrow|\d{4}-\d{2}-\d{2}|monday|tuesday|wednesday|thursday|friday|saturday|sunday"
+TASK_DATE_PATTERN = rf"{DATE_PATTERN}|tonight"
 CALENDAR_CAPTURE_RE = re.compile(
     rf"^\s*(?:(?:i\s+(?:have|have got|got)|i've got|there(?:'s| is))\s+)?"
     rf"(?P<title>.+?)\s+(?:at|from)\s+(?P<start>{TIME_PATTERN})"
@@ -93,7 +94,16 @@ TASK_CAPTURE_RE = re.compile(
     re.IGNORECASE,
 )
 TASK_DATE_TRAILER_RE = re.compile(
-    rf"\s+(?:(?:by|due|on)\s+)?(?P<date>{DATE_PATTERN})\s*$",
+    rf"\s+(?:(?:by|due|on)\s+)?(?P<date>{TASK_DATE_PATTERN})\s*$",
+    re.IGNORECASE,
+)
+TASK_DUE_METADATA_RE = re.compile(
+    rf"\s+(?:with\s+)?due[_\s-]?date\s*(?:=|:)?\s*(?P<date>{TASK_DATE_PATTERN})\b|"
+    rf"\s+due\s+(?P<due_date>{TASK_DATE_PATTERN})\b",
+    re.IGNORECASE,
+)
+TASK_CONFIRMATION_BOILERPLATE_RE = re.compile(
+    r"\b(?:requires?\s+confirmation|after\s+you\s+confirm|before\s+applying)\b.*$",
     re.IGNORECASE,
 )
 CALENDAR_MISSING_TIME_RE = re.compile(
@@ -826,14 +836,15 @@ def _parse_task_capture(message: str) -> dict[str, Any] | None:
     match = TASK_CAPTURE_RE.match(str(message or ""))
     if not match:
         return None
-    title = _clean_capture_title(match.group("title"))
+    raw_title = str(match.group("title") or "")
+    due_date, raw_title = _extract_task_due_metadata(raw_title)
+    title = _clean_task_capture_title(raw_title)
     if not title:
         return None
-    due_date: date | None = None
     if date_match := TASK_DATE_TRAILER_RE.search(title):
         try:
-            due_date = _resolve_capture_date(date_match.group("date"))
-            title = _clean_capture_title(title[: date_match.start()])
+            due_date = _resolve_task_due_date(date_match.group("date"))
+            title = _clean_task_capture_title(title[: date_match.start()])
         except ValueError:
             due_date = None
     if not title:
@@ -852,6 +863,26 @@ def _parse_task_capture(message: str) -> dict[str, Any] | None:
             },
         },
     }
+
+
+def is_task_capture_request(message: str) -> bool:
+    """Return whether the existing task-capture fallback owns this request."""
+
+    return _parse_task_capture(message) is not None
+
+
+def _extract_task_due_metadata(value: str) -> tuple[date | None, str]:
+    text = str(value or "")
+    match = TASK_DUE_METADATA_RE.search(text)
+    if not match:
+        return None, text
+    raw_date = match.group("date") or match.group("due_date")
+    try:
+        due_date = _resolve_task_due_date(raw_date)
+    except ValueError:
+        return None, text
+    cleaned = f"{text[: match.start()]} {text[match.end() :]}"
+    return due_date, cleaned
 
 
 def _should_skip_capture(message: str) -> bool:
@@ -877,6 +908,13 @@ def _resolve_capture_date(value: str | None) -> date:
             delta = 7
         return today + timedelta(days=delta)
     return resolve_calendar_date(text)
+
+
+def _resolve_task_due_date(value: str | None) -> date:
+    text = str(value or "").strip().lower()
+    if text == "tonight":
+        return resolve_calendar_date("today")
+    return _resolve_capture_date(text)
 
 
 def _source_refs_from_visible_artifacts(
@@ -1200,6 +1238,28 @@ def _clean_capture_title(value: str) -> str:
     title = _clean_title(value)
     title = re.sub(r"^(?:my|the|a|an)\s+", "", title, flags=re.IGNORECASE)
     title = re.sub(r"\s+(?:on|for)$", "", title, flags=re.IGNORECASE)
+    return _clean_title(title)
+
+
+def _clean_task_capture_title(value: str) -> str:
+    title = _clean_capture_title(value)
+    title = TASK_CONFIRMATION_BOILERPLATE_RE.sub("", title)
+    quoted = re.match(
+        r"^(?:task\s+)?(?:titled|called|named)\s+[\"“](?P<title>[^\"”]+)[\"”]",
+        title,
+        re.IGNORECASE,
+    )
+    if quoted:
+        return _clean_title(quoted.group("title"))
+    titled = re.match(
+        r"^(?:task\s+)?(?:titled|called|named)\s+(?P<title>.+?)"
+        r"(?:\s+(?:with\s+)?due[_\s-]?date\b|\s+due\b|$)",
+        title,
+        re.IGNORECASE,
+    )
+    if titled:
+        return _clean_title(titled.group("title"))
+    title = TASK_DUE_METADATA_RE.sub("", title)
     return _clean_title(title)
 
 

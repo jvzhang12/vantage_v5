@@ -6,6 +6,7 @@ import json
 from vantage_v5.services.artifact_actions import ArtifactActionPlanner
 from vantage_v5.services.artifact_actions import ArtifactActionStore
 from vantage_v5.services.artifact_actions import execute_artifact_action
+from vantage_v5.services.artifact_actions import is_task_capture_request
 from vantage_v5.services.artifact_mutation_compiler import ArtifactMutationCompiler
 from vantage_v5.services.calendar import LocalCalendarProvider
 from vantage_v5.services.tasks import LocalTaskProvider
@@ -291,7 +292,36 @@ def test_task_capture_preserves_meaningful_leading_create_verbs(tmp_path: Path) 
         action = result.artifact_actions[0]
         assert action["artifact_kind"] == "task"
         assert action["operation"] == "create_task"
-        assert str(action["payload"]["title"]).startswith(expected_prefix)
+        assert action["payload"]["title"] == expected_prefix
+
+
+def test_task_capture_cleans_compiler_scaffolding_from_titles(tmp_path: Path) -> None:
+    planner = ArtifactActionPlanner(
+        calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),
+        task_provider=LocalTaskProvider(tasks_path=tmp_path / "tasks.json", writable=True),
+        action_store=ArtifactActionStore(tmp_path / "actions"),
+    )
+
+    examples = [
+        'Create a task titled "Create slides" with due_date 2026-05-19. Requires confirmation before applying',
+        'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
+    ]
+
+    for message in examples:
+        result = planner.plan_for_turn(message=message, visible_artifacts=[], persist=False)
+
+        assert len(result.artifact_actions) == 1
+        action = result.artifact_actions[0]
+        assert action["artifact_kind"] == "task"
+        assert action["operation"] == "create_task"
+        assert action["payload"]["title"] == "Create slides"
+        assert "Requires confirmation" not in action["payload"]["title"]
+
+
+def test_task_capture_request_identifies_reminder_task_phrasing() -> None:
+    assert is_task_capture_request("Remember to create slides tomorrow.")
+    assert is_task_capture_request("I need to create slides tomorrow.")
+    assert not is_task_capture_request("Remember that my graph exam priority is BFS and DFS review.")
 
 
 def test_task_action_planner_proposes_complete_from_visible_task_list(tmp_path: Path) -> None:

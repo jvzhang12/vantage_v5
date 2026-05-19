@@ -5,6 +5,7 @@ from dataclasses import replace
 import logging
 from typing import Any, Callable
 
+from vantage_v5.services.artifact_actions import is_task_capture_request
 from vantage_v5.services.attention import apply_attention_surface_selection
 from vantage_v5.services.attention import attention_payload
 from vantage_v5.services.attention import AttentionEngine
@@ -100,6 +101,12 @@ class TurnOrchestrator:
             user_message=request.message,
             attention_candidates=attention_candidates,
         )
+        task_capture_consumes_memory = _task_capture_consumes_memory_action(
+            request.message,
+            requested_memory_intent=request.memory_intent,
+        )
+        if task_capture_consumes_memory:
+            navigation = _without_memory_control_actions(navigation)
         attention_selection = None
         selected_attention_resources = ()
         if attention_turn is not None:
@@ -211,6 +218,7 @@ class TurnOrchestrator:
             request.memory_intent,
             navigation=navigation,
             semantic_policy=semantic_policy,
+            task_capture_consumes_memory=task_capture_consumes_memory,
         )
         turn_interpretation_parts = TurnInterpretationParts(
             navigation=navigation,
@@ -694,13 +702,49 @@ def _effective_memory_intent(
     *,
     navigation: NavigationDecision,
     semantic_policy: dict[str, Any],
+    task_capture_consumes_memory: bool = False,
 ) -> str:
     normalized = str(requested_memory_intent or "auto").strip().lower()
     if normalized in {"remember", "skip", "dont_save"}:
         return normalized
+    if task_capture_consumes_memory:
+        return normalized or "auto"
     if _navigation_has_memory_action(navigation) or _semantic_policy_has_memory_action(semantic_policy):
         return "remember"
     return normalized or "auto"
+
+
+def _task_capture_consumes_memory_action(message: str, *, requested_memory_intent: str | None) -> bool:
+    normalized = str(requested_memory_intent or "auto").strip().lower()
+    if normalized == "remember":
+        return False
+    return is_task_capture_request(message)
+
+
+def _without_memory_control_actions(navigation: NavigationDecision) -> NavigationDecision:
+    control_panel = navigation.control_panel if isinstance(navigation.control_panel, dict) else {}
+    actions = control_panel.get("actions")
+    if not isinstance(actions, list):
+        return navigation
+    filtered_actions = [
+        action
+        for action in actions
+        if not (
+            isinstance(action, dict)
+            and str(action.get("type") or action.get("action") or "").strip().lower()
+            in {"remember", "memory_write", "save_memory", "create_memory"}
+        )
+    ]
+    if len(filtered_actions) == len(actions):
+        return navigation
+    return replace(
+        navigation,
+        control_panel={
+            **control_panel,
+            "actions": filtered_actions,
+            "memory_action_suppressed_by": "task_capture_operational_proposal",
+        },
+    )
 
 
 def _navigation_has_memory_action(navigation: NavigationDecision) -> bool:

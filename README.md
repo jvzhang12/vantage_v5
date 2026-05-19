@@ -39,6 +39,7 @@ The user-facing default should be:
 - compact per-turn evidence in chat so the product difference is visible without opening internals every turn
 - a deliberate `Vantage` view for Reasoning Path, Working Memory, Learned, and the library
 - an on-demand whiteboard that appears only when the user asks for it or accepts an invite/draft flow, and then becomes the main drafting surface rather than another inspection dock
+- a context architecture where `Attention` is the whole turn resource/surface/app selection mechanism, `Recall` is the memory-grounding role/view over selected resources, and `Working Memory` is all selected or in-scope context used for the response
 - a clear authority boundary where Attention selects bounded context, while Navigator/control-panel intent decides whether a UI surface should open
 - an internal TurnPlan surface-action contract that applies open, close, and preserve/no-op surface behavior after Navigator/control-plane interpretation
 - a TurnPlan no-write policy that suppresses writes for structured no-write turns such as open-only UI handoffs, close/preserve surface actions, and ordinary visible/selected artifact Q&A without becoming an authority for creating or approving writes
@@ -87,7 +88,9 @@ The intended top-level product vocabulary is:
 - `Working Memory`: the bounded context actually sent to the LLM for generation
 - `Library`: the curated durable layer of concepts, memories, artifacts, and reference notes
 
-`Recall` should be treated mainly as the retrieval step or recalled subset that feeds Working Memory, not as the main top-level product noun. In the current API, `recall` carries that narrowed vetted subset and `working_memory` remains a compatibility alias for it.
+`Attention` should be treated as the broad turn selection mechanism spanning saved memory, visible surfaces, protocols, app resources, and openable artifacts.
+
+`Recall` should be treated mainly as the memory-grounding role/view over selected Attention resources, not as the main top-level product noun. In the current API, `recall` carries the older narrowed vetted subset and `working_memory` remains a compatibility alias for it. `ChatService.search_context()` is still an independent transitional retrieval path; final traces now include a role projection that compares that legacy Recall output with selected Attention resources without changing generation.
 
 `Workspace` should now be treated as a deprecated implementation term.
 Existing payloads and storage paths may still use `workspace_*` names for compatibility, but new product language should prefer `Whiteboard`.

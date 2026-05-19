@@ -286,7 +286,7 @@ export function App() {
         onToggleProfile={() => dispatch({ type: "SET_PROFILE_OPEN", open: !state.profileOpen })}
         profileOpen={state.profileOpen}
       />
-      <main className={`app-main app-main--${state.view}`}>
+      <main className={`app-main app-main--${state.view}${state.busy ? " app-main--busy" : ""}`}>
         <div className="main-content">
           <SurfaceHost
             latestTurn={state.latestTurn}

@@ -18,3 +18,4 @@ Top-level React application container for the Vantage frontend migration.
 - Opens the Vantage inspection receipt from the top-left Vantage button and hides the composer while that latest-turn receipt is active.
 - Keeps the latest assistant answer mounted while Whiteboard is foregrounded so mobile layout can expose the chat response without closing the draft.
 - Renders `Vantage is thinking...` from local request state only; it does not expose chain-of-thought or depend on backend streaming.
+- Marks the active shell as busy while requests are in flight so mobile foregrounded surfaces can reserve space for the pending assistant state.

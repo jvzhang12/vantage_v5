@@ -70,6 +70,44 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
   };
 }
 
+const todaySurface = {
+  id: "today-2026-05-19",
+  kind: "today_briefing" as const,
+  title: "Today",
+  summary: "1 scheduled event and one open focus block",
+  sourceRefs: [],
+  data: {
+    date: "2026-05-19",
+    calendar: {
+      date: "2026-05-19",
+      events: [
+        {
+          id: "class-1",
+          title: "Data Structures",
+          start: "2026-05-19T10:00:00",
+          end: "2026-05-19T11:00:00",
+          location: "Room 201",
+        },
+      ],
+      free_blocks: [
+        {
+          start: "2026-05-19T13:00:00",
+          end: "2026-05-19T14:00:00",
+          duration_minutes: 60,
+        },
+      ],
+    },
+    tasks: {
+      groups: {
+        must_do_today: [{ id: "review", title: "Review graph traversal notes", project: "Midterm" }],
+        good_next: [],
+        can_defer: [],
+      },
+    },
+    suggestions: [{ task_title: "Review graph traversal notes", reason: "Best open focus window." }],
+  },
+};
+
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -195,6 +233,49 @@ describe("App", () => {
       expect(screen.getByText("Start with graph traversals, then spend the next block on proof review.")).toBeTruthy();
     });
     expect((screen.getByLabelText("Whiteboard content") as HTMLTextAreaElement).value).toContain("Prioritize graph traversals");
+  });
+
+  it("keeps the assistant answer and pending state visible while an artifact surface stays open", async () => {
+    let resolveFollowUp: (value: NormalizedTurn) => void = () => {};
+    api.sendChat
+      .mockResolvedValueOnce(turn({
+        userMessage: "What does my day look like?",
+        assistantMessage: "You have one class and one open focus block.",
+        surfacePayloads: [todaySurface],
+        activeSurfaceId: todaySurface.id,
+      }))
+      .mockReturnValueOnce(new Promise<NormalizedTurn>((resolve) => {
+        resolveFollowUp = resolve;
+      }));
+
+    render(<App />);
+
+    const composer = await screen.findByLabelText("Ask Vantage");
+    fireEvent.change(composer, { target: { value: "What does my day look like?" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByText("You have one class and one open focus block.")).toBeTruthy();
+    expect(screen.getByText("Data Structures")).toBeTruthy();
+
+    fireEvent.change(composer, { target: { value: "What should I do first?" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByText("Vantage is thinking...")).toBeTruthy();
+    expect(screen.getByText("Data Structures")).toBeTruthy();
+
+    await act(async () => {
+      resolveFollowUp(turn({
+        userMessage: "What should I do first?",
+        assistantMessage: "Use the open focus block for graph traversal review.",
+        visibleArtifacts: [{ id: todaySurface.id, kind: todaySurface.kind }],
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Pending Vantage answer")).toBeNull();
+      expect(screen.getByText("Use the open focus block for graph traversal review.")).toBeTruthy();
+    });
+    expect(screen.getByText("Data Structures")).toBeTruthy();
   });
 
   it("stops sending visible whiteboard context after a backend close action hides it", async () => {

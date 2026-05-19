@@ -838,6 +838,7 @@
     padding: 16px 14px 24px;
   }
 
+  .app-main--artifact,
   .app-main--whiteboard {
     height: calc(100svh - 72px);
     min-height: 0;
@@ -855,6 +856,7 @@
     gap: 16px;
   }
 
+  .app-main--artifact .main-content,
   .app-main--whiteboard .main-content {
     min-height: 0;
     overflow: hidden;
@@ -878,6 +880,7 @@
     margin-top: 12px;
   }
 
+  .app-main--artifact .composer-wrap,
   .app-main--whiteboard .composer-wrap {
     position: sticky;
     bottom: 0;
@@ -918,12 +921,18 @@
     padding: 18px;
   }
 
+  .app-main--artifact .latest-answer,
   .app-main--whiteboard .latest-answer {
     order: -1;
     display: block;
     flex-shrink: 0;
     max-height: clamp(128px, 24svh, 220px);
     overflow-y: auto;
+  }
+
+  .app-main--busy.app-main--artifact .latest-answer:not(.latest-answer--pending),
+  .app-main--busy.app-main--whiteboard .latest-answer:not(.latest-answer--pending) {
+    display: none;
   }
 
   .latest-answer__top,
@@ -971,9 +980,18 @@
     line-height: 1.7;
   }
 
+  .app-main--artifact .surface-stage,
   .app-main--whiteboard .whiteboard-surface {
     flex: 1 1 auto;
+    height: calc(100svh - 72px - 16px - 12px - 106px - 16px - clamp(128px, 24svh, 220px));
+    max-height: calc(100svh - 72px - 16px - 12px - 106px - 16px - clamp(128px, 24svh, 220px));
     min-height: 0;
+    overflow: auto;
+  }
+
+  .app-main--whiteboard .whiteboard-surface {
+    height: auto;
+    max-height: none;
     overflow: hidden;
   }
 

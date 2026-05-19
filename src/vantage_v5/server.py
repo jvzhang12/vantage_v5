@@ -985,7 +985,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 action_plan = candidate_plan
         payload["artifact_actions"] = action_plan.artifact_actions
         if action_plan.artifact_actions:
-            if _workspace_update_is_whiteboard_offer(payload.get("workspace_update")):
+            if _should_clear_whiteboard_offer_for_artifact_actions(
+                payload.get("workspace_update"),
+                whiteboard_mode=whiteboard_mode,
+            ):
                 payload["workspace_update"] = None
             payload["surface_invocation"] = _artifact_action_surface_invocation_payload(
                 action_plan.artifact_actions[0],
@@ -1116,11 +1119,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def _workspace_update_is_whiteboard_offer(value: Any) -> bool:
         if not isinstance(value, dict):
             return False
-        return str(value.get("type") or value.get("status") or value.get("proposal_kind") or "").strip() in {
+        return str(value.get("type") or value.get("status") or value.get("proposal_kind") or "").strip().lower() in {
             "offer_whiteboard",
             "offered",
             "offer",
         }
+
+    def _should_clear_whiteboard_offer_for_artifact_actions(value: Any, *, whiteboard_mode: str) -> bool:
+        if str(whiteboard_mode or "").strip().lower() == "offer":
+            return False
+        return _workspace_update_is_whiteboard_offer(value)
 
     def _artifact_action_surface_invocation_payload(
         action: dict[str, Any],

@@ -2990,6 +2990,50 @@ def test_task_proposal_suppresses_conflicting_whiteboard_offer(tmp_path: Path, m
     assert final_response["turn_plan"]["write_ledger"]["categories"] == ["proposed_calendar_task_mutation"]
 
 
+def test_task_proposal_preserves_explicit_whiteboard_offer_request(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"}, openai_api_key="test-key")
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: (
+            "CHAT_RESPONSE: I can capture that task.\n"
+            "WHITEBOARD_OFFER: I can also sketch it in the whiteboard."
+        ),
+    )
+    monkeypatch.setattr(
+        "vantage_v5.services.artifact_mutation_compiler.ArtifactMutationCompiler._normalize_with_model",
+        lambda self, **kwargs: 'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
+    )
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={
+            "message": "Add a task to create slides tomorrow.",
+            "history": [],
+            "visible_artifacts": [],
+            "whiteboard_mode": "offer",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    action = payload["artifact_actions"][0]
+    assert action["artifact_kind"] == "task"
+    assert action["operation"] == "create_task"
+    assert action["payload"]["title"] == "Create slides"
+    assert action["payload"]["due_date"] == "2026-05-20"
+    assert payload["workspace_update"]["type"] == "offer_whiteboard"
+    assert payload["workspace_update"]["status"] == "offered"
+    final_response = _latest_trace_payload(repo_root / "users" / "eden")["final_response"]
+    assert final_response["workspace_update"]["type"] == "offer_whiteboard"
+    assert final_response["workspace_update"]["status"] == "offered"
+    assert set(final_response["turn_plan"]["write_ledger"]["categories"]) == {
+        "pending_whiteboard_offer",
+        "proposed_calendar_task_mutation",
+    }
+
+
 def test_chat_remember_to_task_proposal_does_not_also_write_memory(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
 

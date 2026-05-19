@@ -78,6 +78,14 @@ CALENDAR_CAPTURE_DATE_FIRST_RE = re.compile(
     rf"(?:\s*(?:-|to|until)\s*(?P<end>{TIME_PATTERN}))?\s*[.!?]?\s*$",
     re.IGNORECASE,
 )
+CALENDAR_CAPTURE_EVENT_CALLED_RE = re.compile(
+    rf"^\s*(?:add|create|schedule)\s+(?:(?:a|an|the)\s+)?"
+    rf"(?:(?:calendar|scheduled)\s+)?(?:event|meeting|appointment)\s+"
+    rf"(?P<date>{DATE_PATTERN})\s+(?:at|from)\s+(?P<start>{TIME_PATTERN})"
+    rf"(?:\s*(?:-|to|until)\s*(?P<end>{TIME_PATTERN}))?\s+"
+    rf"(?:called|named|titled)\s+(?P<title>.+?)\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
 TASK_CAPTURE_RE = re.compile(
     r"^\s*(?:i\s+(?:need|have|have got|got)\s+to|i've got to|remember to|remind me to|"
     r"need to|have to|(?:add|create)\s+(?:a\s+)?task(?:\s+to)?)\s+"
@@ -96,6 +104,10 @@ CALENDAR_MISSING_TIME_RE = re.compile(
 CAPTURE_NEGATION_RE = re.compile(
     r"\b(?:if i|i might|maybe|don't add|do not add|don't schedule|do not schedule|"
     r"no longer have|i don't have|cancelled|canceled)\b",
+    re.IGNORECASE,
+)
+CAPTURE_READ_ONLY_REQUEST_RE = re.compile(
+    r"^\s*(?:show|show me|look at|view|display|open)\b",
     re.IGNORECASE,
 )
 WEEKDAYS = {
@@ -769,7 +781,11 @@ def _visible_tasks(visible_artifacts: list[dict[str, Any]]) -> list[dict[str, An
 
 
 def _parse_calendar_capture(message: str, *, events: list[dict[str, Any]]) -> dict[str, Any] | None:
-    match = CALENDAR_CAPTURE_RE.match(str(message or "")) or CALENDAR_CAPTURE_DATE_FIRST_RE.match(str(message or ""))
+    match = (
+        CALENDAR_CAPTURE_RE.match(str(message or ""))
+        or CALENDAR_CAPTURE_DATE_FIRST_RE.match(str(message or ""))
+        or CALENDAR_CAPTURE_EVENT_CALLED_RE.match(str(message or ""))
+    )
     if not match:
         return None
     title = _clean_capture_title(match.group("title"))
@@ -839,7 +855,8 @@ def _parse_task_capture(message: str) -> dict[str, Any] | None:
 
 
 def _should_skip_capture(message: str) -> bool:
-    return bool(CAPTURE_NEGATION_RE.search(str(message or "")))
+    text = str(message or "")
+    return bool(CAPTURE_NEGATION_RE.search(text) or CAPTURE_READ_ONLY_REQUEST_RE.search(text))
 
 
 def _looks_like_calendar_statement_missing_time(message: str) -> bool:
@@ -1182,6 +1199,7 @@ def _clean_title(value: str) -> str:
 def _clean_capture_title(value: str) -> str:
     title = _clean_title(value)
     title = re.sub(r"^(?:my|the|a|an)\s+", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"^(?:add|create|schedule)\s+", "", title, flags=re.IGNORECASE)
     title = re.sub(r"\s+(?:on|for)$", "", title, flags=re.IGNORECASE)
     return _clean_title(title)
 

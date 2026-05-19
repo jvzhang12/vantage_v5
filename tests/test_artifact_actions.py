@@ -149,6 +149,44 @@ def test_calendar_capture_statement_proposes_create_event_without_mutating(tmp_p
     assert json.loads(events_path.read_text(encoding="utf-8"))["events"] == []
 
 
+def test_calendar_capture_event_called_phrase_proposes_create_event_without_mutating(tmp_path: Path) -> None:
+    events_path = _write_calendar_events(tmp_path / "events.json", events=[])
+    planner = ArtifactActionPlanner(
+        calendar_provider=LocalCalendarProvider(events_path=events_path, writable=True),
+        action_store=ArtifactActionStore(tmp_path / "actions"),
+    )
+
+    result = planner.plan_for_turn(
+        message="Add a calendar event tomorrow at 3 PM called Graph study review.",
+        visible_artifacts=[],
+    )
+
+    assert len(result.artifact_actions) == 1
+    action = result.artifact_actions[0]
+    assert action["artifact_kind"] == "calendar"
+    assert action["operation"] == "create_event"
+    assert action["status"] == "proposed"
+    assert action["requires_confirmation"] is True
+    assert action["payload"]["title"] == "Graph study review"
+    assert action["payload"]["start"].endswith("T15:00:00")
+    assert action["payload"]["end"].endswith("T15:30:00")
+    assert json.loads(events_path.read_text(encoding="utf-8"))["events"] == []
+
+
+def test_calendar_lookup_phrase_does_not_become_capture(tmp_path: Path) -> None:
+    planner = ArtifactActionPlanner(
+        calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),
+        action_store=ArtifactActionStore(tmp_path / "actions"),
+    )
+
+    result = planner.plan_for_turn(
+        message="Show me my calendar tomorrow at 3 PM.",
+        visible_artifacts=[],
+    )
+
+    assert result.artifact_actions == []
+
+
 def test_calendar_capture_missing_time_asks_for_clarification(tmp_path: Path) -> None:
     planner = ArtifactActionPlanner(
         calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),

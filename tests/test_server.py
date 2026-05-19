@@ -2705,6 +2705,149 @@ def test_chat_capture_calendar_statement_proposes_event_and_opens_calendar(tmp_p
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
+def test_chat_calendar_event_called_prompt_proposes_event_and_opens_calendar(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
+    calendar_events_path = repo_root / "users" / "eden" / "state" / "calendar" / "events.json"
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={
+            "message": "Add a calendar event tomorrow at 3 PM called Graph study review.",
+            "history": [],
+            "visible_artifacts": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    action = payload["artifact_actions"][0]
+    assert action["artifact_kind"] == "calendar"
+    assert action["operation"] == "create_event"
+    assert action["status"] == "proposed"
+    assert action["requires_confirmation"] is True
+    assert action["payload"]["title"] == "Graph study review"
+    assert action["payload"]["start"].endswith("T15:00:00")
+    assert payload["surface_invocation"]["intent"] == "calendar_capture"
+    assert payload["operational_proposal_authority"]["allowed"] is True
+    assert "after you confirm" in payload["assistant_message"]
+    assert (repo_root / "users" / "eden" / "state" / "artifact_actions" / f"{action['id']}.json").exists()
+    assert not calendar_events_path.exists()
+    final_response = _latest_trace_payload(repo_root / "users" / "eden")["final_response"]
+    assert final_response["turn_plan"]["write_ledger"]["categories"] == ["proposed_calendar_task_mutation"]
+    assert final_response["turn_plan"]["operational_proposal_authority"]["allowed"] is True
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
+def test_chat_calendar_add_title_at_time_tomorrow_still_proposes_event(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
+    calendar_events_path = repo_root / "users" / "eden" / "state" / "calendar" / "events.json"
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={
+            "message": "Add Graph study review at 3 PM tomorrow.",
+            "history": [],
+            "visible_artifacts": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    action = payload["artifact_actions"][0]
+    assert action["artifact_kind"] == "calendar"
+    assert action["operation"] == "create_event"
+    assert action["status"] == "proposed"
+    assert action["requires_confirmation"] is True
+    assert action["payload"]["title"] == "Graph study review"
+    assert action["payload"]["start"].endswith("T15:00:00")
+    assert payload["operational_proposal_authority"]["allowed"] is True
+    assert not calendar_events_path.exists()
+
+
+def test_chat_calendar_lookup_remains_read_only_without_proposal(tmp_path: Path) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={
+            "message": "Show me my calendar tomorrow at 3 PM.",
+            "history": [],
+            "visible_artifacts": [],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["artifact_actions"] == []
+    assert payload["surface_invocation"]["intent"] == "schedule_lookup"
+    assert payload["surface_invocation"]["write_behavior"] == "read_only"
+    actions_dir = repo_root / "users" / "eden" / "state" / "artifact_actions"
+    assert not list(actions_dir.glob("*.json"))
+
+
+def test_hard_no_write_blocks_calendar_event_called_proposal(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"}, openai_api_key="test-key")
+    visible_artifact = {
+        "id": "artifact:midterm-study-plan",
+        "kind": "whiteboard",
+        "title": "Midterm Study Plan",
+        "summary": "Study plan for graph algorithms and priorities.",
+        "content": "# Midterm Study Plan\n\nPractice graph traversal first.",
+    }
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Navigator chose preserve-visible-surface.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "preserve_surface",
+                        "target": "whiteboard",
+                        "reason": "The user asked to keep the current whiteboard open.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr(
+        "vantage_v5.services.chat.ChatService._openai_reply",
+        lambda self, **kwargs: "I kept the whiteboard open.",
+    )
+
+    response = client.post(
+        "/api/chat",
+        headers=_basic_auth_header("eden", "eden-password"),
+        json={
+            "message": "keep the whiteboard open and add a calendar event tomorrow at 3 PM called Graph study review",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": visible_artifact["content"],
+            "visible_artifacts": [visible_artifact],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_invocation"]["intent"] == "preserve_visible_surface"
+    assert payload["artifact_actions"] == []
+    assert payload["workspace_update"] is None
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    actions_dir = repo_root / "users" / "eden" / "state" / "artifact_actions"
+    assert not list(actions_dir.glob("*.json"))
+
+
 def test_accept_calendar_capture_creates_user_event_and_refreshes_calendar(tmp_path: Path) -> None:
     client, repo_root = _client(tmp_path, auth_users={"eden": "eden-password"})
     headers = _basic_auth_header("eden", "eden-password")

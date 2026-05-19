@@ -60,7 +60,9 @@ Some deterministic raw-text helpers still exist as transitional guardrails, espe
 
 Product `Working Memory` means the full bounded context used for generation: current user request, recent chat, recalled items, pinned context, whiteboard context when in scope, and pending whiteboard context when intentionally carried forward.
 
-API `recall` is narrower: the vetted retrieved subset from Memory Trace and Library sources. Legacy `working_memory` is still emitted as an alias for that recalled subset, not the full product concept.
+`Attention` is the broad turn selection mechanism across saved memory, visible surfaces, app resources, protocols, openable artifacts, and other resources. `Recall` is the memory-grounding role/view over selected Attention resources.
+
+API `recall` is currently narrower: the vetted retrieved subset from Memory Trace and Library sources. Legacy `working_memory` is still emitted as an alias for that recalled subset, not the full product concept. `ChatService.search_context()` remains a transitional independent retrieval path; final-response traces include an observability-only Attention/Recall role projection that compares selected Attention resources with legacy Recall output but does not change prompt context or generation.
 
 Protocol candidates can be injected into the candidate memory set before vetting. That is how non-obvious but relevant reasoning guidance, such as Scenario Lab first-principles/counterfactual reasoning, can reach the model without brittle semantic search.
 

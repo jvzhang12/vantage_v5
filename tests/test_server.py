@@ -465,7 +465,7 @@ def _payload_has_key(value: Any, forbidden_key: str) -> bool:
 
 
 def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
-    client, _ = _client(tmp_path)
+    client, repo_root = _client(tmp_path)
 
     health = client.get("/api/health")
     assert health.status_code == 200
@@ -544,6 +544,7 @@ def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     assert "candidate_memory_results" in payload
     assert "recall" in payload
     assert "working_memory" in payload
+    assert "attention_recall_role_projection" not in payload
     assert payload["recall"] == payload["working_memory"]
     assert isinstance(payload["working_memory"], list)
     assert "response_mode" in payload
@@ -585,6 +586,18 @@ def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     recalled_item = payload["working_memory"][0]
     assert {"kind", "memory_role", "recall_status", "source_tier"} <= set(recalled_item)
     assert recalled_item["recall_status"] == "recalled"
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    role_projection = final_response["attention_recall_role_projection"]
+    assert role_projection["schema"] == "attention_recall_role_projection.v1"
+    assert role_projection["roles"]["recall_context"]
+    assert role_projection["comparison"]["recall_resource_ids"]
+    assert not _payload_has_key(role_projection, "content")
+    assert not _payload_has_key(role_projection, "body")
+    assert all(len(item.get("excerpt") or "") <= 320 for item in role_projection["resources"])
+    assert any(
+        resource["kind"] == "concept" and "recall_context" in resource["roles"]
+        for resource in role_projection["resources"]
+    )
 
 
 def test_calendar_day_endpoint_returns_read_only_day_payload(tmp_path: Path) -> None:
@@ -936,7 +949,7 @@ def test_chat_payload_exposes_attention_selection_for_calendar_context(tmp_path:
 
 
 def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: Path, monkeypatch) -> None:
-    client, _ = _client(tmp_path, openai_api_key="test-key")
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
     visible_artifacts = [
         {
             "id": "calendar-week-2026-05-11",
@@ -1017,6 +1030,17 @@ def test_chat_model_path_receives_visible_artifacts_from_current_view(tmp_path: 
         assert "Algorithms lab" in captured[key][0]["content"]
     assert captured["reply_app_capabilities"]["policy_version"] == "app-capability-v1"
     assert "calendar.read_week" in {tool["name"] for tool in captured["reply_app_capabilities"]["tools"]}
+    role_projection = _latest_trace_payload(repo_root)["final_response"]["attention_recall_role_projection"]
+    visible_resource = next(
+        resource
+        for resource in role_projection["resources"]
+        if resource["resource_id"] == "visible:calendar-week-2026-05-11"
+    )
+    assert visible_resource["flags"]["visible"] is True
+    assert visible_resource["flags"]["selected"] is True
+    assert "answer_context" in visible_resource["roles"]
+    assert "current_visible_context" in visible_resource["origins"]
+    assert "attention_selection" in visible_resource["origins"]
 
 
 @pytest.mark.parametrize(
@@ -2249,6 +2273,18 @@ def test_chat_attention_open_directive_prefers_source_artifact_over_opened_copy(
     assert final_response["turn_plan"]["execution"]["artifact_action_policy"] == "disabled"
     assert final_response["turn_plan"]["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "open_only_ui_handoff"
     assert final_response["turn_plan"]["validation"]["warnings"] == []
+    role_projection = final_response["attention_recall_role_projection"]
+    surface_roles = role_projection["roles"]["surface_to_open"]
+    assert surface_roles[0]["resource_id"] == f"artifact:{source_artifact.id}"
+    selected_resource = next(
+        resource
+        for resource in role_projection["resources"]
+        if resource["resource_id"] == f"artifact:{source_artifact.id}"
+    )
+    assert {"answer_context", "surface_to_open"} <= set(selected_resource["roles"])
+    assert selected_resource["flags"]["selected"] is True
+    assert selected_resource["sent_to_response_llm"] is True
+    assert len(selected_resource.get("excerpt") or "") <= 320
 
 
 def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(
@@ -4313,6 +4349,17 @@ def test_email_protocol_is_learned_and_recalled_for_matching_draft(tmp_path: Pat
     assert "email-drafting-protocol" in recalled
     assert recalled["email-drafting-protocol"]["type"] == "protocol"
     assert "Jordan Zhang" in recalled["email-drafting-protocol"]["body"]
+    draft_trace = _latest_trace_payload(repo_root)["final_response"]
+    role_projection = draft_trace["attention_recall_role_projection"]
+    protocol_resources = [
+        resource
+        for resource in role_projection["resources"]
+        if resource["resource_id"] == "email-drafting-protocol"
+    ]
+    assert protocol_resources
+    assert {"recall_context", "protocol_guidance"} <= set(protocol_resources[0]["roles"])
+    assert "protocol_guidance" in protocol_resources[0]["origins"]
+    assert role_projection["roles"]["protocol_guidance"][0]["resource_id"] == "email-drafting-protocol"
     assert (repo_root / "concepts" / "email-drafting-protocol.md").exists()
 
 

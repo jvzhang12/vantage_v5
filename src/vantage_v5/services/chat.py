@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 from typing import Any
 
+from vantage_v5.services.attention_role_projection import build_attention_recall_role_projection
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_card_fields
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_kind
 from vantage_v5.services.executor import ExecutedAction
@@ -1312,6 +1313,10 @@ def build_final_response_trace_payload(
         "turn_interpretation": response_payload.get("turn_interpretation"),
         "semantic_frame": response_payload.get("semantic_frame"),
         "semantic_policy": response_payload.get("semantic_policy"),
+        "attention_recall_role_projection": build_attention_recall_role_projection(
+            request_payload=request_payload,
+            response_payload=response_payload,
+        ),
         "turn_plan": turn_plan_trace_payload(
             request_payload=request_payload,
             response_payload=response_payload,

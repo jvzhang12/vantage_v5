@@ -110,6 +110,7 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
     attentionCandidates: [],
     navigatorSelection: null,
     selectedAttentionResources: [],
+    workingMemoryView: null,
     raw: {},
     ...overrides,
   };

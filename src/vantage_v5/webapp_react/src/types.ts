@@ -316,6 +316,94 @@ export interface SelectedAttentionResource {
   whySelected: string;
 }
 
+export type WorkingMemoryRoleName =
+  | "answer_context"
+  | "recall_context"
+  | "protocol_guidance"
+  | "surface_to_open"
+  | "pinned_or_continuity_context";
+
+export interface WorkingMemoryRoleReference {
+  resourceId: string;
+  kind: string;
+  title: string;
+  origins: string[];
+  sentToResponseLlm: boolean | null;
+}
+
+export interface WorkingMemoryResource {
+  id: string;
+  resourceId: string;
+  kind: string;
+  type: string;
+  title: string;
+  label: string;
+  roles: string[];
+  origins: string[];
+  flags: {
+    selected: boolean;
+    visible: boolean;
+    pinned: boolean;
+  };
+  summary: string;
+  excerpt: string;
+  sentToResponseLlm: boolean | null;
+  provenance: {
+    source: string;
+    sourceLabel: string;
+    scope: string;
+    durability: string;
+    isCanonical: boolean | null;
+    sourceStatus: Record<string, unknown>;
+  };
+  influence: {
+    answerGeneration: boolean;
+    uiSurfaceAction: boolean;
+    writeOrProposalDecision: boolean | null;
+  };
+}
+
+export interface WorkingMemoryExecutionSummary {
+  surface: {
+    mode: string;
+    surface: string;
+    targetResourceId: string;
+    targetResourceKind: string;
+    authority: string;
+    activeSurfaceId: string;
+    surfacePayloadCount: number;
+  };
+  writes: {
+    categories: string[];
+    intendedWriteKind: string;
+    effectAgreement: string;
+    workspaceUpdateType: string;
+    graphActionType: string;
+    createdRecord: Record<string, unknown> | null;
+    artifactActionCount: number;
+    proposalCount: number;
+  };
+}
+
+export interface WorkingMemoryView {
+  schema: string;
+  turn: {
+    turnId: string;
+    traceId: string;
+    responseMode: string;
+    mode: string;
+  };
+  roles: Record<WorkingMemoryRoleName, WorkingMemoryRoleReference[]>;
+  resources: WorkingMemoryResource[];
+  comparison: Record<string, string[]>;
+  executionSummary: WorkingMemoryExecutionSummary;
+  source: {
+    attentionRecallRoleProjectionSchema: string;
+    turnPlanVersion: string;
+  };
+  notes: string[];
+}
+
 export interface SemanticFrame {
   userGoal: string;
   taskType: string;
@@ -371,6 +459,7 @@ export interface NormalizedTurn {
   attentionCandidates: AttentionCandidate[];
   navigatorSelection: NavigatorSelection | null;
   selectedAttentionResources: SelectedAttentionResource[];
+  workingMemoryView: WorkingMemoryView | null;
   raw: Record<string, unknown>;
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activeSurface, appReducer, initialState } from "./appReducer";
+import { normalizeTurnPayload } from "./normalizers";
 import { buildVisibleArtifacts } from "./visibleArtifacts";
 import type { NormalizedTurn } from "./types";
 
@@ -49,6 +50,7 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
     attentionCandidates: [],
     navigatorSelection: null,
     selectedAttentionResources: [],
+    workingMemoryView: null,
     raw: {},
     ...overrides,
   };
@@ -77,6 +79,52 @@ describe("appReducer", () => {
       },
     ]);
     expect(state.view).toBe("chat");
+  });
+
+  it("stores the normalized working memory view from a chat response", () => {
+    const normalized = normalizeTurnPayload({
+      user_message: "What did you use?",
+      assistant_message: "I used the visible study plan.",
+      working_memory_view: {
+        schema: "working_memory_view.v1",
+        roles: {
+          answer_context: [
+            {
+              resource_id: "artifact:midterm-study-plan",
+              kind: "artifact",
+              title: "Midterm Study Plan",
+              origins: ["attention_selection"],
+              sent_to_response_llm: true,
+            },
+          ],
+        },
+        resources: [
+          {
+            id: "artifact:midterm-study-plan",
+            resource_id: "artifact:midterm-study-plan",
+            kind: "artifact",
+            title: "Midterm Study Plan",
+            roles: ["answer_context"],
+            origins: ["attention_selection"],
+            flags: { selected: true },
+            excerpt: "Review BFS and DFS first.",
+            content: "This full content should stay in raw payload only.",
+            provenance: { source_label: "Artifact", scope: "durable" },
+            influence: { answer_generation: true },
+          },
+        ],
+        execution_summary: {
+          surface: { mode: "none", surface: "chat" },
+          writes: { categories: ["none"] },
+        },
+      },
+    });
+    const state = appReducer(initialState, { type: "CHAT_SUCCESS", turn: normalized });
+
+    expect(state.latestTurn?.workingMemoryView?.schema).toBe("working_memory_view.v1");
+    expect(state.latestTurn?.workingMemoryView?.roles.answer_context[0].resourceId).toBe("artifact:midterm-study-plan");
+    expect(state.latestTurn?.workingMemoryView?.resources[0].excerpt).toBe("Review BFS and DFS first.");
+    expect("content" in (state.latestTurn?.workingMemoryView?.resources[0] || {})).toBe(false);
   });
 
   it("activates returned artifact surfaces", () => {

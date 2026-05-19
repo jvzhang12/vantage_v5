@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import type { NormalizedTurn } from "./types";
+import type { NormalizedTurn, WorkingMemoryView } from "./types";
 
 const api = vi.hoisted(() => ({
   acceptArtifactAction: vi.fn(),
@@ -65,6 +65,7 @@ function turn(overrides: Partial<NormalizedTurn> = {}): NormalizedTurn {
     attentionCandidates: [],
     navigatorSelection: null,
     selectedAttentionResources: [],
+    workingMemoryView: null,
     raw: {},
     ...overrides,
   };
@@ -125,6 +126,99 @@ const taskFocusSurface = {
     },
   },
 };
+
+function workingMemoryView(overrides: Partial<WorkingMemoryView> = {}): WorkingMemoryView {
+  const resourceId = "artifact:midterm-study-plan";
+  return {
+    schema: "working_memory_view.v1",
+    turn: {
+      turnId: "turn-1",
+      traceId: "trace-1",
+      responseMode: "grounded",
+      mode: "chat",
+    },
+    roles: {
+      answer_context: [
+        {
+          resourceId,
+          kind: "artifact",
+          title: "Midterm Study Plan",
+          origins: ["attention_selection"],
+          sentToResponseLlm: true,
+        },
+      ],
+      recall_context: [],
+      protocol_guidance: [],
+      surface_to_open: [
+        {
+          resourceId,
+          kind: "artifact",
+          title: "Midterm Study Plan",
+          origins: ["navigator_surface_open"],
+          sentToResponseLlm: true,
+        },
+      ],
+      pinned_or_continuity_context: [],
+    },
+    resources: [
+      {
+        id: resourceId,
+        resourceId,
+        kind: "artifact",
+        type: "artifact",
+        title: "Midterm Study Plan",
+        label: "",
+        roles: ["answer_context", "surface_to_open"],
+        origins: ["attention_selection", "navigator_surface_open"],
+        flags: { selected: true, visible: false, pinned: false },
+        summary: "Exam preparation material about graphs and study priorities.",
+        excerpt: "Practice BFS and DFS first, then review proof strategies.",
+        sentToResponseLlm: true,
+        provenance: {
+          source: "artifact",
+          sourceLabel: "Artifact",
+          scope: "durable",
+          durability: "durable",
+          isCanonical: false,
+          sourceStatus: {},
+        },
+        influence: {
+          answerGeneration: true,
+          uiSurfaceAction: true,
+          writeOrProposalDecision: null,
+        },
+      },
+    ],
+    comparison: {},
+    executionSummary: {
+      surface: {
+        mode: "open_only",
+        surface: "whiteboard",
+        targetResourceId: resourceId,
+        targetResourceKind: "artifact",
+        authority: "navigator_surface_open",
+        activeSurfaceId: "",
+        surfacePayloadCount: 0,
+      },
+      writes: {
+        categories: ["open_only_no_write"],
+        intendedWriteKind: "",
+        effectAgreement: "",
+        workspaceUpdateType: "",
+        graphActionType: "",
+        createdRecord: null,
+        artifactActionCount: 0,
+        proposalCount: 0,
+      },
+    },
+    source: {
+      attentionRecallRoleProjectionSchema: "attention_recall_role_projection.v1",
+      turnPlanVersion: "turn_plan.v1",
+    },
+    notes: [],
+    ...overrides,
+  };
+}
 
 describe("App", () => {
   beforeEach(() => {
@@ -197,6 +291,59 @@ describe("App", () => {
       expect(screen.getByText("Chat failed")).toBeTruthy();
       expect(screen.getByText("Network went away")).toBeTruthy();
     });
+  });
+
+  it("shows the latest Working Memory view inside Vantage", async () => {
+    api.sendChat.mockResolvedValueOnce(turn({
+      userMessage: "Open Midterm Study Plan",
+      assistantMessage: "Opened Midterm Study Plan.",
+      workingMemoryView: workingMemoryView(),
+    }));
+
+    render(<App />);
+
+    const composer = await screen.findByLabelText("Ask Vantage");
+    fireEvent.change(composer, { target: { value: "Open Midterm Study Plan" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByText("Opened Midterm Study Plan.")).toBeTruthy();
+    fireEvent.click(screen.getByTitle("Open Vantage"));
+
+    expect(await screen.findByText("What Vantage used for the latest response: bounded context, provenance, surface actions, and write summaries.")).toBeTruthy();
+    expect(screen.getByText("Answer Context")).toBeTruthy();
+    expect(screen.getByText("Recall Context")).toBeTruthy();
+    expect(screen.getByText("Protocol Guidance")).toBeTruthy();
+    expect(screen.getByText("Surface To Open")).toBeTruthy();
+    expect(screen.getByText("Pinned / Continuity Context")).toBeTruthy();
+    expect(screen.getAllByText("Midterm Study Plan").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Practice BFS and DFS first, then review proof strategies.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Artifact · Artifact").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Selected").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Sent to LLM").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Surface action").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Open-only Whiteboard").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Open Only No Write").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("No resources in this role.").length).toBeGreaterThan(0);
+    expect(screen.getByText("This is grounding evidence and execution context, not hidden chain-of-thought.")).toBeTruthy();
+  });
+
+  it("opens Vantage without crashing when a turn has no Working Memory payload", async () => {
+    api.sendChat.mockResolvedValueOnce(turn({
+      userMessage: "Say hi",
+      assistantMessage: "Hi.",
+    }));
+
+    render(<App />);
+
+    const composer = await screen.findByLabelText("Ask Vantage");
+    fireEvent.change(composer, { target: { value: "Say hi" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByText("Hi.")).toBeTruthy();
+    fireEvent.click(screen.getByTitle("Open Vantage"));
+
+    expect(await screen.findByText("No Working Memory payload for this turn.")).toBeTruthy();
+    expect(screen.getByText("Context Used")).toBeTruthy();
   });
 
   it("keeps the assistant answer visible when a normal turn follows an open whiteboard", async () => {

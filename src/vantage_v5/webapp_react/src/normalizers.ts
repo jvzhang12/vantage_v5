@@ -27,6 +27,11 @@ import type {
   SurfaceInvocationSurface,
   SurfacePayload,
   SurfaceKind,
+  WorkingMemoryExecutionSummary,
+  WorkingMemoryResource,
+  WorkingMemoryRoleName,
+  WorkingMemoryRoleReference,
+  WorkingMemoryView,
   WorkspaceUpdate,
 } from "./types";
 
@@ -45,6 +50,10 @@ export function text(value: unknown, fallback = ""): string {
 function numberOrNull(value: unknown): number | null {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
 }
 
 function stringList(value: unknown): string[] {
@@ -598,6 +607,144 @@ function normalizeSelectedAttentionResources(value: unknown): SelectedAttentionR
     .filter((item): item is SelectedAttentionResource => item !== null);
 }
 
+const WORKING_MEMORY_ROLES: WorkingMemoryRoleName[] = [
+  "answer_context",
+  "recall_context",
+  "protocol_guidance",
+  "surface_to_open",
+  "pinned_or_continuity_context",
+];
+
+function normalizeWorkingMemoryRoleReference(value: unknown): WorkingMemoryRoleReference | null {
+  const record = asRecord(value);
+  const resourceId = text(record.resource_id || record.resourceId);
+  if (!resourceId) {
+    return null;
+  }
+  return {
+    resourceId,
+    kind: text(record.kind),
+    title: text(record.title || resourceId),
+    origins: stringList(record.origins),
+    sentToResponseLlm: booleanOrNull(record.sent_to_response_llm ?? record.sentToResponseLlm),
+  };
+}
+
+function normalizeWorkingMemoryRoles(value: unknown): Record<WorkingMemoryRoleName, WorkingMemoryRoleReference[]> {
+  const record = asRecord(value);
+  return Object.fromEntries(
+    WORKING_MEMORY_ROLES.map((role) => [
+      role,
+      asArray(record[role]).map(normalizeWorkingMemoryRoleReference).filter((item): item is WorkingMemoryRoleReference => item !== null),
+    ]),
+  ) as Record<WorkingMemoryRoleName, WorkingMemoryRoleReference[]>;
+}
+
+function normalizeWorkingMemoryResource(value: unknown): WorkingMemoryResource | null {
+  const record = asRecord(value);
+  const resourceId = text(record.resource_id || record.resourceId || record.id);
+  if (!resourceId) {
+    return null;
+  }
+  const flags = asRecord(record.flags);
+  const provenance = asRecord(record.provenance);
+  const sourceStatus = asRecord(provenance.source_status || provenance.sourceStatus);
+  const influence = asRecord(record.influence);
+  return {
+    id: text(record.id || resourceId),
+    resourceId,
+    kind: text(record.kind),
+    type: text(record.type),
+    title: text(record.title || record.label || resourceId),
+    label: text(record.label),
+    roles: stringList(record.roles),
+    origins: stringList(record.origins),
+    flags: {
+      selected: Boolean(flags.selected),
+      visible: Boolean(flags.visible),
+      pinned: Boolean(flags.pinned),
+    },
+    summary: text(record.summary),
+    excerpt: text(record.excerpt),
+    sentToResponseLlm: booleanOrNull(record.sent_to_response_llm ?? record.sentToResponseLlm),
+    provenance: {
+      source: text(provenance.source),
+      sourceLabel: text(provenance.source_label || provenance.sourceLabel),
+      scope: text(provenance.scope),
+      durability: text(provenance.durability),
+      isCanonical: booleanOrNull(provenance.is_canonical ?? provenance.isCanonical),
+      sourceStatus,
+    },
+    influence: {
+      answerGeneration: Boolean(influence.answer_generation ?? influence.answerGeneration),
+      uiSurfaceAction: Boolean(influence.ui_surface_action ?? influence.uiSurfaceAction),
+      writeOrProposalDecision: booleanOrNull(influence.write_or_proposal_decision ?? influence.writeOrProposalDecision),
+    },
+  };
+}
+
+function normalizeWorkingMemoryExecutionSummary(value: unknown): WorkingMemoryExecutionSummary {
+  const record = asRecord(value);
+  const surface = asRecord(record.surface);
+  const writes = asRecord(record.writes);
+  return {
+    surface: {
+      mode: text(surface.mode),
+      surface: text(surface.surface),
+      targetResourceId: text(surface.target_resource_id || surface.targetResourceId),
+      targetResourceKind: text(surface.target_resource_kind || surface.targetResourceKind),
+      authority: text(surface.authority),
+      activeSurfaceId: text(surface.active_surface_id || surface.activeSurfaceId),
+      surfacePayloadCount: Number(surface.surface_payload_count || surface.surfacePayloadCount || 0) || 0,
+    },
+    writes: {
+      categories: stringList(writes.categories),
+      intendedWriteKind: text(writes.intended_write_kind || writes.intendedWriteKind),
+      effectAgreement: text(writes.effect_agreement || writes.effectAgreement),
+      workspaceUpdateType: text(writes.workspace_update_type || writes.workspaceUpdateType),
+      graphActionType: text(writes.graph_action_type || writes.graphActionType),
+      createdRecord: Object.keys(asRecord(writes.created_record || writes.createdRecord)).length
+        ? asRecord(writes.created_record || writes.createdRecord)
+        : null,
+      artifactActionCount: Number(writes.artifact_action_count || writes.artifactActionCount || 0) || 0,
+      proposalCount: Number(writes.proposal_count || writes.proposalCount || 0) || 0,
+    },
+  };
+}
+
+export function normalizeWorkingMemoryView(value: unknown): WorkingMemoryView | null {
+  const record = asRecord(value);
+  if (!Object.keys(record).length) {
+    return null;
+  }
+  const turn = asRecord(record.turn);
+  const source = asRecord(record.source);
+  return {
+    schema: text(record.schema),
+    turn: {
+      turnId: text(turn.turn_id || turn.turnId),
+      traceId: text(turn.trace_id || turn.traceId),
+      responseMode: text(turn.response_mode || turn.responseMode),
+      mode: text(turn.mode),
+    },
+    roles: normalizeWorkingMemoryRoles(record.roles),
+    resources: asArray(record.resources)
+      .map(normalizeWorkingMemoryResource)
+      .filter((item): item is WorkingMemoryResource => item !== null),
+    comparison: Object.fromEntries(
+      Object.entries(asRecord(record.comparison)).map(([key, item]) => [key, stringList(item)]),
+    ),
+    executionSummary: normalizeWorkingMemoryExecutionSummary(record.execution_summary || record.executionSummary),
+    source: {
+      attentionRecallRoleProjectionSchema: text(
+        source.attention_recall_role_projection_schema || source.attentionRecallRoleProjectionSchema,
+      ),
+      turnPlanVersion: text(source.turn_plan_version || source.turnPlanVersion),
+    },
+    notes: stringList(record.notes),
+  };
+}
+
 function firstTimestamp(record: JsonRecord): string {
   const direct = text(
     record.created_at
@@ -658,6 +805,7 @@ export function normalizeTurnPayload(payload: unknown): NormalizedTurn {
     attentionCandidates: normalizeAttentionCandidates(record.attention_candidates || record.attentionCandidates),
     navigatorSelection: normalizeNavigatorSelection(record.navigator_selection || record.navigatorSelection),
     selectedAttentionResources: normalizeSelectedAttentionResources(record.selected_attention_resources || record.selectedAttentionResources),
+    workingMemoryView: normalizeWorkingMemoryView(record.working_memory_view || record.workingMemoryView),
     raw: record,
   };
 }

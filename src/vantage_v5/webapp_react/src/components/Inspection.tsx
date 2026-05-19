@@ -19,7 +19,22 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { buildInspectionReceipt, type ContextUsedItemModel, type InspectionReceipt, type SurfaceDecisionModel } from "../inspectionModel";
-import type { NormalizedTurn, SurfacePayload } from "../types";
+import type {
+  NormalizedTurn,
+  SurfacePayload,
+  WorkingMemoryResource,
+  WorkingMemoryRoleName,
+  WorkingMemoryRoleReference,
+  WorkingMemoryView,
+} from "../types";
+
+const WORKING_MEMORY_ROLES: Array<{ key: WorkingMemoryRoleName; label: string }> = [
+  { key: "answer_context", label: "Answer Context" },
+  { key: "recall_context", label: "Recall Context" },
+  { key: "protocol_guidance", label: "Protocol Guidance" },
+  { key: "surface_to_open", label: "Surface To Open" },
+  { key: "pinned_or_continuity_context", label: "Pinned / Continuity Context" },
+];
 
 export function VantageInspectionView({
   turn,
@@ -47,9 +62,9 @@ export function VantageInspectionView({
           <div>
             <div className="inspection-title-line">
               <Sparkles size={28} />
-              <h1>Why this answer?</h1>
+              <h1>Working Memory</h1>
             </div>
-            <p>Here&apos;s how I interpreted your request and what shaped my response.</p>
+            <p>What Vantage used for the latest response: bounded context, provenance, surface actions, and write summaries.</p>
           </div>
           <div className="inspection-turn-meta">
             <span>Turn{timestamp.time ? ` · ${timestamp.time}` : ""}</span>
@@ -58,6 +73,8 @@ export function VantageInspectionView({
         </header>
 
         <GenerationSummaryStrip receipt={receipt} />
+
+        <WorkingMemoryPanel view={turn?.workingMemoryView ?? null} />
 
         <div className="inspection-grid">
           <ContextUsedCard items={receipt.contextItems} />
@@ -69,10 +86,156 @@ export function VantageInspectionView({
 
         <footer className="inspection-footer">
           <Lock size={13} />
-          <span>Vantage explains the reasoning behind the latest answer only.</span>
+          <span>This is grounding evidence and execution context, not hidden chain-of-thought.</span>
         </footer>
       </div>
     </section>
+  );
+}
+
+function WorkingMemoryPanel({ view }: { view: WorkingMemoryView | null }) {
+  if (!view) {
+    return (
+      <section className="working-memory-panel" aria-label="Working Memory">
+        <header>
+          <div>
+            <h2>Working Memory</h2>
+            <p>No Working Memory payload for this turn.</p>
+          </div>
+          <span>Unavailable</span>
+        </header>
+      </section>
+    );
+  }
+  const resourcesById = new Map(view.resources.map((resource) => [resource.resourceId, resource]));
+  const sentCount = view.resources.filter((resource) => resource.sentToResponseLlm).length;
+  const writeCategories = view.executionSummary.writes.categories.length
+    ? view.executionSummary.writes.categories
+    : ["none"];
+  return (
+    <section className="working-memory-panel" aria-label="Working Memory">
+      <header>
+        <div>
+          <h2>Working Memory</h2>
+          <p>Evidence Vantage used or kept in scope for the latest answer.</p>
+        </div>
+        <span>{view.schema || "working_memory_view"}</span>
+      </header>
+
+      <div className="working-memory-summary" aria-label="Working Memory summary">
+        <SummaryStat label="Resources" value={`${view.resources.length}`} />
+        <SummaryStat label="Sent to LLM" value={`${sentCount}`} />
+        <SummaryStat label="Surface action" value={surfaceSummary(view)} />
+        <SummaryStat label="Writes" value={writeCategories.map(humanize).join(" · ")} />
+      </div>
+
+      <ExecutionSummary view={view} />
+
+      <div className="working-memory-sections">
+        {WORKING_MEMORY_ROLES.map((role) => (
+          <WorkingMemoryRoleSection
+            key={role.key}
+            label={role.label}
+            refs={view.roles[role.key] || []}
+            resourcesById={resourcesById}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SummaryStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value || "None"}</strong>
+    </div>
+  );
+}
+
+function ExecutionSummary({ view }: { view: WorkingMemoryView }) {
+  const surface = view.executionSummary.surface;
+  const writes = view.executionSummary.writes;
+  const writeCategories = writes.categories.length ? writes.categories : ["none"];
+  return (
+    <section className="working-memory-execution" aria-label="Working Memory execution summary">
+      <div>
+        <span>Surface</span>
+        <p>{surfaceSummary(view)}</p>
+        {surface.targetResourceId ? <small>{surface.targetResourceId}</small> : null}
+      </div>
+      <div>
+        <span>Write / proposal ledger</span>
+        <div className="working-memory-chip-row">
+          {writeCategories.map((category) => (
+            <span className="working-memory-chip" key={category}>{humanize(category)}</span>
+          ))}
+        </div>
+        {writes.effectAgreement ? <small>{humanize(writes.effectAgreement)}</small> : null}
+      </div>
+    </section>
+  );
+}
+
+function WorkingMemoryRoleSection({
+  label,
+  refs,
+  resourcesById,
+}: {
+  label: string;
+  refs: WorkingMemoryRoleReference[];
+  resourcesById: Map<string, WorkingMemoryResource>;
+}) {
+  return (
+    <section className="working-memory-role">
+      <header>
+        <h3>{label}</h3>
+        <span>{refs.length}</span>
+      </header>
+      {refs.length ? (
+        <div className="working-memory-resource-list">
+          {refs.map((ref) => (
+            <WorkingMemoryResourceRow
+              key={`${label}-${ref.resourceId}`}
+              refItem={ref}
+              resource={resourcesById.get(ref.resourceId) || null}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="working-memory-empty">No resources in this role.</p>
+      )}
+    </section>
+  );
+}
+
+function WorkingMemoryResourceRow({
+  refItem,
+  resource,
+}: {
+  refItem: WorkingMemoryRoleReference;
+  resource: WorkingMemoryResource | null;
+}) {
+  const title = resource?.title || refItem.title || refItem.resourceId;
+  const kind = resource?.kind || resource?.type || refItem.kind || "resource";
+  const source = provenanceLabel(resource);
+  const summary = resource?.excerpt || resource?.summary || "";
+  const chips = resourceChips(resource, refItem);
+  return (
+    <article className="working-memory-resource">
+      <div className="working-memory-resource__top">
+        <div>
+          <strong>{title}</strong>
+          <span>{humanize(kind)}{source ? ` · ${source}` : ""}</span>
+        </div>
+        <code>{refItem.resourceId}</code>
+      </div>
+      {summary ? <p>{summary}</p> : <p className="working-memory-muted">No excerpt available.</p>}
+      <div className="working-memory-chip-row" aria-label={`${title} flags`}>
+        {chips.map((chip) => <span className="working-memory-chip" key={chip}>{chip}</span>)}
+      </div>
+    </article>
   );
 }
 
@@ -283,6 +446,76 @@ function contextIcon(type: string) {
     return Pin;
   }
   return Database;
+}
+
+function surfaceSummary(view: WorkingMemoryView): string {
+  const surface = view.executionSummary.surface;
+  const mode = humanize(surface.mode || "none");
+  const targetSurface = humanize(surface.surface || "chat");
+  if (!surface.mode || surface.mode === "none") {
+    return "No surface action";
+  }
+  if (surface.mode === "open_only") {
+    return `Open-only ${targetSurface}`;
+  }
+  return `${mode} ${targetSurface}`.trim();
+}
+
+function provenanceLabel(resource: WorkingMemoryResource | null): string {
+  if (!resource) {
+    return "";
+  }
+  const provenance = resource.provenance;
+  return firstNonEmpty(
+    provenance.sourceLabel,
+    provenance.source,
+    provenance.scope,
+    provenance.durability,
+  );
+}
+
+function resourceChips(resource: WorkingMemoryResource | null, refItem: WorkingMemoryRoleReference): string[] {
+  const chips: string[] = [];
+  if (resource?.flags.selected) {
+    chips.push("Selected");
+  }
+  if (resource?.flags.visible) {
+    chips.push("Visible");
+  }
+  if (resource?.flags.pinned) {
+    chips.push("Pinned");
+  }
+  const sentToLlm = resource?.sentToResponseLlm ?? refItem.sentToResponseLlm;
+  if (sentToLlm === true) {
+    chips.push("Sent to LLM");
+  } else if (sentToLlm === false) {
+    chips.push("Not sent to LLM");
+  }
+  if (resource?.influence.uiSurfaceAction) {
+    chips.push("Surface action");
+  }
+  if (resource?.influence.writeOrProposalDecision) {
+    chips.push("Write/proposal");
+  }
+  return chips.length ? chips : ["Context"];
+}
+
+function firstNonEmpty(...values: Array<string | undefined | null>): string {
+  for (const value of values) {
+    const candidate = String(value || "").trim();
+    if (candidate) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
+function humanize(value: string): string {
+  return String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 function formatTimestamp(value: string): { time: string; date: string } {

@@ -11,7 +11,7 @@ Tailwind stylesheet for the React Vantage interface.
 
 ## Coverage
 
-- Top bar, static Vantage mark, greeting, composer, latest answer card, today briefing, calendar day/week, task focus, whiteboard, the Vantage inspection receipt, notices, login, and responsive layouts.
+- Top bar, static Vantage mark, greeting, composer, latest answer card, today briefing, calendar day/week, task focus, whiteboard, the Vantage inspection receipt, Working Memory role/resource panels, notices, login, and responsive layouts.
 - Adds small-screen PWA polish for iPhone-sized Safari/home-screen use: `svh` viewport sizing, compact masthead/composer controls, readable 16px inputs, flexible latest-answer metadata, and single-column inspection/artifact layouts.
 - On phone widths, foregrounded surface views reserve a fixed viewport column for latest answer or pending state, the open surface, and sticky composer so normal chat replies stay visible without pushing the composer below the initial screen.
 - Styles the generic pending-answer card and send-button spinner used while chat requests are in flight, including Whiteboard foregrounding where the regular latest-answer card is hidden on desktop.

@@ -56,7 +56,7 @@ The goal is the same as the Python summaries: let future agents understand the s
   - a separate Scenario Lab dock
 - The Library dock remains in the DOM/data model with Concept KB, Memories, Artifacts, Reference Notes, pinned-context controls, and an inspector, but it is temporarily hidden from the visible Vantage surface while the product stays simpler.
 - `Recall` is the surfaced retrieved subset shown in Vantage and compact chat evidence.
-- `Working Memory` is the broader inspection frame for what was in scope for generation.
+- `Working Memory` is the broader inspection frame for what was in scope for generation. The React Vantage view now consumes the bounded `working_memory_view` response contract to show role-grouped context, provenance, and execution/write summaries without exposing hidden chain-of-thought or full resource bodies.
 - `Memory Trace` is exposed in Vantage as recent-history contribution and the created turn trace record, not as a fourth top-level product surface or a Library bucket.
 - `Semantic Frame` / `Semantic Policy` payloads are normalized client-side and surfaced as compact `Understood As` / `Next Step` cues rather than a new diagnostics panel.
 - The auth gate can switch between sign-in and create-account modes when account creation is enabled, with the create path posting to `/api/accounts` and then entering the same authenticated shell.

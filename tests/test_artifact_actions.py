@@ -6,6 +6,7 @@ import json
 from vantage_v5.services.artifact_actions import ArtifactActionPlanner
 from vantage_v5.services.artifact_actions import ArtifactActionStore
 from vantage_v5.services.artifact_actions import execute_artifact_action
+from vantage_v5.services.artifact_mutation_compiler import ArtifactMutationCompiler
 from vantage_v5.services.calendar import LocalCalendarProvider
 from vantage_v5.services.tasks import LocalTaskProvider
 
@@ -185,6 +186,50 @@ def test_calendar_lookup_phrase_does_not_become_capture(tmp_path: Path) -> None:
     )
 
     assert result.artifact_actions == []
+
+
+def test_compiler_marks_model_normalized_source_when_normalized_command_succeeds(tmp_path: Path) -> None:
+    planner = ArtifactActionPlanner(
+        calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),
+        action_store=ArtifactActionStore(tmp_path / "actions"),
+    )
+    compiler = ArtifactMutationCompiler(planner=planner, app_capabilities={}, model="test")
+    compiler._normalize_with_model = lambda **kwargs: "Add Graph study review at 3 PM tomorrow."  # type: ignore[method-assign]
+
+    result = compiler.compile_for_turn(
+        user_message="Add a calendar event tomorrow at 3 PM called Graph study review.",
+        semantic_action="I will add that calendar event.",
+        visible_artifacts=[],
+        persist=False,
+    )
+
+    assert len(result.artifact_actions) == 1
+    compiler_metadata = result.artifact_actions[0]["compiler"]
+    assert compiler_metadata["source"] == "model_normalized"
+    assert compiler_metadata["model_normalized"] is True
+    assert compiler_metadata["compiler_input"] == "Add Graph study review at 3 PM tomorrow."
+
+
+def test_compiler_marks_raw_message_fallback_source_when_normalized_command_fails(tmp_path: Path) -> None:
+    planner = ArtifactActionPlanner(
+        calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),
+        action_store=ArtifactActionStore(tmp_path / "actions"),
+    )
+    compiler = ArtifactMutationCompiler(planner=planner, app_capabilities={}, model="test")
+    compiler._normalize_with_model = lambda **kwargs: "Show me my calendar tomorrow at 3 PM."  # type: ignore[method-assign]
+
+    result = compiler.compile_for_turn(
+        user_message="Add a calendar event tomorrow at 3 PM called Graph study review.",
+        semantic_action="I will add that calendar event.",
+        visible_artifacts=[],
+        persist=False,
+    )
+
+    assert len(result.artifact_actions) == 1
+    compiler_metadata = result.artifact_actions[0]["compiler"]
+    assert compiler_metadata["source"] == "deterministic_fallback"
+    assert compiler_metadata["model_normalized"] is False
+    assert compiler_metadata["compiler_input"] == "Add a calendar event tomorrow at 3 PM called Graph study review."
 
 
 def test_calendar_capture_missing_time_asks_for_clarification(tmp_path: Path) -> None:

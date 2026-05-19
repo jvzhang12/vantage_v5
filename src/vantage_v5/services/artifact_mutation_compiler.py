@@ -66,15 +66,18 @@ class ArtifactMutationCompiler:
             app_interface=interface,
         )
         command = normalized or semantic_action or user_message
+        source = "model_normalized" if normalized is not None else "deterministic_fallback"
         plan = self.planner.plan_for_turn(message=command, visible_artifacts=visible_artifacts, persist=False)
         if not plan.artifact_actions and command != user_message:
+            source = "deterministic_fallback"
+            command = user_message
             plan = self.planner.plan_for_turn(message=user_message, visible_artifacts=visible_artifacts, persist=False)
         annotated = _annotate_plan(
             plan,
             semantic_action=semantic_action,
             compiler_input=command,
             app_interface=interface,
-            used_model=normalized is not None,
+            source=source,
         )
         return self.persist_plan(annotated) if persist else annotated
 
@@ -183,10 +186,11 @@ def _annotate_plan(
     semantic_action: str,
     compiler_input: str,
     app_interface: dict[str, Any],
-    used_model: bool,
+    source: str,
 ) -> ArtifactActionPlan:
     if not plan.artifact_actions:
         return plan
+    normalized_by_model = source == "model_normalized"
     contract_refs = [
         f"{app.get('id')}.json_interface"
         for app in app_interface.get("apps", [])
@@ -200,10 +204,10 @@ def _annotate_plan(
                 "compiler": {
                     "pipeline": "semantic_then_json_contract",
                     "step": "artifact_mutation_compiler",
-                    "source": "model_normalized" if used_model else "deterministic_fallback",
+                    "source": source,
                     "semantic_action": semantic_action,
                     "compiler_input": compiler_input,
-                    "model_normalized": used_model,
+                    "model_normalized": normalized_by_model,
                     "contract_refs": contract_refs,
                     "app_interface": app_interface,
                 },

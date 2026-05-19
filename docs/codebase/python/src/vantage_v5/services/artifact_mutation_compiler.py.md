@@ -14,7 +14,7 @@ Second-step artifact mutation compiler for Vantage app actions.
 - It decides whether compilation is relevant by looking for mutation language, operational visible artifacts, or artifact-related app capability cues.
 - When an OpenAI-backed compiler is available, it receives a compact prompt containing the current artifact context and the relevant app JSON interfaces.
 - If provider output is unavailable or invalid, the compiler falls back to the deterministic `ArtifactActionPlanner`.
-- Returned actions are annotated with compiler metadata so the Vantage receipt can explain whether the action came from the compiler, deterministic fallback, or validation repair. The `compiler.source` field is `model_normalized` when an OpenAI-backed compiler normalized the action and `deterministic_fallback` when the local fallback planner produced the candidate.
+- Returned actions are annotated with compiler metadata so the Vantage receipt can explain whether the action came from the compiler, deterministic fallback, or validation repair. The `compiler.source` field reflects the planner attempt that actually produced the returned action: `model_normalized` when an OpenAI-backed normalized command produced it and `deterministic_fallback` when the raw-message/local fallback produced it.
 - `compile_for_turn(persist=False)` returns an annotated but unsaved candidate. The server uses this mode so TurnPlan operational-proposal authority can permit or deny the candidate before any proposal action is written to `state/artifact_actions`.
 
 ## Important Boundaries

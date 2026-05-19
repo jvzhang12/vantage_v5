@@ -14,12 +14,12 @@ Second-step artifact mutation compiler for Vantage app actions.
 - It decides whether compilation is relevant by looking for mutation language, operational visible artifacts, or artifact-related app capability cues.
 - When an OpenAI-backed compiler is available, it receives a compact prompt containing the current artifact context and the relevant app JSON interfaces.
 - If provider output is unavailable or invalid, the compiler falls back to the deterministic `ArtifactActionPlanner`.
-- Returned actions are annotated with compiler metadata so the Vantage receipt can explain whether the action came from the compiler, deterministic fallback, or validation repair.
+- Returned actions are annotated with compiler metadata so the Vantage receipt can explain whether the action came from the compiler, deterministic fallback, or validation repair. The `compiler.source` field reflects the planner attempt that actually produced the returned action: `model_normalized` when an OpenAI-backed normalized command produced it and `deterministic_fallback` when the raw-message/local fallback produced it. If a model-normalized task candidate omits a due date that the existing raw task-capture parser can recover from the user message, the compiler keeps the normalized action but repairs only the task due-date fields and records that repair in `compiler.repairs`.
+- `compile_for_turn(persist=False)` returns an annotated but unsaved candidate. The server uses this mode so TurnPlan operational-proposal authority can permit or deny the candidate before any proposal action is written to `state/artifact_actions`.
 
 ## Important Boundaries
 
 - This module does not mutate calendar or task files directly.
-- It delegates validation and persistence to `artifact_actions.py`.
+- It delegates validation and persistence to `artifact_actions.py`, and callers can split candidate generation from persistence when a higher-level authority gate needs to inspect the candidate first.
 - Visible artifacts are treated as the current working view and are the primary targeting source for edits like replacing or moving a calendar event.
 - Global read-only providers remain non-writable because capability and executor checks happen after compilation.
-

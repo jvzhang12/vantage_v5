@@ -49,6 +49,7 @@ class ArtifactMutationCompiler:
         user_message: str,
         semantic_action: str,
         visible_artifacts: list[dict[str, Any]] | None = None,
+        persist: bool = True,
     ) -> ArtifactActionPlan:
         if not _should_compile(user_message=user_message, semantic_action=semantic_action, visible_artifacts=visible_artifacts or []):
             return ArtifactActionPlan(artifact_actions=[])
@@ -65,16 +66,37 @@ class ArtifactMutationCompiler:
             app_interface=interface,
         )
         command = normalized or semantic_action or user_message
-        plan = self.planner.plan_for_turn(message=command, visible_artifacts=visible_artifacts)
+        source = "model_normalized" if normalized is not None else "deterministic_fallback"
+        plan = self.planner.plan_for_turn(message=command, visible_artifacts=visible_artifacts, persist=False)
+        repairs: list[dict[str, Any]] = []
+        if plan.artifact_actions and command != user_message and _task_create_plan_missing_due_date(plan):
+            raw_plan = self.planner.plan_for_turn(message=user_message, visible_artifacts=visible_artifacts, persist=False)
+            if _task_create_plan_has_due_date(raw_plan):
+                plan = _repair_task_create_due_dates(plan, raw_plan)
+                repairs.append(
+                    {
+                        "kind": "task_due_date",
+                        "source": "deterministic_fallback",
+                        "compiler_input": user_message,
+                    }
+                )
         if not plan.artifact_actions and command != user_message:
-            plan = self.planner.plan_for_turn(message=user_message, visible_artifacts=visible_artifacts)
-        return _annotate_plan(
+            source = "deterministic_fallback"
+            command = user_message
+            plan = self.planner.plan_for_turn(message=user_message, visible_artifacts=visible_artifacts, persist=False)
+            repairs = []
+        annotated = _annotate_plan(
             plan,
             semantic_action=semantic_action,
             compiler_input=command,
             app_interface=interface,
-            used_model=normalized is not None,
+            source=source,
+            repairs=repairs,
         )
+        return self.persist_plan(annotated) if persist else annotated
+
+    def persist_plan(self, plan: ArtifactActionPlan) -> ArtifactActionPlan:
+        return self.planner.save_action_plan(plan)
 
     def _normalize_with_model(
         self,
@@ -178,10 +200,12 @@ def _annotate_plan(
     semantic_action: str,
     compiler_input: str,
     app_interface: dict[str, Any],
-    used_model: bool,
+    source: str,
+    repairs: list[dict[str, Any]] | None = None,
 ) -> ArtifactActionPlan:
     if not plan.artifact_actions:
         return plan
+    normalized_by_model = source == "model_normalized"
     contract_refs = [
         f"{app.get('id')}.json_interface"
         for app in app_interface.get("apps", [])
@@ -195,15 +219,83 @@ def _annotate_plan(
                 "compiler": {
                     "pipeline": "semantic_then_json_contract",
                     "step": "artifact_mutation_compiler",
+                    "source": source,
                     "semantic_action": semantic_action,
                     "compiler_input": compiler_input,
-                    "model_normalized": used_model,
+                    "model_normalized": normalized_by_model,
                     "contract_refs": contract_refs,
                     "app_interface": app_interface,
+                    **({"repairs": repairs} if repairs else {}),
                 },
             }
         )
     return ArtifactActionPlan(artifact_actions=annotated, assistant_message=plan.assistant_message, error=plan.error)
+
+
+def _task_create_plan_missing_due_date(plan: ArtifactActionPlan) -> bool:
+    return any(_is_task_create_action_missing_due_date(action) for action in plan.artifact_actions)
+
+
+def _task_create_plan_has_due_date(plan: ArtifactActionPlan) -> bool:
+    return any(_is_task_create_action_with_due_date(action) for action in plan.artifact_actions)
+
+
+def _is_task_create_action_missing_due_date(action: dict[str, Any]) -> bool:
+    if str(action.get("artifact_kind") or "") != "task" or str(action.get("operation") or "") != "create_task":
+        return False
+    payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+    return not str(payload.get("due_date") or "").strip()
+
+
+def _is_task_create_action_with_due_date(action: dict[str, Any]) -> bool:
+    if str(action.get("artifact_kind") or "") != "task" or str(action.get("operation") or "") != "create_task":
+        return False
+    payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+    return bool(str(payload.get("due_date") or "").strip())
+
+
+def _repair_task_create_due_dates(plan: ArtifactActionPlan, raw_plan: ArtifactActionPlan) -> ArtifactActionPlan:
+    raw_payload = _first_task_create_payload_with_due_date(raw_plan)
+    if raw_payload is None:
+        return plan
+    due_date = str(raw_payload.get("due_date") or "").strip()
+    if not due_date:
+        return plan
+    repaired_actions = []
+    for action in plan.artifact_actions:
+        if not _is_task_create_action_missing_due_date(action):
+            repaired_actions.append(action)
+            continue
+        payload = dict(action.get("payload") if isinstance(action.get("payload"), dict) else {})
+        raw_surface = raw_payload.get("surface") if isinstance(raw_payload.get("surface"), dict) else {}
+        surface = dict(payload.get("surface") if isinstance(payload.get("surface"), dict) else {})
+        surface["date"] = str(raw_surface.get("date") or due_date)
+        payload["due_date"] = due_date
+        payload["date"] = str(raw_payload.get("date") or due_date)
+        payload["surface"] = surface
+        preview = dict(action.get("preview") if isinstance(action.get("preview"), dict) else {})
+        after = dict(preview.get("after") if isinstance(preview.get("after"), dict) else {})
+        after["due_date"] = due_date
+        preview["after"] = after
+        title = str(payload.get("title") or "Untitled task")
+        repaired_actions.append(
+            {
+                **action,
+                "summary": f"Create task '{title}' due {due_date}.",
+                "payload": payload,
+                "preview": preview,
+            }
+        )
+    return ArtifactActionPlan(artifact_actions=repaired_actions, assistant_message=plan.assistant_message, error=plan.error)
+
+
+def _first_task_create_payload_with_due_date(plan: ArtifactActionPlan) -> dict[str, Any] | None:
+    for action in plan.artifact_actions:
+        if not _is_task_create_action_with_due_date(action):
+            continue
+        payload = action.get("payload") if isinstance(action.get("payload"), dict) else {}
+        return payload
+    return None
 
 
 def _should_compile(*, user_message: str, semantic_action: str, visible_artifacts: list[dict[str, Any]]) -> bool:

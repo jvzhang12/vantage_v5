@@ -66,6 +66,7 @@ TASK_RENAME_RE = re.compile(
 TASK_MUTATION_RE = re.compile(r"\b(?:complete|mark)\b|\b(?:rename|change|update)\s+task\b", re.IGNORECASE)
 TIME_PATTERN = r"\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?"
 DATE_PATTERN = r"today|tomorrow|\d{4}-\d{2}-\d{2}|monday|tuesday|wednesday|thursday|friday|saturday|sunday"
+TASK_DATE_PATTERN = rf"{DATE_PATTERN}|tonight"
 CALENDAR_CAPTURE_RE = re.compile(
     rf"^\s*(?:(?:i\s+(?:have|have got|got)|i've got|there(?:'s| is))\s+)?"
     rf"(?P<title>.+?)\s+(?:at|from)\s+(?P<start>{TIME_PATTERN})"
@@ -78,6 +79,14 @@ CALENDAR_CAPTURE_DATE_FIRST_RE = re.compile(
     rf"(?:\s*(?:-|to|until)\s*(?P<end>{TIME_PATTERN}))?\s*[.!?]?\s*$",
     re.IGNORECASE,
 )
+CALENDAR_CAPTURE_EVENT_CALLED_RE = re.compile(
+    rf"^\s*(?:add|create|schedule)\s+(?:(?:a|an|the)\s+)?"
+    rf"(?:(?:calendar|scheduled)\s+)?(?:event|meeting|appointment)\s+"
+    rf"(?P<date>{DATE_PATTERN})\s+(?:at|from)\s+(?P<start>{TIME_PATTERN})"
+    rf"(?:\s*(?:-|to|until)\s*(?P<end>{TIME_PATTERN}))?\s+"
+    rf"(?:called|named|titled)\s+(?P<title>.+?)\s*[.!?]?\s*$",
+    re.IGNORECASE,
+)
 TASK_CAPTURE_RE = re.compile(
     r"^\s*(?:i\s+(?:need|have|have got|got)\s+to|i've got to|remember to|remind me to|"
     r"need to|have to|(?:add|create)\s+(?:a\s+)?task(?:\s+to)?)\s+"
@@ -85,7 +94,16 @@ TASK_CAPTURE_RE = re.compile(
     re.IGNORECASE,
 )
 TASK_DATE_TRAILER_RE = re.compile(
-    rf"\s+(?:(?:by|due|on)\s+)?(?P<date>{DATE_PATTERN})\s*$",
+    rf"\s+(?:(?:by|due|on)\s+)?(?P<date>{TASK_DATE_PATTERN})\s*$",
+    re.IGNORECASE,
+)
+TASK_DUE_METADATA_RE = re.compile(
+    rf"\s+(?:with\s+)?due[_\s-]?date\s*(?:=|:)?\s*(?P<date>{TASK_DATE_PATTERN})\b|"
+    rf"\s+due\s+(?P<due_date>{TASK_DATE_PATTERN})\b",
+    re.IGNORECASE,
+)
+TASK_CONFIRMATION_BOILERPLATE_RE = re.compile(
+    r"\b(?:requires?\s+confirmation|after\s+you\s+confirm|before\s+applying)\b.*$",
     re.IGNORECASE,
 )
 CALENDAR_MISSING_TIME_RE = re.compile(
@@ -96,6 +114,10 @@ CALENDAR_MISSING_TIME_RE = re.compile(
 CAPTURE_NEGATION_RE = re.compile(
     r"\b(?:if i|i might|maybe|don't add|do not add|don't schedule|do not schedule|"
     r"no longer have|i don't have|cancelled|canceled)\b",
+    re.IGNORECASE,
+)
+CAPTURE_READ_ONLY_REQUEST_RE = re.compile(
+    r"^\s*(?:show|show me|look at|view|display|open)\b",
     re.IGNORECASE,
 )
 WEEKDAYS = {
@@ -186,6 +208,7 @@ class ArtifactActionPlanner:
         *,
         message: str,
         visible_artifacts: list[dict[str, Any]] | None = None,
+        persist: bool = True,
     ) -> ArtifactActionPlan:
         events = _visible_calendar_events(visible_artifacts or [])
         tasks = _visible_tasks(visible_artifacts or [])
@@ -200,7 +223,7 @@ class ArtifactActionPlanner:
 
             action = self._calendar_action(message=message, events=events)
             if action.artifact_actions or action.assistant_message:
-                return self._save_action_plan(action)
+                return self.save_action_plan(action) if persist else action
 
         if (_looks_like_artifact_mutation(message) or _looks_like_task_mutation(message)) and (tasks or _looks_task_specific(message)):
             if not self.task_provider or not self.task_provider.writable:
@@ -212,15 +235,15 @@ class ArtifactActionPlanner:
 
             action = self._task_action(message=message, tasks=tasks)
             if action.artifact_actions or action.assistant_message:
-                return self._save_action_plan(action)
+                return self.save_action_plan(action) if persist else action
 
         capture_action = self._capture_action(message=message, events=events, visible_artifacts=visible_artifacts or [])
         if capture_action.artifact_actions or capture_action.assistant_message:
-            return self._save_action_plan(capture_action)
+            return self.save_action_plan(capture_action) if persist else capture_action
 
         return ArtifactActionPlan(artifact_actions=[])
 
-    def _save_action_plan(self, action: ArtifactActionPlan) -> ArtifactActionPlan:
+    def save_action_plan(self, action: ArtifactActionPlan) -> ArtifactActionPlan:
         saved_actions = [self.action_store.save(item) for item in action.artifact_actions]
         return ArtifactActionPlan(
             artifact_actions=saved_actions,
@@ -768,10 +791,14 @@ def _visible_tasks(visible_artifacts: list[dict[str, Any]]) -> list[dict[str, An
 
 
 def _parse_calendar_capture(message: str, *, events: list[dict[str, Any]]) -> dict[str, Any] | None:
-    match = CALENDAR_CAPTURE_RE.match(str(message or "")) or CALENDAR_CAPTURE_DATE_FIRST_RE.match(str(message or ""))
+    match = (
+        CALENDAR_CAPTURE_RE.match(str(message or ""))
+        or CALENDAR_CAPTURE_DATE_FIRST_RE.match(str(message or ""))
+        or CALENDAR_CAPTURE_EVENT_CALLED_RE.match(str(message or ""))
+    )
     if not match:
         return None
-    title = _clean_capture_title(match.group("title"))
+    title = _clean_calendar_capture_title(match.group("title"))
     if not title or title.lower().startswith("to "):
         return None
     try:
@@ -809,14 +836,15 @@ def _parse_task_capture(message: str) -> dict[str, Any] | None:
     match = TASK_CAPTURE_RE.match(str(message or ""))
     if not match:
         return None
-    title = _clean_capture_title(match.group("title"))
+    raw_title = str(match.group("title") or "")
+    due_date, raw_title = _extract_task_due_metadata(raw_title)
+    title = _clean_task_capture_title(raw_title)
     if not title:
         return None
-    due_date: date | None = None
     if date_match := TASK_DATE_TRAILER_RE.search(title):
         try:
-            due_date = _resolve_capture_date(date_match.group("date"))
-            title = _clean_capture_title(title[: date_match.start()])
+            due_date = _resolve_task_due_date(date_match.group("date"))
+            title = _clean_task_capture_title(title[: date_match.start()])
         except ValueError:
             due_date = None
     if not title:
@@ -837,8 +865,29 @@ def _parse_task_capture(message: str) -> dict[str, Any] | None:
     }
 
 
+def is_task_capture_request(message: str) -> bool:
+    """Return whether the existing task-capture fallback owns this request."""
+
+    return _parse_task_capture(message) is not None
+
+
+def _extract_task_due_metadata(value: str) -> tuple[date | None, str]:
+    text = str(value or "")
+    match = TASK_DUE_METADATA_RE.search(text)
+    if not match:
+        return None, text
+    raw_date = match.group("date") or match.group("due_date")
+    try:
+        due_date = _resolve_task_due_date(raw_date)
+    except ValueError:
+        return None, text
+    cleaned = f"{text[: match.start()]} {text[match.end() :]}"
+    return due_date, cleaned
+
+
 def _should_skip_capture(message: str) -> bool:
-    return bool(CAPTURE_NEGATION_RE.search(str(message or "")))
+    text = str(message or "")
+    return bool(CAPTURE_NEGATION_RE.search(text) or CAPTURE_READ_ONLY_REQUEST_RE.search(text))
 
 
 def _looks_like_calendar_statement_missing_time(message: str) -> bool:
@@ -859,6 +908,13 @@ def _resolve_capture_date(value: str | None) -> date:
             delta = 7
         return today + timedelta(days=delta)
     return resolve_calendar_date(text)
+
+
+def _resolve_task_due_date(value: str | None) -> date:
+    text = str(value or "").strip().lower()
+    if text == "tonight":
+        return resolve_calendar_date("today")
+    return _resolve_capture_date(text)
 
 
 def _source_refs_from_visible_artifacts(
@@ -1182,6 +1238,34 @@ def _clean_capture_title(value: str) -> str:
     title = _clean_title(value)
     title = re.sub(r"^(?:my|the|a|an)\s+", "", title, flags=re.IGNORECASE)
     title = re.sub(r"\s+(?:on|for)$", "", title, flags=re.IGNORECASE)
+    return _clean_title(title)
+
+
+def _clean_task_capture_title(value: str) -> str:
+    title = _clean_capture_title(value)
+    title = TASK_CONFIRMATION_BOILERPLATE_RE.sub("", title)
+    quoted = re.match(
+        r"^(?:task\s+)?(?:titled|called|named)\s+[\"“](?P<title>[^\"”]+)[\"”]",
+        title,
+        re.IGNORECASE,
+    )
+    if quoted:
+        return _clean_title(quoted.group("title"))
+    titled = re.match(
+        r"^(?:task\s+)?(?:titled|called|named)\s+(?P<title>.+?)"
+        r"(?:\s+(?:with\s+)?due[_\s-]?date\b|\s+due\b|$)",
+        title,
+        re.IGNORECASE,
+    )
+    if titled:
+        return _clean_title(titled.group("title"))
+    title = TASK_DUE_METADATA_RE.sub("", title)
+    return _clean_title(title)
+
+
+def _clean_calendar_capture_title(value: str) -> str:
+    title = _clean_capture_title(value)
+    title = re.sub(r"^(?:add|create|schedule)\s+", "", title, flags=re.IGNORECASE)
     return _clean_title(title)
 
 

@@ -67,6 +67,7 @@ from vantage_v5.services.surface_payloads import SurfacePayloadResult
 from vantage_v5.services.surface_payloads import surface_assistant_message
 from vantage_v5.services.tasks import LocalTaskProvider
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
+from vantage_v5.services.turn_plan import build_turn_plan_operational_proposal_authority
 from vantage_v5.services.turn_plan import project_write_intent_compatibility
 from vantage_v5.services.turn_payloads import attach_safe_turn_state
 from vantage_v5.services.turn_orchestrator import TurnOrchestrator
@@ -949,24 +950,55 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             *(visible_artifacts or []),
             *_visible_artifacts_from_selected_attention(payload.get("selected_attention_resources")),
         ]
-        action_plan = (
-            ArtifactActionPlan(artifact_actions=[])
-            if surface_authority.blocks_artifact_actions
-            else _artifact_mutation_compiler_for_scope(
+        action_plan = ArtifactActionPlan(artifact_actions=[])
+        turn_plan_request_payload = {"message": message, "memory_intent": memory_intent}
+        if not surface_authority.blocks_artifact_actions:
+            artifact_mutation_compiler = _artifact_mutation_compiler_for_scope(
                 durable_scope,
                 app_capabilities=app_capabilities,
-            ).compile_for_turn(
+            )
+            candidate_plan = artifact_mutation_compiler.compile_for_turn(
                 user_message=message,
                 semantic_action=str(payload.get("assistant_message") or ""),
                 visible_artifacts=action_visible_artifacts,
+                persist=False,
             )
-        )
+            if candidate_plan.artifact_actions:
+                candidate_payload = {
+                    **payload,
+                    "artifact_actions": candidate_plan.artifact_actions,
+                    "surface_invocation": _artifact_action_surface_invocation_payload(
+                        candidate_plan.artifact_actions[0],
+                        existing=payload.get("surface_invocation"),
+                    ),
+                }
+                proposal_authority = build_turn_plan_operational_proposal_authority(
+                    response_payload=candidate_payload,
+                    request_payload=turn_plan_request_payload,
+                )
+                payload["operational_proposal_authority"] = proposal_authority.to_dict()
+                if proposal_authority.allowed:
+                    action_plan = artifact_mutation_compiler.persist_plan(candidate_plan)
+                else:
+                    action_plan = ArtifactActionPlan(artifact_actions=[])
+            else:
+                action_plan = candidate_plan
         payload["artifact_actions"] = action_plan.artifact_actions
         if action_plan.artifact_actions:
+            if _should_clear_whiteboard_offer_for_artifact_actions(
+                payload.get("workspace_update"),
+                whiteboard_mode=whiteboard_mode,
+            ):
+                payload["workspace_update"] = None
             payload["surface_invocation"] = _artifact_action_surface_invocation_payload(
                 action_plan.artifact_actions[0],
                 existing=payload.get("surface_invocation"),
             )
+            proposal_authority = build_turn_plan_operational_proposal_authority(
+                response_payload=payload,
+                request_payload=turn_plan_request_payload,
+            )
+            payload["operational_proposal_authority"] = proposal_authority.to_dict()
         surface_authority = build_turn_plan_surface_authority(
             response_payload=payload,
             request_payload={"message": message, "memory_intent": memory_intent},
@@ -1083,6 +1115,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 }
             )
         return artifacts
+
+    def _workspace_update_is_whiteboard_offer(value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        return str(value.get("type") or value.get("status") or value.get("proposal_kind") or "").strip().lower() in {
+            "offer_whiteboard",
+            "offered",
+            "offer",
+        }
+
+    def _should_clear_whiteboard_offer_for_artifact_actions(value: Any, *, whiteboard_mode: str) -> bool:
+        if str(whiteboard_mode or "").strip().lower() == "offer":
+            return False
+        return _workspace_update_is_whiteboard_offer(value)
 
     def _artifact_action_surface_invocation_payload(
         action: dict[str, Any],

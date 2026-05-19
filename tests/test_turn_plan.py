@@ -8,6 +8,7 @@ from vantage_v5.services.turn_plan import TurnPlanBuilder
 from vantage_v5.services.turn_plan import build_turn_plan_artifact_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_concept_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_memory_write_authority
+from vantage_v5.services.turn_plan import build_turn_plan_operational_proposal_authority
 from vantage_v5.services.turn_plan import build_turn_plan_protocol_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 
@@ -1874,7 +1875,7 @@ def test_turn_plan_close_surface_with_writes_warns() -> None:
     }.issubset(_warning_codes(plan))
     assert plan["write_ledger"]["categories"] == [
         "pending_whiteboard_draft",
-        "proposed_calendar_task_mutation",
+        "invalid_calendar_task_mutation",
     ]
 
 
@@ -2009,6 +2010,8 @@ def test_turn_plan_write_ledger_proposed_calendar_task_mutation() -> None:
                     "artifact_kind": "calendar",
                     "operation": "move_event",
                     "status": "proposed",
+                    "target_refs": [{"id": "advisor-check-in", "kind": "calendar_event"}],
+                    "payload": {"event_id": "advisor-check-in", "start": "2026-05-14T12:00:00"},
                     "requires_confirmation": True,
                 },
                 {
@@ -2016,6 +2019,7 @@ def test_turn_plan_write_ledger_proposed_calendar_task_mutation() -> None:
                     "artifact_kind": "task",
                     "operation": "create_task",
                     "status": "proposed",
+                    "payload": {"title": "finish homework 2"},
                     "requires_confirmation": True,
                 },
             ],
@@ -2026,7 +2030,117 @@ def test_turn_plan_write_ledger_proposed_calendar_task_mutation() -> None:
     assert plan["write_ledger"]["actual_write_effect_count"] == 2
     assert plan["write_ledger"]["committed_write_count"] == 0
     assert plan["write_ledger"]["proposed_write_count"] == 2
+    assert plan["operational_proposal_authority"]["action"] == "operational_proposal"
+    assert plan["operational_proposal_authority"]["allowed"] is True
+    assert plan["operational_proposal_authority"]["authority"] == "artifact_mutation_compiler"
+    assert plan["operational_proposal_authority"]["candidate_kinds"] == ["calendar", "task"]
+    assert plan["operational_proposal_authority"]["candidate_operations"] == ["move_event", "create_task"]
     assert plan["validation"]["warnings"] == []
+
+
+def test_turn_plan_operational_proposal_authority_rejects_open_only_candidate() -> None:
+    plan = _plan(
+        message="Open this and add a task.",
+        response={
+            "surface_invocation": {
+                "intent": "attention_selected_context",
+                "primary_surface": "chat",
+                "write_behavior": "open_only",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "artifact_actions": [
+                {
+                    "id": "action-1",
+                    "artifact_kind": "task",
+                    "operation": "create_task",
+                    "status": "proposed",
+                    "payload": {"title": "finish homework 2"},
+                    "requires_confirmation": True,
+                }
+            ],
+        },
+    )
+
+    authority = plan["operational_proposal_authority"]
+    assert authority["action"] == "operational_proposal"
+    assert authority["allowed"] is False
+    assert authority["denied_reason"] == "open_only_ui_handoff"
+    assert "open_only_with_write_side_effect" in _warning_codes(plan)
+    assert "operational_proposal_effect_without_authority" in _warning_codes(plan)
+
+
+def test_turn_plan_operational_proposal_authority_requires_confirmation() -> None:
+    authority = build_turn_plan_operational_proposal_authority(
+        response_payload={
+            "surface_invocation": {
+                "intent": "task_capture",
+                "primary_surface": "task_focus",
+                "write_behavior": "proposal_only",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "artifact_actions": [
+                {
+                    "id": "action-1",
+                    "artifact_kind": "task",
+                    "operation": "create_task",
+                    "status": "proposed",
+                    "payload": {"title": "finish homework 2"},
+                    "requires_confirmation": False,
+                }
+            ],
+        }
+    )
+
+    assert authority.action == "operational_proposal"
+    assert authority.allowed is False
+    assert authority.denied_reason == "operational_proposal_requires_confirmation"
+    assert authority.blocks_candidate_write is True
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_category"),
+    [
+        (None, "invalid_calendar_task_mutation"),
+        ("ready", "invalid_calendar_task_mutation"),
+        ("applied", "accepted_calendar_task_mutation"),
+    ],
+)
+def test_turn_plan_operational_proposal_authority_requires_proposed_status(
+    status: str | None,
+    expected_category: str,
+) -> None:
+    action = {
+        "id": "action-1",
+        "artifact_kind": "task",
+        "operation": "create_task",
+        "payload": {"title": "finish homework 2"},
+        "requires_confirmation": True,
+    }
+    if status is not None:
+        action["status"] = status
+
+    plan = _plan(
+        message="Add this task.",
+        response={
+            "surface_invocation": {
+                "intent": "task_capture",
+                "primary_surface": "task_focus",
+                "write_behavior": "proposal_only",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "artifact_actions": [action],
+        },
+    )
+
+    authority = plan["operational_proposal_authority"]
+    assert authority["action"] == "operational_proposal"
+    assert authority["allowed"] is False
+    assert authority["denied_reason"] == "operational_proposal_requires_proposed_status"
+    assert plan["write_ledger"]["categories"] == [expected_category]
+    assert plan["write_ledger"]["categories"] != ["proposed_calendar_task_mutation"]
+    assert "mutation_without_confirmation" in _warning_codes(plan)
+    if expected_category == "invalid_calendar_task_mutation":
+        assert "operational_proposal_effect_without_authority" in _warning_codes(plan)
 
 
 def test_final_response_trace_payload_includes_turn_plan() -> None:

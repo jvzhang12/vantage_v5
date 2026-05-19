@@ -226,6 +226,29 @@ def test_task_capture_statement_proposes_create_task_without_mutating(tmp_path: 
     assert not tasks_path.exists()
 
 
+def test_task_capture_preserves_meaningful_leading_create_verbs(tmp_path: Path) -> None:
+    planner = ArtifactActionPlanner(
+        calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),
+        task_provider=LocalTaskProvider(tasks_path=tmp_path / "tasks.json", writable=True),
+        action_store=ArtifactActionStore(tmp_path / "actions"),
+    )
+
+    examples = {
+        "Add a task to create slides tonight.": "create slides",
+        "Remember to create slides tomorrow.": "create slides",
+        "I need to create slides tomorrow.": "create slides",
+    }
+
+    for message, expected_prefix in examples.items():
+        result = planner.plan_for_turn(message=message, visible_artifacts=[], persist=False)
+
+        assert len(result.artifact_actions) == 1
+        action = result.artifact_actions[0]
+        assert action["artifact_kind"] == "task"
+        assert action["operation"] == "create_task"
+        assert str(action["payload"]["title"]).startswith(expected_prefix)
+
+
 def test_task_action_planner_proposes_complete_from_visible_task_list(tmp_path: Path) -> None:
     tasks_path = _write_tasks(
         tmp_path / "tasks.json",

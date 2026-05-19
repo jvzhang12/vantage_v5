@@ -2726,6 +2726,7 @@ def test_chat_calendar_event_called_prompt_proposes_event_and_opens_calendar(tmp
     assert action["operation"] == "create_event"
     assert action["status"] == "proposed"
     assert action["requires_confirmation"] is True
+    assert action["compiler"]["source"] == "deterministic_fallback"
     assert action["payload"]["title"] == "Graph study review"
     assert action["payload"]["start"].endswith("T15:00:00")
     assert payload["surface_invocation"]["intent"] == "calendar_capture"
@@ -2737,6 +2738,7 @@ def test_chat_calendar_event_called_prompt_proposes_event_and_opens_calendar(tmp
     assert final_response["turn_plan"]["write_ledger"]["categories"] == ["proposed_calendar_task_mutation"]
     assert final_response["turn_plan"]["operational_proposal_authority"]["allowed"] is True
     assert final_response["turn_plan"]["validation"]["warnings"] == []
+    assert final_response["artifact_actions"][0]["compiler"]["source"] == "deterministic_fallback"
 
 
 def test_chat_calendar_add_title_at_time_tomorrow_still_proposes_event(tmp_path: Path) -> None:

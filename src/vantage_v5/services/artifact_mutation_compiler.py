@@ -200,6 +200,7 @@ def _annotate_plan(
                 "compiler": {
                     "pipeline": "semantic_then_json_contract",
                     "step": "artifact_mutation_compiler",
+                    "source": "model_normalized" if used_model else "deterministic_fallback",
                     "semantic_action": semantic_action,
                     "compiler_input": compiler_input,
                     "model_normalized": used_model,

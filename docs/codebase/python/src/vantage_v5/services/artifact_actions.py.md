@@ -22,7 +22,8 @@ Generic artifact-action planning and execution layer for Vantage.
 - All actions start as `proposed` and require confirmation.
 - Unsaved proposal candidates use the same validation and payload shape as persisted proposals, letting higher-level TurnPlan authority inspect candidate safety before an action file is written.
 - Calendar actions use visible artifacts first, so the currently displayed calendar day/week is the target context.
-- The narrow offline calendar-capture fallback recognizes concrete scheduling statements such as “Add a calendar event tomorrow at 3 PM called Graph study review” and “Add Graph study review at 3 PM tomorrow,” while read-only lookup phrasing such as “show me my calendar” is intentionally skipped so lookup turns do not become proposals.
+- The narrow offline calendar-capture fallback recognizes concrete scheduling statements such as “Add a calendar event tomorrow at 3 PM called Graph study review” and “Add Graph study review at 3 PM tomorrow,” while read-only lookup phrasing such as “show me my calendar” is intentionally skipped so lookup turns do not become proposals. Calendar command-word cleanup is scoped to this fallback path.
+- Task capture preserves meaningful leading verbs in task titles, so requests like “create slides” remain task content rather than being stripped as command language.
 - Supported v1 calendar operations are create, update/rename, move/reschedule, replace, and soft-cancel.
 - Ambiguous or missing target events return clarification text instead of an unsafe action.
 - Read-only/global configured calendar files are restricted; writable commits are only allowed through the logged-in user’s local calendar provider.

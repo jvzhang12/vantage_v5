@@ -788,7 +788,7 @@ def _parse_calendar_capture(message: str, *, events: list[dict[str, Any]]) -> di
     )
     if not match:
         return None
-    title = _clean_capture_title(match.group("title"))
+    title = _clean_calendar_capture_title(match.group("title"))
     if not title or title.lower().startswith("to "):
         return None
     try:
@@ -1199,8 +1199,13 @@ def _clean_title(value: str) -> str:
 def _clean_capture_title(value: str) -> str:
     title = _clean_title(value)
     title = re.sub(r"^(?:my|the|a|an)\s+", "", title, flags=re.IGNORECASE)
-    title = re.sub(r"^(?:add|create|schedule)\s+", "", title, flags=re.IGNORECASE)
     title = re.sub(r"\s+(?:on|for)$", "", title, flags=re.IGNORECASE)
+    return _clean_title(title)
+
+
+def _clean_calendar_capture_title(value: str) -> str:
+    title = _clean_capture_title(value)
+    title = re.sub(r"^(?:add|create|schedule)\s+", "", title, flags=re.IGNORECASE)
     return _clean_title(title)
 
 

@@ -2025,6 +2025,7 @@ def project_write_intent_compatibility(
     if (projected_intent or projection.intended_write_kind) == "protocol_write":
         if str(invocation.get("status") or "").strip() in {"handled_by_memory_write", "handled_by_concept_write"}:
             invocation["status"] = "handled_by_protocol_write"
+        invocation["surfaces"] = _normalize_protocol_surface_statuses(invocation.get("surfaces"))
 
     legacy_write_behavior = _normalized_write_behavior(invocation)
     projected_write_behavior = _surface_write_behavior_for_projection(projection, legacy_write_behavior)
@@ -2048,6 +2049,21 @@ def project_write_intent_compatibility(
         invocation["write_effects"] = effects
     payload["surface_invocation"] = invocation
     return payload
+
+
+def _normalize_protocol_surface_statuses(value: Any) -> list[Any]:
+    if not isinstance(value, list):
+        return [] if value is None else value
+    normalized: list[Any] = []
+    for item in value:
+        if not isinstance(item, dict):
+            normalized.append(item)
+            continue
+        surface = dict(item)
+        if str(surface.get("status") or "").strip() in {"handled_by_memory_write", "handled_by_concept_write"}:
+            surface["status"] = "handled_by_protocol_write"
+        normalized.append(surface)
+    return normalized
 
 
 def _with_nested_surface_action(response_payload: dict[str, Any]) -> dict[str, Any]:

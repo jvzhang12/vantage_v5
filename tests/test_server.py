@@ -3864,6 +3864,10 @@ def test_email_protocol_is_learned_and_recalled_for_matching_draft(tmp_path: Pat
     assert learned_payload["surface_invocation"]["write_behavior"] == "committed_write"
     assert learned_payload["surface_invocation"].get("status") != "handled_by_memory_write"
     assert learned_payload["surface_invocation"].get("legacy_intent") != "memory_write"
+    assert all(
+        surface.get("status") not in {"handled_by_memory_write", "handled_by_concept_write"}
+        for surface in learned_payload["surface_invocation"]["surfaces"]
+    )
     assert learned_payload["surface_invocation"]["write_intent"]["kinds"] == ["protocol_write"]
     learned_trace = _latest_trace_payload(repo_root)["final_response"]
     assert learned_trace["turn_plan"]["write_ledger"]["categories"] == ["protocol_write"]
@@ -6694,6 +6698,7 @@ def test_concept_write_with_valid_meta_candidate_is_allowed(
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["surface_invocation"]["surfaces"][0]["status"] == "handled_by_concept_write"
     assert payload["meta_action"]["action"] == "create_concept"
     assert payload["graph_action"]["type"] == "create_concept"
     assert payload["created_record"]["source"] == "concept"
@@ -6865,6 +6870,7 @@ def test_explicit_remember_control_panel_writes_memory_instead_of_task_focus(
     payload = response.json()
     assert payload["surface_invocation"]["intent"] == "memory_write"
     assert payload["surface_invocation"]["primary_surface"] == "chat"
+    assert payload["surface_invocation"]["surfaces"][0]["status"] == "handled_by_memory_write"
     assert payload["active_surface_id"] is None
     assert payload["surface_payloads"] == []
     assert payload["meta_action"]["action"] == "create_memory"

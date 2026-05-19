@@ -323,6 +323,9 @@ describe("App", () => {
     expect(screen.getAllByText("Surface action").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Open-only Whiteboard").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Open Only No Write").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Turn input received").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Raw prompt text is not shown in Working Memory/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Open Midterm Study Plan")).toBeNull();
     expect(screen.getAllByText("No resources in this role.").length).toBeGreaterThan(0);
     expect(screen.getByText("This is grounding evidence and execution context, not hidden chain-of-thought.")).toBeTruthy();
   });

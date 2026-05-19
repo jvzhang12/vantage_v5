@@ -121,18 +121,20 @@ describe("inspection model", () => {
     const receipt = buildInspectionReceipt(turn(), todaySurface);
 
     expect(receipt?.summaryColumns.map((column) => column.label)).toEqual([
-      "Last request",
+      "Input",
       "Intent",
       "Grounding",
       "Mode",
       "Summary",
     ]);
+    expect(receipt?.summaryColumns[0].value).toBe("Turn input received");
+    expect(receipt?.summaryColumns[0].detail).toContain("Raw prompt text is not shown");
     expect(receipt?.contextItems.some((item) => item.type === "Calendar")).toBe(true);
     expect(receipt?.contextItems.some((item) => item.type === "Tasks")).toBe(true);
     expect(receipt?.contextItems.some((item) => item.title === "Protocols")).toBe(false);
     expect(receipt?.surfaceDecisions.some((decision) => decision.name === "Today Briefing" && decision.opened)).toBe(true);
     expect(receipt?.decisionPath.map((step) => step.label)).toEqual([
-      "Request",
+      "Input",
       "Intent",
       "Query keys",
       "Context selection",
@@ -140,6 +142,9 @@ describe("inspection model", () => {
       "Answer",
       "After-turn changes",
     ]);
+    expect(receipt?.decisionPath[0].value).toBe("Turn input received");
+    expect(receipt?.decisionPath[0].detail).toContain("Raw prompt text is not shown");
+    expect(JSON.stringify(receipt)).not.toContain("What does my day look like?");
     expect(receipt?.writes.summary).toBe("No writes. Read-only.");
     expect(receipt?.writes.mode).toBe("Read-only");
   });

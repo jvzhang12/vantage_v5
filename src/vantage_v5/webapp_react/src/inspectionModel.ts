@@ -80,7 +80,8 @@ export function buildInspectionReceipt(
 
   const surfaces = uniqueSurfaces([activeSurface, ...turn.surfacePayloads]);
   const writes = buildWrites(turn, surfaces);
-  const request = turn.userMessage || "No request was captured.";
+  const request = "Turn input received";
+  const requestDetail = requestMetadata(turn);
   const intent = humanize(
     turn.surfaceInvocation?.intent
       || turn.semanticFrame?.taskType
@@ -100,7 +101,7 @@ export function buildInspectionReceipt(
     summary,
     timestamp: turn.timestamp,
     summaryColumns: [
-      { key: "request", label: "Last request", value: request },
+      { key: "request", label: "Input", value: request, detail: requestDetail },
       { key: "intent", label: "Intent", value: intent, detail: confidenceLabel(turn.surfaceInvocation?.confidence ?? turn.semanticFrame?.confidence) },
       { key: "grounding", label: "Grounding", value: grounding.join(" · ") || turn.answerBasis.label || "Current request" },
       { key: "mode", label: "Mode", value: mode },
@@ -108,7 +109,7 @@ export function buildInspectionReceipt(
     ],
     contextItems: contextItems(turn, surfaces),
     surfaceDecisions: surfaceDecisions(turn, surfaces),
-    decisionPath: decisionPath(turn, surfaces, writes, { request, intent, summary }),
+    decisionPath: decisionPath(turn, surfaces, writes, { request, requestDetail, intent, summary }),
     writes,
   };
 }
@@ -324,7 +325,7 @@ function decisionPath(
   turn: NormalizedTurn,
   surfaces: SurfacePayload[],
   writes: MemoryActionsWritesModel,
-  basics: { request: string; intent: string; summary: string },
+  basics: { request: string; requestDetail: string; intent: string; summary: string },
 ): DecisionPathStepModel[] {
   const selectedContext = turn.contextBudget?.summary || turn.answerBasis.summary || "Current request was prepared as context.";
   const attentionContext = turn.navigatorSelection?.reason
@@ -338,7 +339,7 @@ function decisionPath(
         ? `Selected ${surfaceLabel(turn.surfaceInvocation.primarySurface)}`
         : "Stayed in chat");
   return [
-    { id: "request", label: "Request", value: basics.request },
+    { id: "request", label: "Input", value: basics.request, detail: basics.requestDetail },
     { id: "intent", label: "Intent", value: basics.intent, detail: confidenceLabel(turn.surfaceInvocation?.confidence ?? turn.semanticFrame?.confidence) },
     { id: "query", label: "Query keys", value: queryKeySummary(turn) },
     { id: "context", label: "Context selection", value: attentionContext || selectedContext, detail: attentionSelectionDetail(turn) },
@@ -346,6 +347,17 @@ function decisionPath(
     { id: "answer", label: "Answer", value: basics.summary },
     { id: "after-turn", label: "After-turn changes", value: writes.summary },
   ];
+}
+
+function requestMetadata(turn: NormalizedTurn): string {
+  const candidates = [
+    turn.surfaceInvocation?.intent,
+    turn.semanticFrame?.taskType,
+    turn.activity?.mode,
+    turn.mode,
+  ].filter(Boolean);
+  const requestType = humanize(String(candidates[0] || "chat"));
+  return `${requestType} input. Raw prompt text is not shown in Working Memory.`;
 }
 
 function buildWrites(turn: NormalizedTurn, surfaces: SurfacePayload[]): MemoryActionsWritesModel {

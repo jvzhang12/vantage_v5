@@ -13,4 +13,4 @@ Frontend adapter for the Vantage “Why this answer?” receipt.
 - Builds summary columns, context-used rows, artifact/surface decisions, decision-path steps, and memory/action/write audit groups.
 - Uses existing turn fields such as `context_budget`, `activity`, `surface_invocation`, answer basis, visible artifacts, learned records, graph actions, and workspace updates.
 - Replaces raw user request text with bounded input metadata before rendering the Vantage Working Memory view.
-- Sanitizes user-request-style reason strings such as explicit close/preserve prose into safe action labels before the Vantage UI renders them.
+- Sanitizes user-request-style reason strings such as explicit close/preserve prose into safe action labels before the Vantage UI renders them, including not-opened operational surface rows.

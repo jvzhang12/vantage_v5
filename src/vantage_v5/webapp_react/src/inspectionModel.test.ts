@@ -170,6 +170,66 @@ describe("inspection model", () => {
     expect(receipt?.surfaceDecisions.some((decision) => !decision.opened)).toBe(true);
   });
 
+  it("sanitizes not-opened operational surface reasons", () => {
+    const receipt = buildInspectionReceipt(turn({
+      surfaceInvocation: {
+        intent: "close_visible_surface",
+        primarySurface: "chat",
+        supportingSurfaces: [],
+        surfaces: [
+          {
+            kind: "whiteboard",
+            role: "primary",
+            reason: "User explicitly requested to close the calendar.",
+            status: "closed",
+          },
+        ],
+        writeBehavior: "none",
+        reason: "User explicitly requested to close the calendar.",
+        confidence: 0.9,
+        dataSources: [],
+        capabilityRefs: [],
+        trigger: "navigator",
+        policyVersion: "surface-invocation-v1",
+      },
+      appCapabilities: {
+        policyVersion: "test",
+        apps: [],
+        resources: [],
+        tools: [],
+        surfaces: [
+          {
+            kind: "calendar_day",
+            appId: "calendar",
+            label: "Calendar",
+            description: "Calendar day surface",
+            renderer: "calendar",
+            resourceIds: [],
+            visibleContext: "calendar",
+          },
+          {
+            kind: "task_focus",
+            appId: "tasks",
+            label: "Tasks",
+            description: "Task focus surface",
+            renderer: "tasks",
+            resourceIds: [],
+            visibleContext: "tasks",
+          },
+        ],
+        receiptEvents: [],
+      },
+      surfacePayloads: [],
+      activeSurfaceId: null,
+    }));
+
+    const serialized = JSON.stringify(receipt);
+    expect(serialized).not.toContain("User explicitly requested to close the calendar.");
+    expect(serialized).not.toContain("close the calendar");
+    expect(receipt?.surfaceDecisions.some((decision) => decision.name === "Calendar" && !decision.opened && decision.reason === "Surface close action.")).toBe(true);
+    expect(receipt?.surfaceDecisions.some((decision) => decision.name === "Task Focus" && !decision.opened && decision.reason === "Surface close action.")).toBe(true);
+  });
+
   it("shows attention query keys and selected resources", () => {
     const receipt = buildInspectionReceipt(turn({
       queryFrame: {

@@ -551,10 +551,10 @@ function notOpenedReason(kind: string, invocation: NormalizedTurn["surfaceInvoca
     return "No branching, tradeoff comparison, or scenario request was detected.";
   }
   if (kind.startsWith("calendar")) {
-    return invocation?.reason || "The request did not require calendar data.";
+    return safeReason(invocation?.reason, "Calendar surface not opened.");
   }
   if (kind === "task_focus") {
-    return invocation?.reason || "The request did not require task prioritization.";
+    return safeReason(invocation?.reason, "Task surface not opened.");
   }
   return "This surface was not selected for the latest answer.";
 }

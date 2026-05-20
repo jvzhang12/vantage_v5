@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from vantage_v5.services.attention_role_projection import build_attention_recall_role_projection
 from vantage_v5.services.attention_role_projection import build_working_memory_view_payload
+from vantage_v5.services.context_handoff import adapt_handoff_to_generation_memory
 from vantage_v5.services.context_handoff import build_attention_recall_context_handoff
+from vantage_v5.services.context_handoff import sanitize_selected_attention_resources_for_generation
+from vantage_v5.services.search import CandidateMemory
 
 
 def _payload_has_key(value: object, forbidden_key: str) -> bool:
@@ -312,3 +315,95 @@ def test_synthetic_surface_open_placeholder_does_not_claim_llm_context() -> None
     assert view["roles"]["surface_to_open"][0]["sent_to_response_llm"] is None
     placeholder = next(resource for resource in view["resources"] if resource["resource_id"] == "artifact:missing-study-plan")
     assert placeholder.get("sent_to_response_llm") is None
+
+
+def test_handoff_adapter_preserves_generation_context_and_sanitizes_memory_trace() -> None:
+    raw_prompt = "Plan the confidential graph exam retake."
+    raw_assistant = "The private retake plan starts with BFS."
+    concept = CandidateMemory(
+        id="concept:bfs",
+        title="Breadth-First Search",
+        type="concept",
+        card="BFS explores graph layers.",
+        score=12.0,
+        reason="concept match",
+        source="concept",
+        trust="high",
+        body="BFS visits nodes in increasing distance from the start.",
+    )
+    trace = CandidateMemory(
+        id="memory_trace:turn-20260520-plan-the-confidential-graph-exam-retake",
+        title=raw_prompt,
+        type="memory_trace",
+        card=raw_assistant,
+        score=9.0,
+        reason="memory trace match",
+        source="memory_trace",
+        trust="recent",
+        body=f"USER: {raw_prompt}\nASSISTANT: {raw_assistant}",
+    )
+    response_payload = {
+        "mode": "chat",
+        "recall": [concept.to_recall_dict(), trace.to_recall_dict()],
+    }
+    handoff = build_attention_recall_context_handoff(
+        request_payload={"message": "What should I study first?"},
+        response_payload=response_payload,
+    )
+
+    adapted = adapt_handoff_to_generation_memory(
+        context_handoff=handoff,
+        legacy_vetted_memory=[concept, trace],
+    )
+
+    assert [item.id for item in adapted.memory] == ["concept:bfs", "memory_trace:prior-turn-1"]
+    assert adapted.memory[0].body == concept.body
+    sanitized_trace = adapted.memory[1]
+    assert sanitized_trace.title == "Prior turn trace"
+    assert sanitized_trace.card == "Prior turn context selected by Recall."
+    assert sanitized_trace.body == ""
+    assert not _payload_contains(sanitized_trace.to_dict(), raw_prompt)
+    assert not _payload_contains(sanitized_trace.to_dict(), raw_assistant)
+    assert adapted.trace["mode"] == "handoff_derived"
+    assert adapted.trace["parity"]["same_count"] is True
+    assert adapted.trace["sanitized_memory_trace_ids"] == ["memory_trace:prior-turn-1"]
+
+
+def test_selected_attention_memory_trace_is_sanitized_for_generation() -> None:
+    raw_phrase = "plan-the-confidential-graph-exam-retake"
+    raw_id = f"memory_trace:turn-20260520-{raw_phrase}"
+    raw_prompt = "Plan the confidential graph exam retake."
+    selected = [
+        {
+            "id": raw_id,
+            "resource_id": raw_id,
+            "kind": "memory_trace",
+            "type": "memory_trace",
+            "source": "memory_trace",
+            "source_label": raw_prompt,
+            "title": raw_prompt,
+            "label": raw_prompt,
+            "summary": raw_prompt,
+            "content": f"USER: {raw_prompt}",
+            "body": f"ASSISTANT: Private answer about {raw_prompt}",
+        },
+        {
+            "id": "artifact:study-plan",
+            "resource_id": "artifact:study-plan",
+            "kind": "artifact",
+            "title": "Study Plan",
+            "content": "Practice graph traversal.",
+        },
+    ]
+
+    sanitized = sanitize_selected_attention_resources_for_generation(selected)
+
+    assert sanitized[0]["resource_id"] == "memory_trace:prior-turn-1"
+    assert sanitized[0]["title"] == "Prior turn trace"
+    assert sanitized[0]["summary"] == "Prior turn context selected by Recall."
+    assert "body" not in sanitized[0]
+    assert "content" not in sanitized[0]
+    assert not _payload_contains(sanitized[0], raw_id)
+    assert not _payload_contains(sanitized[0], raw_phrase)
+    assert not _payload_contains(sanitized[0], raw_prompt)
+    assert sanitized[1] == selected[1]

@@ -33,6 +33,7 @@ from vantage_v5.services.turn_payloads import LocalTurnBodyParts
 from vantage_v5.services.turn_payloads import LocalTurnContext
 from vantage_v5.services.turn_payloads import ScenarioLabFallbackParts
 from vantage_v5.services.turn_payloads import ServiceTurnPayloadParts
+from vantage_v5.services.turn_payloads import sanitize_public_attention_state_payload
 from vantage_v5.services.turn_payloads import TurnInterpretationParts
 from vantage_v5.services.turn_staging import build_turn_stage
 from vantage_v5.services.turn_staging import initial_stage_progress
@@ -147,6 +148,7 @@ class TurnOrchestrator:
             selection=attention_selection,
             selected_resources=selected_attention_resources,
         )
+        public_attention_state_payload = sanitize_public_attention_state_payload(attention_state_payload)
         surface_authority = build_turn_plan_surface_authority(
             response_payload={
                 **attention_state_payload,
@@ -318,7 +320,7 @@ class TurnOrchestrator:
                     turn_stage=turn_stage,
                 )
             )
-            payload.update(attention_state_payload)
+            payload.update(public_attention_state_payload)
             return payload
         if execution_policy.blocks_denied_draft_update:
             local_context = LocalTurnContext(
@@ -349,7 +351,7 @@ class TurnOrchestrator:
                     turn_stage=turn_stage,
                 )
             )
-            payload.update(attention_state_payload)
+            payload.update(public_attention_state_payload)
             return payload
         local_semantic_parts = None
         local_semantic_write_action = _semantic_policy_has_local_write_action(semantic_policy)
@@ -395,7 +397,7 @@ class TurnOrchestrator:
                     turn_stage=turn_stage,
                 )
             )
-            payload.update(attention_state_payload)
+            payload.update(public_attention_state_payload)
             return payload
         if concept_write_blocked_by_hard_no_write:
             local_context = LocalTurnContext(
@@ -423,7 +425,7 @@ class TurnOrchestrator:
                     turn_stage=turn_stage,
                 )
             )
-            payload.update(attention_state_payload)
+            payload.update(public_attention_state_payload)
             return payload
         if not (local_semantic_blocked_by_surface or local_semantic_blocked_by_artifact_authority):
             local_semantic_parts = self.local_semantic_actions.build_turn_parts(
@@ -449,7 +451,7 @@ class TurnOrchestrator:
                     surface_invocation=surface_invocation_payload,
                 )
             )
-            payload.update(attention_state_payload)
+            payload.update(public_attention_state_payload)
             return payload
 
         if self.hooks.should_enter_scenario_lab(navigation):
@@ -539,7 +541,7 @@ class TurnOrchestrator:
                 surface_invocation=surface_invocation_payload,
             )
         )
-        payload.update(attention_state_payload)
+        payload.update(public_attention_state_payload)
         trace_path = getattr(turn, "trace_path", None)
         if trace_path:
             payload["_turn_trace_path"] = trace_path
@@ -644,7 +646,7 @@ class TurnOrchestrator:
             )
         )
         if attention_state_payload:
-            payload.update(attention_state_payload)
+            payload.update(sanitize_public_attention_state_payload(attention_state_payload))
         trace_path = getattr(turn, "trace_path", None)
         if trace_path:
             payload["_turn_trace_path"] = trace_path

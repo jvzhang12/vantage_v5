@@ -23,6 +23,13 @@ WHITEBOARD_TYPE_TO_STATUS = {
     "draft_whiteboard": "draft_ready",
 }
 WHITEBOARD_STATUS_TO_TYPE = {status: kind for kind, status in WHITEBOARD_TYPE_TO_STATUS.items()}
+PUBLIC_CURRENT_TRACE_ID = "current-turn"
+PUBLIC_PRIOR_TRACE_PREFIX = "memory_trace:prior-turn"
+MEMORY_TRACE_PUBLIC_BODY_MARKERS = (
+    "## Source Turn",
+    "## User Message",
+    "## Assistant Response",
+)
 UNSAFE_ACTIVITY_TEXT_PATTERN = re.compile(
     r"\b("
     r"memory\s+trace|debug(?:ging)?|provider|json\s+schema|turn[_\s-]?interpretation|"
@@ -230,7 +237,7 @@ def assemble_turn_interpretation_payload(parts: TurnInterpretationParts) -> dict
         "control_panel": parts.navigation.control_panel or {},
     }
     if parts.navigation.attention_selection is not None:
-        payload["attention_selection"] = parts.navigation.attention_selection
+        payload["attention_selection"] = _public_attention_selection(parts.navigation.attention_selection)
     return payload
 
 
@@ -238,8 +245,25 @@ def _turn_interpretation_payload(value: TurnInterpretationParts | dict[str, Any]
     if isinstance(value, TurnInterpretationParts):
         return assemble_turn_interpretation_payload(value)
     if isinstance(value, dict):
-        return value
+        return _public_turn_interpretation_dict(value)
     return None
+
+
+def sanitize_public_attention_state_payload(value: dict[str, Any] | None) -> dict[str, Any]:
+    """Return a browser-safe Attention state payload without changing selection authority."""
+
+    if not isinstance(value, dict):
+        return {
+            "query_frame": None,
+            "attention_candidates": [],
+            "navigator_selection": None,
+            "selected_attention_resources": [],
+        }
+    payload = dict(value)
+    payload["attention_candidates"] = _public_memory_trace_list(payload.get("attention_candidates"))
+    payload["navigator_selection"] = _public_attention_selection(payload.get("navigator_selection"))
+    payload["selected_attention_resources"] = _public_memory_trace_list(payload.get("selected_attention_resources"))
+    return payload
 
 
 def build_local_turn_parts(
@@ -364,6 +388,257 @@ def assemble_service_turn_payload(
     return attach_safe_turn_state(payload)
 
 
+def _public_memory_trace_record(
+    value: dict[str, Any] | None,
+    *,
+    recalled_ids: list[str] | None = None,
+    learned_ids: list[str] | None = None,
+) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    if not _is_memory_trace_public_item(value):
+        return dict(value)
+    payload = {
+        "id": PUBLIC_CURRENT_TRACE_ID,
+        "resource_id": PUBLIC_CURRENT_TRACE_ID,
+        "title": "Current turn trace",
+        "type": "memory_trace",
+        "card": "Current turn context was logged.",
+        "status": value.get("status"),
+        "kind": "memory_trace",
+        "memory_role": "turn_continuity",
+        "recall_status": "logged",
+        "source_tier": "recent",
+        "source": "memory_trace",
+        "source_label": "Memory Trace",
+        "scope": value.get("scope"),
+        "trace_kind": _optional_public_text(value.get("trace_kind")),
+        "turn_mode": _optional_public_text(value.get("turn_mode")),
+        "trace_scope": _optional_public_text(value.get("trace_scope")),
+        "workspace_id": _optional_public_text(value.get("workspace_id")),
+        "workspace_scope": _optional_public_text(value.get("workspace_scope")),
+        "whiteboard_in_scope": value.get("whiteboard_in_scope") if isinstance(value.get("whiteboard_in_scope"), bool) else None,
+        "grounding_mode": _optional_public_text(value.get("grounding_mode")),
+        "context_sources": _public_text_list(value.get("context_sources")),
+        "recall_count": _optional_public_int(value.get("recall_count")),
+        "working_memory_count": _optional_public_int(value.get("working_memory_count")),
+        "history_count": _optional_public_int(value.get("history_count")),
+        "learned_count": _optional_public_int(value.get("learned_count")),
+        "recalled_ids": recalled_ids if recalled_ids is not None else _public_safe_id_list(value.get("recalled_ids")),
+        "recalled_sources": _public_text_list(value.get("recalled_sources")),
+        "learned_ids": learned_ids if learned_ids is not None else _public_safe_id_list(value.get("learned_ids")),
+        "learned_sources": _public_text_list(value.get("learned_sources")),
+        "pending_workspace_status": _optional_public_text(value.get("pending_workspace_status")),
+        "preserved_context_id": _public_safe_id(value.get("preserved_context_id"), fallback_alias=f"{PUBLIC_PRIOR_TRACE_PREFIX}-1"),
+        "preserved_context_source": _optional_public_text(value.get("preserved_context_source")),
+    }
+    return {key: item for key, item in payload.items() if item not in (None, "", [], {})}
+
+
+def _public_attention_selection(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    payload = dict(value)
+    for key in ("selected_ids", "supporting_resource_ids", "rejected_candidate_ids"):
+        if key in payload:
+            payload[key] = _public_safe_id_list(payload.get(key))
+    if "primary_resource_id" in payload:
+        payload["primary_resource_id"] = _public_safe_id(
+            payload.get("primary_resource_id"),
+            fallback_alias=f"{PUBLIC_PRIOR_TRACE_PREFIX}-1",
+        )
+    surface_to_open = payload.get("surface_to_open")
+    if isinstance(surface_to_open, dict):
+        safe_surface = dict(surface_to_open)
+        for key in ("id", "resource_id"):
+            if key in safe_surface:
+                safe_surface[key] = _public_safe_id(safe_surface.get(key), fallback_alias=f"{PUBLIC_PRIOR_TRACE_PREFIX}-1")
+        payload["surface_to_open"] = safe_surface
+    return payload
+
+
+def _public_turn_interpretation_dict(value: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(value)
+    if "attention_selection" in payload:
+        payload["attention_selection"] = _public_attention_selection(payload.get("attention_selection"))
+    return payload
+
+
+def _public_vetting_payload(value: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    payload = dict(value)
+    if "selected_ids" in payload:
+        payload["selected_ids"] = _public_safe_id_list(payload.get("selected_ids"))
+    return payload
+
+
+def _public_memory_trace_list(values: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    sanitized: list[dict[str, Any]] = []
+    trace_index = 0
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        if _is_memory_trace_public_item(item):
+            trace_index += 1
+            sanitized.append(_public_memory_trace_item(item, alias=f"{PUBLIC_PRIOR_TRACE_PREFIX}-{trace_index}"))
+        else:
+            sanitized.append(dict(item))
+    return sanitized
+
+
+def _public_memory_trace_item(value: dict[str, Any], *, alias: str) -> dict[str, Any]:
+    reason = _public_memory_trace_reason(value)
+    payload = {
+        "id": alias,
+        "resource_id": alias,
+        "title": "Prior turn trace",
+        "type": "memory_trace",
+        "card": "Prior turn context selected by Recall.",
+        "kind": "memory_trace",
+        "memory_role": value.get("memory_role") or "turn_continuity",
+        "recall_status": value.get("recall_status") or "candidate",
+        "source_tier": value.get("source_tier") or "recent",
+        "score": value.get("score"),
+        "reason": "memory_trace: public_safe_alias",
+        "source": "memory_trace",
+        "source_label": "Memory Trace",
+        "scope": value.get("scope"),
+        "durability": value.get("durability"),
+        "is_canonical": value.get("is_canonical") if isinstance(value.get("is_canonical"), bool) else None,
+        "trust": value.get("trust"),
+        "recall_reason": reason,
+        "why_recalled": reason,
+        "app": value.get("app") if value.get("app") not in (None, "") else None,
+        "source_status": _public_source_status(value.get("source_status")),
+        "timestamps": _public_timestamps(value.get("timestamps")),
+        "suggested_surface": value.get("suggested_surface"),
+        "why_selected": "Prior Memory Trace context selected for this turn."
+        if value.get("why_selected")
+        else None,
+        "data": _public_memory_trace_data(value.get("data")),
+    }
+    return {key: item for key, item in payload.items() if item not in (None, "", [], {})}
+
+
+def _is_memory_trace_public_item(value: dict[str, Any]) -> bool:
+    values = {
+        str(value.get("kind") or "").strip().lower(),
+        str(value.get("type") or "").strip().lower(),
+        str(value.get("source") or "").strip().lower(),
+        str(value.get("memory_role") or "").strip().lower(),
+        str(value.get("source_tier") or "").strip().lower(),
+        str(value.get("app") or "").strip().lower(),
+    }
+    identifier = str(value.get("id") or value.get("resource_id") or "").strip().lower()
+    return (
+        "memory_trace" in values
+        or identifier.startswith("memory_trace:")
+        or identifier.startswith("turn-")
+        or _has_memory_trace_source_body(value)
+    )
+
+
+def _has_memory_trace_source_body(value: dict[str, Any]) -> bool:
+    text = "\n".join(
+        str(value.get(key) or "")
+        for key in ("body", "content", "excerpt", "summary", "card", "title")
+        if value.get(key) is not None
+    )
+    if any(marker in text for marker in MEMORY_TRACE_PUBLIC_BODY_MARKERS):
+        return True
+    title = str(value.get("title") or "").strip().lower()
+    return title.startswith("turn trace:")
+
+
+def _public_memory_trace_reason(value: dict[str, Any]) -> str:
+    existing = str(value.get("recall_reason") or value.get("why_recalled") or "").strip()
+    if existing and not _looks_like_memory_trace_id(existing) and "## " not in existing:
+        return existing
+    return "Prior Memory Trace context selected by Recall."
+
+
+def _public_safe_id_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    safe: list[str] = []
+    trace_index = 0
+    for item in value:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        if _looks_like_memory_trace_id(text):
+            trace_index += 1
+            safe.append(f"{PUBLIC_PRIOR_TRACE_PREFIX}-{trace_index}")
+        else:
+            safe.append(text)
+    return safe
+
+
+def _public_safe_id(value: Any, *, fallback_alias: str) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if _looks_like_memory_trace_id(text):
+        return fallback_alias
+    return text
+
+
+def _looks_like_memory_trace_id(value: str) -> bool:
+    text = str(value or "").strip().lower()
+    return text.startswith("memory_trace:") or text.startswith("turn-") or ":turn-" in text
+
+
+def _public_text_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [text for text in (_optional_public_text(item) for item in value) if text]
+
+
+def _optional_public_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _optional_public_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _public_source_status(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: value.get(key)
+        for key in ("store", "trust", "read_only", "writable")
+        if key in value and value.get(key) not in (None, "", {}, [])
+    }
+
+
+def _public_timestamps(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: value.get(key)
+        for key in ("file_modified_at", "file_created_at", "created_at", "updated_at")
+        if key in value and value.get(key) not in (None, "", {}, [])
+    }
+
+
+def _public_memory_trace_data(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: item
+        for key, item in value.items()
+        if key in {"trace_kind", "turn_mode", "trace_scope"} and item not in (None, "", {}, [])
+    }
+
+
 def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
     learned = _record_list(parts.learned)
     created_record = parts.created_record if isinstance(parts.created_record, dict) else (learned[0] if learned else None)
@@ -371,8 +646,23 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
         ensure_write_review(record)
     if created_record is not None:
         ensure_write_review(created_record)
+    trace_notes = _public_memory_trace_list(parts.trace_notes)
+    candidate_trace_notes = _public_memory_trace_list(parts.candidate_trace_notes)
+    concept_cards = _public_memory_trace_list(parts.concept_cards)
+    candidate_concepts = _public_memory_trace_list(parts.candidate_concepts)
+    candidate_saved_notes = _public_memory_trace_list(parts.candidate_saved_notes)
+    candidate_vault_notes = _public_memory_trace_list(parts.candidate_vault_notes)
+    candidate_memory_results = _public_memory_trace_list(parts.candidate_memory)
+    working_memory = _public_memory_trace_list(parts.working_memory)
+    recall_details = _public_memory_trace_list(parts.recall_details)
+    selected_attention_resources = _public_memory_trace_list(parts.selected_attention_resources or [])
     selected_memory = _turn_memory_payload(parts.saved_notes, parts.vault_notes)
     candidate_memory = _turn_memory_payload(parts.candidate_saved_notes, parts.candidate_vault_notes)
+    memory_trace_record = _public_memory_trace_record(
+        parts.memory_trace_record,
+        recalled_ids=[str(item.get("id") or "") for item in working_memory if isinstance(item, dict) and item.get("id")],
+        learned_ids=[str(item.get("id") or "") for item in learned if isinstance(item, dict) and item.get("id")],
+    )
     payload = {
         "user_message": parts.user_message,
         "assistant_message": parts.assistant_message,
@@ -383,28 +673,28 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
         },
         "workspace_update": parts.workspace_update,
         "visible_artifacts": parts.visible_artifacts or [],
-        "selected_attention_resources": parts.selected_attention_resources or [],
+        "selected_attention_resources": selected_attention_resources,
         "protocol_write_authority": parts.protocol_write_authority,
         "memory": selected_memory,
         "selected_memory": selected_memory,
         "candidate_memory": candidate_memory,
-        "concept_cards": parts.concept_cards,
+        "concept_cards": concept_cards,
         "saved_notes": parts.saved_notes,
         "vault_notes": parts.vault_notes,
         "turn_vault_notes": parts.vault_notes,
-        "candidate_concepts": parts.candidate_concepts,
-        "trace_notes": parts.trace_notes,
-        "candidate_trace_notes": parts.candidate_trace_notes,
-        "candidate_saved_notes": parts.candidate_saved_notes,
-        "candidate_vault_notes": parts.candidate_vault_notes,
-        "candidate_memory_results": parts.candidate_memory,
-        "recall": parts.working_memory,
-        "working_memory": parts.working_memory,
-        "recall_details": parts.recall_details,
+        "candidate_concepts": candidate_concepts,
+        "trace_notes": trace_notes,
+        "candidate_trace_notes": candidate_trace_notes,
+        "candidate_saved_notes": candidate_saved_notes,
+        "candidate_vault_notes": candidate_vault_notes,
+        "candidate_memory_results": candidate_memory_results,
+        "recall": working_memory,
+        "working_memory": working_memory,
+        "recall_details": recall_details,
         "learned": learned,
-        "memory_trace_record": parts.memory_trace_record,
+        "memory_trace_record": memory_trace_record,
         "response_mode": parts.response_mode,
-        "vetting": parts.vetting,
+        "vetting": _public_vetting_payload(parts.vetting),
         "mode": parts.mode,
         "meta_action": parts.meta_action,
         "graph_action": parts.graph_action,
@@ -424,8 +714,19 @@ def assemble_scenario_lab_turn_body(parts: ScenarioLabTurnBodyParts) -> dict[str
         ensure_write_review(record)
     if created_record is not None:
         ensure_write_review(created_record)
+    concept_cards = _public_memory_trace_list(parts.concept_cards)
+    candidate_concepts = _public_memory_trace_list(parts.candidate_concepts)
+    candidate_saved_notes = _public_memory_trace_list(parts.candidate_saved_notes)
+    candidate_vault_notes = _public_memory_trace_list(parts.candidate_vault_notes)
+    candidate_memory_results = _public_memory_trace_list(parts.candidate_memory)
+    working_memory = _public_memory_trace_list(parts.working_memory)
     selected_memory = _turn_memory_payload(parts.saved_notes, parts.vault_notes)
     candidate_memory = _turn_memory_payload(parts.candidate_saved_notes, parts.candidate_vault_notes)
+    memory_trace_record = _public_memory_trace_record(
+        parts.memory_trace_record,
+        recalled_ids=[str(item.get("id") or "") for item in working_memory if isinstance(item, dict) and item.get("id")],
+        learned_ids=[str(item.get("id") or "") for item in learned if isinstance(item, dict) and item.get("id")],
+    )
     payload = {
         "user_message": parts.user_message,
         "assistant_message": parts.assistant_message,
@@ -437,20 +738,20 @@ def assemble_scenario_lab_turn_body(parts: ScenarioLabTurnBodyParts) -> dict[str
         "memory": selected_memory,
         "selected_memory": selected_memory,
         "candidate_memory": candidate_memory,
-        "concept_cards": parts.concept_cards,
+        "concept_cards": concept_cards,
         "saved_notes": parts.saved_notes,
         "vault_notes": parts.vault_notes,
         "turn_vault_notes": parts.vault_notes,
-        "candidate_concepts": parts.candidate_concepts,
-        "candidate_saved_notes": parts.candidate_saved_notes,
-        "candidate_vault_notes": parts.candidate_vault_notes,
-        "candidate_memory_results": parts.candidate_memory,
-        "recall": parts.working_memory,
-        "working_memory": parts.working_memory,
+        "candidate_concepts": candidate_concepts,
+        "candidate_saved_notes": candidate_saved_notes,
+        "candidate_vault_notes": candidate_vault_notes,
+        "candidate_memory_results": candidate_memory_results,
+        "recall": working_memory,
+        "working_memory": working_memory,
         "learned": learned,
-        "memory_trace_record": parts.memory_trace_record,
+        "memory_trace_record": memory_trace_record,
         "response_mode": parts.response_mode,
-        "vetting": parts.vetting,
+        "vetting": _public_vetting_payload(parts.vetting),
         "mode": "scenario_lab",
         "meta_action": {
             "action": "no_op",

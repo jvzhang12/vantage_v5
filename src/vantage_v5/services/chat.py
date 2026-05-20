@@ -9,7 +9,9 @@ import re
 from typing import Any
 
 from vantage_v5.services.attention_role_projection import build_working_memory_view_payload
+from vantage_v5.services.context_handoff import adapt_handoff_to_generation_memory
 from vantage_v5.services.context_handoff import build_attention_recall_context_handoff
+from vantage_v5.services.context_handoff import sanitize_selected_attention_resources_for_generation
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_card_fields
 from vantage_v5.services.draft_artifact_lifecycle import artifact_lifecycle_kind
 from vantage_v5.services.executor import ExecutedAction
@@ -352,6 +354,30 @@ class ChatService:
                 selected_memory,
                 continuity_reason=selected_record_reason,
             )
+        recall_details = [candidate.to_recall_dict() for candidate in vetted_memory]
+        generation_context_handoff = build_attention_recall_context_handoff(
+            request_payload={
+                "message": message,
+                "pinned_context_id": selected_record_id if preserve_selected_memory else None,
+            },
+            response_payload={
+                "mode": "chat" if self.client else "fallback",
+                "selected_attention_resources": selected_attention_resources,
+                "visible_artifacts": visible_artifacts,
+                "recall": recall_details,
+                "pinned_context": selected_memory.to_recall_dict()
+                if preserve_selected_memory and selected_memory is not None
+                else None,
+            },
+        )
+        generation_context = adapt_handoff_to_generation_memory(
+            context_handoff=generation_context_handoff,
+            legacy_vetted_memory=vetted_memory,
+        )
+        generation_memory = list(generation_context.memory)
+        generation_selected_attention_resources = sanitize_selected_attention_resources_for_generation(
+            selected_attention_resources,
+        )
         vetted_concepts = [item for item in vetted_memory if item.source == "concept"]
         vetted_trace_notes = [item for item in vetted_memory if item.source == "memory_trace"]
         vetted_saved_notes = [item for item in vetted_memory if item.source in {"memory", "artifact"}]
@@ -374,12 +400,12 @@ class ChatService:
                     message=message,
                     workspace=workspace,
                     history=history,
-                    vetted_memory=vetted_memory,
+                    vetted_memory=generation_memory,
                     selected_memory=selected_memory if preserve_selected_memory else None,
                     whiteboard_mode=whiteboard_mode,
                     pending_workspace_update=pending_workspace_update,
                     visible_artifacts=visible_artifacts,
-                    selected_attention_resources=selected_attention_resources,
+                    selected_attention_resources=generation_selected_attention_resources,
                     app_capabilities=app_capabilities,
                     turn_stage=turn_stage,
                     allow_workspace_update=allow_workspace_update,
@@ -391,7 +417,7 @@ class ChatService:
                 assistant_message, workspace_draft, workspace_offer = self._fallback_reply(
                     message=message,
                     workspace=workspace,
-                    vetted_memory=vetted_memory,
+                    vetted_memory=generation_memory,
                     whiteboard_mode=whiteboard_mode,
                     pending_workspace_update=pending_workspace_update,
                     fallback_reason="provider_error",
@@ -432,7 +458,7 @@ class ChatService:
             assistant_message, workspace_draft, workspace_offer = self._fallback_reply(
                 message=message,
                 workspace=workspace,
-                vetted_memory=vetted_memory,
+                vetted_memory=generation_memory,
                 whiteboard_mode=whiteboard_mode,
                 pending_workspace_update=pending_workspace_update,
             )
@@ -472,7 +498,6 @@ class ChatService:
             history_has_context=bool(history),
             pending_workspace_has_context=bool(pending_workspace_update),
         )
-        recall_details = [candidate.to_recall_dict() for candidate in vetted_memory]
         assistant_message = finalize_assistant_message(
             assistant_message,
             response_mode=response_mode,
@@ -692,6 +717,7 @@ class ChatService:
             workspace_is_transient=workspace_is_transient,
             workspace_scope=workspace_scope,
             visible_artifacts=visible_artifacts,
+            generation_context=generation_context.trace,
         )
         turn.trace_path = str(trace_path)
         return turn
@@ -1189,6 +1215,7 @@ class ChatService:
         workspace_is_transient: bool = False,
         workspace_scope: str = "excluded",
         visible_artifacts: list[dict[str, Any]] | None = None,
+        generation_context: dict[str, Any] | None = None,
     ) -> Path:
         self.traces_dir.mkdir(parents=True, exist_ok=True)
         trace_path = self._next_trace_path()
@@ -1212,6 +1239,7 @@ class ChatService:
                     "pending_workspace_update": pending_workspace_update,
                     "workspace_scope": workspace_scope,
                     "visible_artifacts": visible_artifacts or [],
+                    "generation_context": generation_context or {},
                 },
                 indent=2,
             ),
@@ -1377,11 +1405,93 @@ def build_final_response_trace_payload(
         "turn_interpretation": response_payload.get("turn_interpretation"),
         "semantic_frame": response_payload.get("semantic_frame"),
         "semantic_policy": response_payload.get("semantic_policy"),
+        "generation_context_parity": _generation_context_parity_trace(
+            context_handoff=context_handoff,
+            response_payload=response_payload,
+        ),
         "attention_recall_context_handoff": context_handoff.to_trace_payload(),
         "attention_recall_role_projection": role_projection,
         "working_memory_view": working_memory_view,
         "turn_plan": turn_plan,
     }
+
+
+def _generation_context_parity_trace(
+    *,
+    context_handoff: Any,
+    response_payload: dict[str, Any],
+) -> dict[str, Any]:
+    handoff_recall_ids = list(context_handoff.comparison.get("recall_resource_ids") or [])
+    legacy_recall_ids = [
+        _trace_resource_id(item, memory_trace_alias=f"memory_trace:legacy-recall-{index}")
+        for index, item in enumerate(response_payload.get("recall") or response_payload.get("working_memory") or [], start=1)
+        if isinstance(item, dict)
+    ]
+    legacy_candidate_ids = [
+        _trace_resource_id(item, memory_trace_alias=f"memory_trace:legacy-candidate-{index}")
+        for index, item in enumerate(response_payload.get("candidate_memory_results") or [], start=1)
+        if isinstance(item, dict)
+    ]
+    normalized_legacy_recall_ids = _normalize_memory_trace_equivalence_ids(legacy_recall_ids)
+    normalized_handoff_recall_ids = _normalize_memory_trace_equivalence_ids(handoff_recall_ids)
+    return {
+        "schema": "generation_context_parity.v1",
+        "generation_source": "attention_recall_context_handoff",
+        "legacy_recall_ids": _unique_trace_ids(legacy_recall_ids),
+        "handoff_recall_resource_ids": _unique_trace_ids(handoff_recall_ids),
+        "normalized_legacy_recall_ids": normalized_legacy_recall_ids,
+        "normalized_handoff_recall_ids": normalized_handoff_recall_ids,
+        "legacy_search_context_candidate_ids": _unique_trace_ids(legacy_candidate_ids),
+        "mismatch": normalized_legacy_recall_ids != normalized_handoff_recall_ids,
+        "blocking": False,
+        "notes": [
+            "Compares handoff-derived generation recall ids with legacy recall/search_context trace ids.",
+            "Mismatches are visible for diagnostics only and do not block generation or writes.",
+        ],
+    }
+
+
+def _trace_resource_id(item: dict[str, Any], *, memory_trace_alias: str) -> str:
+    if _trace_item_is_memory_trace(item):
+        return memory_trace_alias
+    raw = item.get("resource_id") or item.get("id") or item.get("record_id") or item.get("concept_id")
+    return str(raw or "").strip()
+
+
+def _trace_item_is_memory_trace(item: dict[str, Any]) -> bool:
+    values = {
+        str(item.get("kind") or "").strip().lower(),
+        str(item.get("type") or "").strip().lower(),
+        str(item.get("source") or "").strip().lower(),
+        str(item.get("memory_role") or "").strip().lower(),
+        str(item.get("source_tier") or "").strip().lower(),
+    }
+    identifier = str(item.get("id") or item.get("resource_id") or "").strip().lower()
+    return "memory_trace" in values or identifier.startswith("memory_trace:")
+
+
+def _normalize_memory_trace_equivalence_ids(values: list[Any]) -> list[str]:
+    memory_trace_index = 0
+    normalized: list[str] = []
+    for value in _unique_trace_ids(values):
+        text = str(value or "").strip()
+        if text.startswith("memory_trace:"):
+            memory_trace_index += 1
+            normalized.append(f"memory_trace:item-{memory_trace_index}")
+        else:
+            normalized.append(text)
+    return normalized
+
+
+def _unique_trace_ids(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    unique_values: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            unique_values.append(text)
+    return unique_values
 
 
 def _coerce_trace_path(value: str | Path | None) -> Path | None:

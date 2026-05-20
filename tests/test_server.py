@@ -538,6 +538,13 @@ def _payload_contains(value: Any, needle: str) -> bool:
     return False
 
 
+def _memory_trace_path_containing(repo_root: Path, phrase: str) -> Path:
+    for path in (repo_root / "memory_trace").glob("turn-*.md"):
+        if phrase in path.read_text(encoding="utf-8"):
+            return path
+    raise AssertionError(f"No Memory Trace file contained {phrase!r}")
+
+
 def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     client, repo_root = _client(tmp_path)
 
@@ -6658,10 +6665,8 @@ def test_chat_public_payload_sanitizes_memory_trace_records_and_turn_ids(tmp_pat
     )
     assert first.status_code == 200
     first_payload = first.json()
-    trace_paths = list((repo_root / "memory_trace").glob("turn-*.md"))
-    assert trace_paths
-    raw_trace_id = trace_paths[0].stem
-    assert private_prompt_phrase in trace_paths[0].read_text(encoding="utf-8")
+    trace_path = _memory_trace_path_containing(repo_root, private_prompt_phrase)
+    raw_trace_id = trace_path.stem
     assert first_payload["memory_trace_record"]["id"] == "current-turn"
     assert "body" not in first_payload["memory_trace_record"]
     assert "content" not in first_payload["memory_trace_record"]
@@ -6743,9 +6748,7 @@ def test_chat_generation_uses_handoff_context_and_sanitizes_memory_trace(tmp_pat
     )
     assert first.status_code == 200
     first_payload = first.json()
-    raw_trace_paths = list((repo_root / "memory_trace").glob("turn-*.md"))
-    assert raw_trace_paths
-    raw_trace_id = raw_trace_paths[0].stem
+    raw_trace_id = _memory_trace_path_containing(repo_root, "Jerry likes warm, short check-in emails from Jordan.").stem
     assert first_payload["memory_trace_record"]["id"] == "current-turn"
 
     second = client.post(

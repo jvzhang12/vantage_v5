@@ -59,11 +59,10 @@ This audit covers browser-facing frontend entrypoints, generated/static bundle p
   - `README.md`
   - `docs/architecture-overview.md`
   - `docs/codebase/webapp/README.md`
+  - `docs/vantage-codebase-functionality-map.md`
   - React mirrored summaries under `docs/codebase/webapp/src/vantage_v5/webapp_react/`
   - `docs/vantage-capability-interface-map.md`
-- Docs that still describe the older static shell as the frontend path include:
-  - `docs/vantage-codebase-functionality-map.md`
-  - UI research and archived implementation-plan documents that intentionally describe historical vanilla webapp slices.
+- UI research and archived implementation-plan documents still describe historical vanilla webapp slices, but they are not current frontend serving contracts.
 
 ## Active Versus Legacy Assessment
 
@@ -120,7 +119,7 @@ Suspected legacy, not safe to delete in this slice:
    - Retire tests that only assert legacy HTML/cache-busting behavior once server fallback is no longer product-supported.
 
 3. Docs cleanup:
-   - Update active docs such as `docs/vantage-codebase-functionality-map.md` to describe the React/generated path.
+   - Keep active docs aligned with the React/generated serving contract.
    - Leave archived UI research and implementation plans unchanged unless they claim to be current.
 
 4. Fallback policy decision:

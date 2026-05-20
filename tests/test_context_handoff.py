@@ -215,10 +215,16 @@ def test_memory_trace_resources_are_public_safe_across_handoff_projection_and_vi
 def test_memory_trace_prompt_derived_storage_ids_are_aliased_publicly() -> None:
     raw_phrase = "can-you-help-me-plan-the-confidential-graph-exam-retake"
     raw_id = f"memory_trace:turn-20260520-{raw_phrase}"
+    raw_record_id = f"turn-20260520-120000-{raw_phrase}"
     raw_prompt = "Can you help me plan the confidential graph exam retake?"
     raw_assistant = "The confidential graph exam retake plan should stay private."
     response_payload = {
         "mode": "chat",
+        "memory_trace_record": {
+            "id": raw_record_id,
+            "source": "memory_trace",
+            "turn_mode": "chat",
+        },
         "recall": [
             {
                 "id": raw_id,
@@ -258,12 +264,14 @@ def test_memory_trace_prompt_derived_storage_ids_are_aliased_publicly() -> None:
     for payload in (trace_payload, projection, view):
         assert _payload_contains(payload, safe_alias)
         assert not _payload_contains(payload, raw_id)
+        assert not _payload_contains(payload, raw_record_id)
         assert not _payload_contains(payload, raw_phrase)
         assert not _payload_contains(payload, raw_prompt)
         assert not _payload_contains(payload, raw_assistant)
         assert payload["roles"]["recall_context"][0]["resource_id"] == safe_alias
         assert payload["comparison"]["recall_resource_ids"] == [safe_alias]
 
+    assert view["turn"]["trace_id"] == "current-turn"
     assert trace_payload["resources"][0]["id"] == safe_alias
     assert trace_payload["resources"][0]["resource_id"] == safe_alias
     assert trace_payload["roles"]["answer_context"][0]["resource_id"] == safe_alias

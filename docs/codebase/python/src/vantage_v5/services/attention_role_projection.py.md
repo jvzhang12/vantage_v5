@@ -22,3 +22,4 @@ Helpers for projecting finalized `/api/chat` context into product-safe Attention
 - The underlying context handoff compares selected Attention ids with legacy Recall ids so trace readers can see overlap and gaps while `ChatService.search_context()` remains unchanged.
 - Excerpts are bounded and intended for provenance/debugging only; this module does not expose hidden model reasoning or full artifact bodies.
 - `working_memory_view` is public by default in `/api/chat`, but it stays compact: resources carry ids, titles, roles, origins, flags, provenance, short excerpts, LLM-sent markers, and influence flags; execution summary carries surface mode plus write/proposal categories rather than full created content.
+- Public `working_memory_view.turn.trace_id` uses a bounded non-prompt-derived alias for the current turn instead of copying raw Memory Trace storage ids, which can include user-message slugs.

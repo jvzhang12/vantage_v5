@@ -66,7 +66,7 @@ def build_working_memory_view_payload(
         for role in ROLE_NAMES
     }
     trace_record = response_payload.get("memory_trace_record")
-    trace_id = trace_record.get("id") if isinstance(trace_record, dict) else None
+    trace_id = _public_turn_trace_id(trace_record)
     turn_request = plan.get("request") if isinstance(plan.get("request"), dict) else {}
     return {
         "schema": WORKING_MEMORY_VIEW_VERSION,
@@ -276,6 +276,16 @@ def _response_mode_kind(value: Any) -> str | None:
     if isinstance(value, dict):
         return _clean_optional(value.get("kind") or value.get("mode"))
     return _clean_optional(value)
+
+
+def _public_turn_trace_id(value: Any) -> str | None:
+    """Return a stable public alias without exposing Memory Trace storage ids."""
+
+    if not isinstance(value, dict):
+        return None
+    if not _clean_optional(value.get("id")):
+        return None
+    return "current-turn"
 
 
 def _list_of_dicts(value: Any) -> list[dict[str, Any]]:

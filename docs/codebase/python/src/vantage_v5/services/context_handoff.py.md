@@ -19,4 +19,6 @@ Internal read model for Attention, Recall, and Working Memory context handoff.
 - Roles are `answer_context`, `recall_context`, `surface_to_open`, `protocol_guidance`, and `pinned_or_continuity_context`.
 - The handoff compares selected Attention resource ids with legacy Recall ids so traces can show overlap and gaps while `ChatService.search_context()` remains unchanged.
 - Summaries/excerpts are bounded and full `content` / `body` fields are never copied into the handoff.
+- Memory Trace resources are public-sanitized as categorical prior-turn traces so raw user/assistant turn text is not copied into title, label, summary, or excerpt fields.
+- Synthetic `surface_to_open` placeholders that were not observed in selected, visible, recalled, or pinned context keep `sent_to_response_llm` unknown instead of claiming they grounded generation.
 - This module is observability/read-model plumbing only; it is not semantic intent authority and it does not affect prompts or writes.

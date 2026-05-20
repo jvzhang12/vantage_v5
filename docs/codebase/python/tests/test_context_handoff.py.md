@@ -15,3 +15,5 @@ Focused unit tests for the internal Attention/Recall context handoff.
 - Pinned context appears in `pinned_or_continuity_context`.
 - Handoff comparison records selected-vs-recall overlap and gaps.
 - Working Memory view construction remains bounded and keeps write execution summaries separate from resource bodies.
+- Memory Trace resources with raw prompt/assistant-derived fields are sanitized across handoff, role projection, and Working Memory view payloads.
+- Synthetic surface-open placeholders preserve the open-target role without claiming they were sent to the response LLM.

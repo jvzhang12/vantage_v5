@@ -13,6 +13,16 @@ def _payload_has_key(value: object, forbidden_key: str) -> bool:
     return False
 
 
+def _payload_contains(value: object, needle: str) -> bool:
+    if isinstance(value, dict):
+        return any(_payload_contains(key, needle) or _payload_contains(item, needle) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_payload_contains(item, needle) for item in value)
+    if isinstance(value, str):
+        return needle in value
+    return False
+
+
 def test_context_handoff_groups_attention_recall_protocol_visible_and_pinned_roles() -> None:
     long_body = " ".join(["graph traversal details"] * 80)
     request_payload = {
@@ -141,3 +151,95 @@ def test_role_projection_and_working_memory_view_are_built_from_context_handoff(
     assert view["execution_summary"]["writes"]["categories"] == ["none"]
     assert not _payload_has_key(view, "body")
     assert not _payload_has_key(view, "raw_prompt")
+
+
+def test_memory_trace_resources_are_public_safe_across_handoff_projection_and_view() -> None:
+    raw_prompt = "Can you help me plan the confidential graph exam retake?"
+    raw_assistant = "Sure, your private retake plan should start with BFS and DFS."
+    response_payload = {
+        "mode": "chat",
+        "recall": [
+            {
+                "id": "memory_trace:turn-20260520",
+                "resource_id": "memory_trace:turn-20260520",
+                "kind": "memory_trace",
+                "source": "memory_trace",
+                "title": raw_prompt,
+                "label": raw_prompt,
+                "summary": raw_prompt,
+                "card": raw_assistant,
+                "excerpt": raw_assistant,
+                "body": f"USER: {raw_prompt}\nASSISTANT: {raw_assistant}",
+                "content": f"{raw_prompt}\n{raw_assistant}",
+            }
+        ],
+        "workspace_update": None,
+        "graph_action": None,
+        "created_record": None,
+        "artifact_actions": [],
+    }
+
+    handoff = build_attention_recall_context_handoff(
+        request_payload={"message": raw_prompt},
+        response_payload=response_payload,
+    )
+    trace_payload = handoff.to_trace_payload()
+    projection = build_attention_recall_role_projection(
+        request_payload={"message": raw_prompt},
+        response_payload=response_payload,
+    )
+    view = build_working_memory_view_payload(
+        request_payload={"message": raw_prompt},
+        response_payload=response_payload,
+        context_handoff=handoff,
+        turn_plan={"version": "test", "write_ledger": {"categories": ["none"]}},
+    )
+
+    for payload in (trace_payload, projection, view):
+        assert not _payload_contains(payload, raw_prompt)
+        assert not _payload_contains(payload, raw_assistant)
+        assert not _payload_has_key(payload, "body")
+        assert not _payload_has_key(payload, "content")
+    memory_trace_resource = next(resource for resource in trace_payload["resources"] if resource["resource_id"] == "memory_trace:turn-20260520")
+    assert memory_trace_resource["title"] == "Prior turn trace"
+    assert memory_trace_resource["label"] == "Prior turn trace"
+    assert memory_trace_resource["summary"] == "Prior turn context selected by Recall."
+    assert memory_trace_resource["excerpt"] is None
+    assert trace_payload["roles"]["recall_context"][0]["resource_id"] == "memory_trace:turn-20260520"
+
+
+def test_synthetic_surface_open_placeholder_does_not_claim_llm_context() -> None:
+    response_payload = {
+        "mode": "chat",
+        "navigator_selection": {
+            "surface_to_open": "whiteboard",
+            "primary_resource_id": "artifact:missing-study-plan",
+        },
+        "surface_invocation": {
+            "primary_surface": "whiteboard",
+            "write_behavior": "open_only",
+        },
+    }
+
+    handoff = build_attention_recall_context_handoff(
+        request_payload={"message": "Open the missing study plan"},
+        response_payload=response_payload,
+    )
+    trace_payload = handoff.to_trace_payload()
+    projection = build_attention_recall_role_projection(
+        request_payload={"message": "Open the missing study plan"},
+        response_payload=response_payload,
+    )
+    view = build_working_memory_view_payload(
+        request_payload={"message": "Open the missing study plan"},
+        response_payload=response_payload,
+        context_handoff=handoff,
+        turn_plan={"version": "test", "write_ledger": {"categories": ["open_only_no_write"]}},
+    )
+
+    assert trace_payload["roles"]["surface_to_open"][0]["resource_id"] == "artifact:missing-study-plan"
+    assert trace_payload["roles"]["surface_to_open"][0]["sent_to_response_llm"] is None
+    assert projection["roles"]["surface_to_open"][0]["sent_to_response_llm"] is None
+    assert view["roles"]["surface_to_open"][0]["sent_to_response_llm"] is None
+    placeholder = next(resource for resource in view["resources"] if resource["resource_id"] == "artifact:missing-study-plan")
+    assert placeholder.get("sent_to_response_llm") is None

@@ -164,12 +164,14 @@ def build_attention_recall_context_handoff(
         merge_resource(resources, resource)
         pinned_ids.append(resource["resource_id"])
 
+    observed_context_ids = set(resources)
     for item in surface_open_resources(response_payload):
+        resource_id = resource_id_from_item(item)
         resource = compact_resource(
             item,
             roles=["surface_to_open"],
             origins=["navigator_surface_open"],
-            sent_to_response_llm=sent_to_llm,
+            sent_to_response_llm=sent_to_llm if resource_id in observed_context_ids else None,
         )
         merge_resource(resources, resource)
 
@@ -216,6 +218,20 @@ def compact_resource(
 ) -> dict[str, Any]:
     resource_id = resource_id_from_item(item, visible=visible)
     source_status = item.get("source_status") if isinstance(item.get("source_status"), dict) else {}
+    memory_trace = is_memory_trace_resource(item)
+    kind = "memory_trace" if memory_trace else (clean_optional(item.get("kind") or item.get("type")) or "resource")
+    title = (
+        memory_trace_public_title(item)
+        if memory_trace
+        else clean_optional(item.get("title") or item.get("label") or resource_id)
+    )
+    label = "Prior turn trace" if memory_trace else clean_optional(item.get("label"))
+    summary = (
+        "Prior turn context selected by Recall."
+        if memory_trace
+        else short_text(item.get("summary") or item.get("card"), limit=SUMMARY_LIMIT)
+    )
+    excerpt = None if memory_trace else short_text(item.get("excerpt") or item.get("content") or item.get("body"), limit=EXCERPT_LIMIT)
     provenance = {
         "source": clean_optional(item.get("source")),
         "source_label": clean_optional(item.get("source_label")),
@@ -231,10 +247,10 @@ def compact_resource(
     return {
         "id": clean_optional(item.get("id")) or resource_id,
         "resource_id": resource_id,
-        "kind": clean_optional(item.get("kind") or item.get("type")) or "resource",
+        "kind": kind,
         "type": clean_optional(item.get("type")),
-        "title": clean_optional(item.get("title") or item.get("label") or resource_id),
-        "label": clean_optional(item.get("label")),
+        "title": title or resource_id,
+        "label": label,
         "roles": unique(roles),
         "origins": unique(origins),
         "flags": {
@@ -242,8 +258,8 @@ def compact_resource(
             "visible": visible,
             "pinned": pinned,
         },
-        "summary": short_text(item.get("summary") or item.get("card"), limit=SUMMARY_LIMIT),
-        "excerpt": short_text(item.get("excerpt") or item.get("content") or item.get("body"), limit=EXCERPT_LIMIT),
+        "summary": summary,
+        "excerpt": excerpt,
         "sent_to_response_llm": sent_to_response_llm,
         "provenance": {key: value for key, value in provenance.items() if value not in (None, "", {})},
     }
@@ -331,6 +347,25 @@ def is_protocol_resource(item: dict[str, Any]) -> bool:
         str(item.get("memory_role") or "").strip().lower(),
     }
     return "protocol" in values or str(item.get("id") or "").endswith("-protocol")
+
+
+def is_memory_trace_resource(item: dict[str, Any]) -> bool:
+    values = {
+        str(item.get("kind") or "").strip().lower(),
+        str(item.get("type") or "").strip().lower(),
+        str(item.get("source") or "").strip().lower(),
+        str(item.get("memory_role") or "").strip().lower(),
+        str(item.get("source_tier") or "").strip().lower(),
+    }
+    identifier = str(item.get("id") or item.get("resource_id") or "").strip().lower()
+    return "memory_trace" in values or identifier.startswith("memory_trace:")
+
+
+def memory_trace_public_title(item: dict[str, Any]) -> str:
+    identifier = clean_optional(item.get("id") or item.get("resource_id"))
+    if identifier:
+        return "Prior turn trace"
+    return "Memory trace"
 
 
 def sent_to_response_llm(response_payload: dict[str, Any]) -> bool | None:

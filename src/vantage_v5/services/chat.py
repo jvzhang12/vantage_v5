@@ -228,6 +228,8 @@ class ChatService:
         turn_stage: TurnStage | None = None,
         suppress_auto_graph_writes: bool = False,
         suppress_protocol_writes: bool = False,
+        allow_workspace_update: bool = True,
+        workspace_update_denied_reason: str | None = None,
         surface_invocation: dict[str, Any] | None = None,
         turn_interpretation: dict[str, Any] | None = None,
         semantic_policy: dict[str, Any] | None = None,
@@ -379,6 +381,8 @@ class ChatService:
                     selected_attention_resources=selected_attention_resources,
                     app_capabilities=app_capabilities,
                     turn_stage=turn_stage,
+                    allow_workspace_update=allow_workspace_update,
+                    workspace_update_denied_reason=workspace_update_denied_reason,
                 )
                 stage_progress.extend(model_stage_progress)
             except ModelReplyError:
@@ -390,6 +394,13 @@ class ChatService:
                     whiteboard_mode=whiteboard_mode,
                     pending_workspace_update=pending_workspace_update,
                     fallback_reason="provider_error",
+                )
+                assistant_message, workspace_draft, workspace_offer = _suppress_unauthorized_workspace_update(
+                    assistant_message=assistant_message,
+                    workspace_draft=workspace_draft,
+                    workspace_offer=workspace_offer,
+                    allow_workspace_update=allow_workspace_update,
+                    denied_reason=workspace_update_denied_reason,
                 )
                 stage_progress.append(
                     stage_progress_event(
@@ -423,6 +434,13 @@ class ChatService:
                 vetted_memory=vetted_memory,
                 whiteboard_mode=whiteboard_mode,
                 pending_workspace_update=pending_workspace_update,
+            )
+            assistant_message, workspace_draft, workspace_offer = _suppress_unauthorized_workspace_update(
+                assistant_message=assistant_message,
+                workspace_draft=workspace_draft,
+                workspace_offer=workspace_offer,
+                allow_workspace_update=allow_workspace_update,
+                denied_reason=workspace_update_denied_reason,
             )
             stage_progress.append(
                 stage_progress_event(
@@ -691,6 +709,8 @@ class ChatService:
         selected_attention_resources: list[dict[str, Any]] | None,
         app_capabilities: dict[str, Any] | None,
         turn_stage: TurnStage | None,
+        allow_workspace_update: bool,
+        workspace_update_denied_reason: str | None,
     ) -> tuple[str, WorkspaceDraft | None, WorkspaceOffer | None, list[dict[str, Any]], StageAuditResult]:
         max_attempts = turn_stage.max_attempts if turn_stage is not None else 1
         retry_instruction = ""
@@ -720,6 +740,8 @@ class ChatService:
                 message=message,
                 whiteboard_mode=whiteboard_mode,
                 pending_workspace_update=pending_workspace_update,
+                allow_workspace_update=allow_workspace_update,
+                workspace_update_denied_reason=workspace_update_denied_reason,
             )
             last_reply = (assistant_message, workspace_draft, workspace_offer)
             stage_progress.append(
@@ -880,11 +902,33 @@ class ChatService:
         message: str,
         whiteboard_mode: str,
         pending_workspace_update: dict[str, Any] | None,
+        allow_workspace_update: bool = True,
+        workspace_update_denied_reason: str | None = None,
     ) -> tuple[str, WorkspaceDraft | None, WorkspaceOffer | None]:
         assistant_message, workspace_draft, workspace_offer = _extract_workspace_signal(
             response_text,
             whiteboard_mode=whiteboard_mode,
         )
+        if not allow_workspace_update:
+            detected_message, detected_draft, detected_offer = _extract_workspace_signal(
+                response_text,
+                whiteboard_mode="draft",
+            )
+            if (
+                workspace_draft is not None
+                or workspace_offer is not None
+                or detected_draft is not None
+                or detected_offer is not None
+            ):
+                attempted_action = "whiteboard_draft" if (workspace_draft or detected_draft) else "whiteboard_offer"
+                if _is_hard_workspace_update_denial(workspace_update_denied_reason):
+                    assistant_message = _workspace_update_denied_assistant_message(
+                        workspace_update_denied_reason,
+                        attempted_action=attempted_action,
+                    )
+                else:
+                    assistant_message = detected_message or assistant_message
+                return assistant_message, None, None
         if workspace_draft is not None or workspace_offer is not None or whiteboard_mode == "chat":
             return assistant_message, workspace_draft, workspace_offer
         if whiteboard_mode not in {"offer", "draft"}:
@@ -1889,6 +1933,53 @@ def _normalize_whiteboard_mode(whiteboard_mode: str | None) -> str:
     if whiteboard_mode in {"offer", "draft", "chat"}:
         return whiteboard_mode
     return "auto"
+
+
+def _suppress_unauthorized_workspace_update(
+    *,
+    assistant_message: str,
+    workspace_draft: WorkspaceDraft | None,
+    workspace_offer: WorkspaceOffer | None,
+    allow_workspace_update: bool,
+    denied_reason: str | None,
+) -> tuple[str, WorkspaceDraft | None, WorkspaceOffer | None]:
+    if allow_workspace_update or (workspace_draft is None and workspace_offer is None):
+        return assistant_message, workspace_draft, workspace_offer
+    attempted_action = "whiteboard_draft" if workspace_draft is not None else "whiteboard_offer"
+    if _is_hard_workspace_update_denial(denied_reason):
+        assistant_message = _workspace_update_denied_assistant_message(
+            denied_reason,
+            attempted_action=attempted_action,
+        )
+    return assistant_message, None, None
+
+
+def _is_hard_workspace_update_denial(reason: str | None) -> bool:
+    return str(reason or "").strip() in {
+        "open_only_ui_handoff",
+        "close_visible_surface",
+        "preserve_visible_surface",
+        "artifact_qna_chat_first",
+    }
+
+
+def _workspace_update_denied_assistant_message(
+    reason: str | None,
+    *,
+    attempted_action: str,
+) -> str:
+    noun = "Whiteboard offer" if attempted_action == "whiteboard_offer" else "Whiteboard draft"
+    lower_noun = noun.lower()
+    normalized = str(reason or "").strip()
+    if normalized == "open_only_ui_handoff":
+        return f"I opened the selected material without creating a {lower_noun}."
+    if normalized == "close_visible_surface":
+        return f"I closed the visible surface from view. I did not create a {lower_noun}."
+    if normalized == "preserve_visible_surface":
+        return f"I kept the current surface unchanged. I did not create a {lower_noun}."
+    if normalized == "artifact_qna_chat_first":
+        return f"I answered in chat and did not create a {lower_noun}."
+    return f"I did not create a {lower_noun} on this turn."
 
 
 def _graph_action_payload(

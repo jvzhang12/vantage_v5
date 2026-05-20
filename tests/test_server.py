@@ -1806,6 +1806,84 @@ def test_preserve_surface_denied_save_receipt_does_not_claim_saved(
     assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
+def test_preserve_surface_blocks_whiteboard_draft_signal_without_claiming_draft(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    visible_artifact = {
+        "id": "artifact:midterm-study-plan",
+        "kind": "whiteboard",
+        "title": "Midterm Study Plan",
+        "summary": "Study plan for graph algorithms and priorities.",
+        "content": "# Midterm Study Plan\n\nPractice graph traversal first.",
+    }
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.9,
+            reason="Navigator chose preserve-visible-surface.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {
+                        "type": "preserve_surface",
+                        "target": "whiteboard",
+                        "reason": "The user asked to keep the current whiteboard open.",
+                    }
+                ],
+                "working_memory_queries": [],
+                "response_call": {"type": "chat_response", "after_working_memory": True},
+            },
+        )
+
+    def _reply(self, **kwargs):
+        return (
+            "CHAT_RESPONSE: I drafted that in the whiteboard.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# Blocked Draft\n\n"
+            "This should never become a pending draft."
+        )
+
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(
+        "vantage_v5.services.meta.MetaService.decide",
+        lambda self, **kwargs: (_ for _ in ()).throw(
+            AssertionError("Preserve turns should suppress automatic graph writes.")
+        ),
+    )
+
+    artifact_ids_before = {path.stem for path in (repo_root / "artifacts").glob("*.md")}
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "keep the whiteboard open and draft this in the whiteboard",
+            "history": [],
+            "workspace_id": "midterm-study-plan",
+            "workspace_scope": "visible",
+            "workspace_content": visible_artifact["content"],
+            "visible_artifacts": [visible_artifact],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["surface_invocation"]["intent"] == "preserve_visible_surface"
+    assert payload["workspace_update"] is None
+    assert payload["graph_action"] is None
+    assert payload["created_record"] is None
+    assert payload["artifact_actions"] == []
+    assert "drafted" not in payload["assistant_message"].lower()
+    assert "did not create" in payload["assistant_message"].lower()
+    assert {path.stem for path in (repo_root / "artifacts").glob("*.md")} == artifact_ids_before
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "preserve_visible_surface"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
+
+
 def test_save_whiteboard_accepts_camel_case_visible_workspace_payload(
     tmp_path: Path,
 ) -> None:
@@ -2359,7 +2437,12 @@ def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(
 
     def _reply(self, **kwargs):
         captured["whiteboard_mode"] = kwargs["whiteboard_mode"]
-        return "Use the Midterm Study Plan as context, but answer in chat."
+        return (
+            "CHAT_RESPONSE: I drafted it in the whiteboard.\n\n"
+            "WHITEBOARD_DRAFT:\n"
+            "# Should Not Exist\n\n"
+            "This draft must be blocked by open-only authority."
+        )
 
     monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
@@ -2389,6 +2472,11 @@ def test_attention_open_only_forces_chat_execution_when_base_surface_is_draft(
     assert payload["created_record"] is None
     assert payload["graph_action"] is None
     assert captured["whiteboard_mode"] == "chat"
+    assert "drafted" not in payload["assistant_message"].lower()
+    assert "without creating" in payload["assistant_message"].lower()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["side_effect_policy"]["suppress_auto_graph_writes_reason"] == "open_only_ui_handoff"
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
 
 
 def test_open_only_blocks_local_semantic_artifact_save(
@@ -8497,6 +8585,10 @@ def test_plan_request_can_draft_detail_into_whiteboard(tmp_path: Path, monkeypat
     assert payload["created_record"]["source"] == "artifact"
     assert payload["workspace_update"]["artifact_snapshot_id"] == payload["created_record"]["id"]
     assert (repo_root / "artifacts" / f"{payload['created_record']['id']}.md").exists()
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["draft_authority"]["action"] == "whiteboard_draft"
+    assert final_response["turn_plan"]["draft_authority"]["allowed"] is True
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
 
     assert workspace_path.read_text(encoding="utf-8") == original_workspace
 
@@ -8545,6 +8637,10 @@ def test_work_product_request_can_offer_whiteboard_collaboration(tmp_path: Path,
     assert payload["workspace"]["content"] is None
     assert payload["graph_action"] is None
     assert payload["created_record"] is None
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    assert final_response["turn_plan"]["draft_authority"]["action"] == "whiteboard_offer"
+    assert final_response["turn_plan"]["draft_authority"]["allowed"] is True
+    assert final_response["turn_plan"]["validation"]["warnings"] == []
     assert (repo_root / "workspaces" / "v5-milestone-1.md").read_text(encoding="utf-8") == original_workspace
 
 

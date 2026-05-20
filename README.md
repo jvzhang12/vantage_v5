@@ -49,6 +49,7 @@ The user-facing default should be:
 - a narrow TurnPlan artifact-write authority gate that permits existing local artifact save/publish candidates only when structured save/publish intent and a safe current target already exist
 - a narrow TurnPlan memory-write authority gate that permits existing memory candidates only when structured remember/memory intent and safe memory content already exist
 - narrow TurnPlan concept/protocol/operational proposal gates that permit only already-structured concept candidates, protocol upsert candidates, or calendar/task proposal candidates when their safety and confirmation boundaries are satisfied
+- a narrow TurnPlan Whiteboard draft/offer authority gate that permits existing pending draft or offer candidates only when structured Whiteboard draft/offer intent exists and no hard no-write surface action is active
 - visible surfaces remain user-controlled context: a normal chat command can close or hide the current Whiteboard, artifact, calendar, Today, or task surface without deleting the saved underlying data, while keep/leave-open commands preserve the current surface instead of reopening another item
 
 ### 3. Persistent Memory
@@ -360,6 +361,7 @@ That whiteboard path remains separate from concept and memory writes: a draft ca
 
 Once the user chooses the whiteboard, Vantage may return a pending whiteboard draft proposal and keep the chat reply concise.
 That proposal should be surfaced through `workspace_update` metadata rather than silently applying the draft to the workspace file.
+TurnPlan validates pending Whiteboard offers and drafts before they can be materialized: hard no-write turns such as open-only saved-artifact viewing, close, preserve, and ordinary visible-artifact Q&A block draft/offer candidates and keep receipts honest.
 If the whiteboard is already open with a live draft and the user is clearly revising that draft, Vantage should continue editing the current whiteboard rather than reoffering or reopening a new one.
 If the accepted draft is clearly a different document from the currently active whiteboard, the UI should open it as a fresh unsaved whiteboard draft instead of overwriting the existing one.
 
@@ -780,7 +782,7 @@ The V5 architecture can be summarized like this:
 - the navigator interprets turns semantically before chat executes them
 - the navigator can route comparative what-if turns into Scenario Lab
 - the navigator can preserve selected context for continuity and steer auto-mode whiteboard collaboration
-- TurnPlan is now authoritative for surface actions, no-write suppression on structured no-write turns, and the narrow permission gates for existing local artifact save/publish, memory, concept, protocol, and calendar/task proposal candidates
+- TurnPlan is now authoritative for surface actions, no-write suppression on structured no-write turns, and the narrow permission gates for existing Whiteboard draft/offer, local artifact save/publish, memory, concept, protocol, and calendar/task proposal candidates
 - Scenario Lab writes branch workspaces plus a comparison artifact
 - a graph-conditioned meta call decides what to do with each interaction
 - timeless knowledge can become a concept

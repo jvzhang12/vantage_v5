@@ -67,6 +67,7 @@ from vantage_v5.services.surface_payloads import SurfacePayloadBuilder
 from vantage_v5.services.surface_payloads import SurfacePayloadResult
 from vantage_v5.services.surface_payloads import surface_assistant_message
 from vantage_v5.services.tasks import LocalTaskProvider
+from vantage_v5.services.turn_plan import build_turn_plan_draft_authority
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 from vantage_v5.services.turn_plan import build_turn_plan_operational_proposal_authority
 from vantage_v5.services.turn_plan import project_write_intent_compatibility
@@ -1001,6 +1002,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 request_payload=turn_plan_request_payload,
             )
             payload["operational_proposal_authority"] = proposal_authority.to_dict()
+        draft_authority = build_turn_plan_draft_authority(
+            response_payload=payload,
+            request_payload={
+                **turn_plan_request_payload,
+                "whiteboard_mode": whiteboard_mode,
+            },
+        )
+        payload["draft_authority"] = draft_authority.to_dict()
+        if draft_authority.blocks_candidate_update and isinstance(payload.get("workspace_update"), dict):
+            payload["workspace_update"] = None
         surface_authority = build_turn_plan_surface_authority(
             response_payload=payload,
             request_payload={"message": message, "memory_intent": memory_intent},

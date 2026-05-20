@@ -21,6 +21,7 @@ from vantage_v5.services.semantic_frame import build_semantic_frame
 from vantage_v5.services.semantic_policy import decide_semantic_policy
 from vantage_v5.services.surface_invocation import build_surface_invocation
 from vantage_v5.services.turn_plan import build_turn_plan_artifact_write_authority
+from vantage_v5.services.turn_plan import build_turn_plan_draft_authority
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
 from vantage_v5.services.turn_payloads import assemble_local_turn_payload
 from vantage_v5.services.turn_payloads import assemble_scenario_lab_fallback_payload
@@ -260,6 +261,19 @@ class TurnOrchestrator:
                 and workspace_has_content,
             },
         )
+        draft_authority = build_turn_plan_draft_authority(
+            response_payload={
+                **attention_state_payload,
+                "surface_invocation": surface_invocation_payload,
+                "turn_interpretation": assemble_turn_interpretation_payload(turn_interpretation_parts),
+                "semantic_policy": semantic_policy,
+            },
+            request_payload={
+                "message": request.message,
+                "memory_intent": effective_memory_intent,
+                "whiteboard_mode": request.whiteboard_mode,
+            },
+        )
         turn_stage = build_turn_stage(
             navigation_mode=navigation.mode,
             whiteboard_mode=resolved_whiteboard_mode if navigation.mode == "chat" else "chat",
@@ -468,6 +482,8 @@ class TurnOrchestrator:
                 turn_stage=turn_stage,
                 suppress_auto_graph_writes=suppress_auto_graph_writes,
                 suppress_protocol_writes=suppress_protocol_writes,
+                allow_workspace_update=draft_authority.allows_workspace_update,
+                workspace_update_denied_reason=draft_authority.denied_reason or surface_authority.no_write_reason,
                 surface_invocation=surface_invocation_payload,
                 turn_interpretation=assemble_turn_interpretation_payload(turn_interpretation_parts),
                 semantic_policy=semantic_policy,
@@ -527,6 +543,14 @@ class TurnOrchestrator:
             response_payload=authority_payload,
             request_payload={"message": request.message, "memory_intent": request.memory_intent},
         )
+        draft_authority = build_turn_plan_draft_authority(
+            response_payload=authority_payload,
+            request_payload={
+                "message": request.message,
+                "memory_intent": request.memory_intent,
+                "whiteboard_mode": request.whiteboard_mode,
+            },
+        )
         turn = runtime["chat_service"].reply(
             message=request.message,
             workspace=workspace,
@@ -557,6 +581,8 @@ class TurnOrchestrator:
             ),
             suppress_auto_graph_writes=surface_authority.suppress_auto_graph_writes,
             suppress_protocol_writes=surface_authority.blocks_protocol_writes,
+            allow_workspace_update=draft_authority.allows_workspace_update,
+            workspace_update_denied_reason=draft_authority.denied_reason or surface_authority.no_write_reason,
             surface_invocation=surface_invocation,
             turn_interpretation=assemble_turn_interpretation_payload(turn_interpretation),
             semantic_policy=semantic_policy,

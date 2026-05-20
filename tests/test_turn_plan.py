@@ -7,6 +7,7 @@ from vantage_v5.services.turn_plan import project_write_intent_compatibility
 from vantage_v5.services.turn_plan import TurnPlanBuilder
 from vantage_v5.services.turn_plan import build_turn_plan_artifact_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_concept_write_authority
+from vantage_v5.services.turn_plan import build_turn_plan_draft_authority
 from vantage_v5.services.turn_plan import build_turn_plan_memory_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_operational_proposal_authority
 from vantage_v5.services.turn_plan import build_turn_plan_protocol_write_authority
@@ -349,8 +350,116 @@ def test_turn_plan_explicit_whiteboard_draft() -> None:
     assert plan["side_effect_policy"]["allow_workspace_update"] is True
     assert plan["side_effect_policy"]["allow_auto_workspace_iteration_artifact"] is True
     assert plan["side_effect_policy"]["actual"]["workspace_update"] is True
+    assert plan["draft_authority"]["action"] == "whiteboard_draft"
+    assert plan["draft_authority"]["allowed"] is True
+    assert plan["draft_authority"]["authority"] in {
+        "turn_interpretation",
+        "turn_interpretation:request",
+        "surface_invocation",
+    }
     assert plan["execution"]["chat_whiteboard_mode"] == "draft"
     assert plan["validation"]["warnings"] == []
+
+
+def test_turn_plan_explicit_whiteboard_offer_authority() -> None:
+    plan = _plan(
+        message="Write an email declining the meeting.",
+        request={"whiteboard_mode": "offer"},
+        response={
+            "surface_invocation": {
+                "intent": "durable_artifact",
+                "primary_surface": "whiteboard",
+                "write_behavior": "none",
+                "whiteboard_mode": "offer",
+                "resolved_whiteboard_mode": "offer",
+                "reason": "The user explicitly requested an offer.",
+                "trigger": "request",
+            },
+            "workspace_update": {
+                "type": "offer_whiteboard",
+                "status": "offered",
+                "summary": "Offer ready.",
+            },
+            "turn_interpretation": {
+                "requested_whiteboard_mode": "offer",
+                "resolved_whiteboard_mode": "offer",
+                "whiteboard_mode_source": "composer",
+            },
+        },
+    )
+
+    assert plan["write_intent"]["kind"] == "whiteboard_offer"
+    assert plan["write_ledger"]["categories"] == ["pending_whiteboard_offer"]
+    assert plan["draft_authority"]["action"] == "whiteboard_offer"
+    assert plan["draft_authority"]["allowed"] is True
+    assert plan["draft_authority"]["source_field_paths"]
+    assert plan["validation"]["warnings"] == []
+
+
+def test_turn_plan_draft_authority_denies_open_only_workspace_update() -> None:
+    authority = build_turn_plan_draft_authority(
+        request_payload={"message": "Open this and draft it in the whiteboard", "whiteboard_mode": "draft"},
+        response_payload={
+            "navigator_selection": {
+                "selected_ids": ["artifact:midterm-study-plan"],
+                "primary_resource_id": "artifact:midterm-study-plan",
+                "surface_to_open": "whiteboard",
+            },
+            "selected_attention_resources": [
+                {
+                    "resource_id": "artifact:midterm-study-plan",
+                    "kind": "artifact",
+                    "suggested_surface": "whiteboard",
+                }
+            ],
+            "surface_invocation": {
+                "intent": "attention_selected_context",
+                "primary_surface": "whiteboard",
+                "write_behavior": "open_only",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "turn_interpretation": {
+                "requested_whiteboard_mode": "draft",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "workspace_update": {"type": "draft_whiteboard", "status": "draft_ready"},
+        },
+    )
+
+    assert authority.action == "whiteboard_draft"
+    assert authority.allowed is False
+    assert authority.denied_reason == "open_only_ui_handoff"
+    assert authority.blocks_candidate_update is True
+
+
+def test_turn_plan_preserve_plus_workspace_offer_warns_when_effect_leaks() -> None:
+    plan = _plan(
+        message="keep the whiteboard open and draft this",
+        response={
+            "surface_invocation": {
+                "intent": "preserve_visible_surface",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "workspace_update": {
+                "type": "offer_whiteboard",
+                "status": "offered",
+                "summary": "Offer ready.",
+            },
+            "turn_interpretation": {
+                "resolved_whiteboard_mode": "chat",
+                "control_panel": {"actions": [{"type": "preserve_surface", "target": "whiteboard"}]},
+            },
+        },
+    )
+
+    assert plan["draft_authority"]["action"] == "whiteboard_offer"
+    assert plan["draft_authority"]["allowed"] is False
+    assert plan["draft_authority"]["denied_reason"] == "preserve_visible_surface"
+    assert "whiteboard_draft_effect_without_authority" in _warning_codes(plan)
 
 
 def test_turn_plan_today_calendar_surface() -> None:

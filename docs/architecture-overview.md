@@ -106,6 +106,8 @@ Protocols are now editable through Inspect. `GET /api/protocols?include_builtins
 
 This layer is deterministic by design for local safety, but it should not become a broad replacement for Navigator intent interpretation. As control-panel coverage expands, more of this should be driven by Navigator actions and deterministic validation.
 
+Whiteboard draft/offer authority now follows the same boundary. Navigator, control-panel, composer mode, or existing Whiteboard routing provide structured draft/offer intent; TurnPlan validates that authority before a pending `workspace_update` draft or offer can be materialized. Hard no-write surface actions such as open-only, close, preserve, and ordinary visible-artifact Q&A block draft/offer candidates and force honest receipts instead of allowing draft snapshots or misleading offer copy.
+
 When semantic policy chooses a visible-whiteboard save or publish action, `draft_artifact_lifecycle.py` executes the storage lifecycle. The policy decides whether a local action is allowed; the lifecycle service owns how whiteboards become snapshots or promoted artifacts.
 
 ## Scenario Lab

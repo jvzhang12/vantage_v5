@@ -404,6 +404,40 @@ class TurnPlanOperationalProposalAuthority:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnPlanDraftAuthority:
+    """Execution-facing permission for Whiteboard draft/offer candidates."""
+
+    action: str | None
+    allowed: bool
+    denied_reason: str | None
+    authority: str
+    source_field_paths: tuple[str, ...]
+    candidate_present: bool
+    candidate_kind: str | None
+    no_write_reason: str | None
+
+    @property
+    def blocks_candidate_update(self) -> bool:
+        return self.action in {"whiteboard_draft", "whiteboard_offer"} and not self.allowed
+
+    @property
+    def allows_workspace_update(self) -> bool:
+        return self.action in {"whiteboard_draft", "whiteboard_offer"} and self.allowed
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "allowed": self.allowed,
+            "denied_reason": self.denied_reason,
+            "authority": self.authority,
+            "source_field_paths": list(self.source_field_paths),
+            "candidate_present": self.candidate_present,
+            "candidate_kind": self.candidate_kind,
+            "no_write_reason": self.no_write_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class WriteIntentPlan:
     kind: str
     whiteboard_mode: str | None
@@ -650,6 +684,7 @@ class TurnPlan:
     concept_write_authority: TurnPlanConceptWriteAuthority
     protocol_write_authority: TurnPlanProtocolWriteAuthority
     operational_proposal_authority: TurnPlanOperationalProposalAuthority
+    draft_authority: TurnPlanDraftAuthority
     protocols: ProtocolPlan
     semantic: SemanticPlan
     execution: ExecutionPlan
@@ -673,6 +708,7 @@ class TurnPlan:
             "concept_write_authority": self.concept_write_authority.to_dict(),
             "protocol_write_authority": self.protocol_write_authority.to_dict(),
             "operational_proposal_authority": self.operational_proposal_authority.to_dict(),
+            "draft_authority": self.draft_authority.to_dict(),
             "protocols": self.protocols.to_dict(),
             "semantic": self.semantic.to_dict(),
             "execution": self.execution.to_dict(),
@@ -743,6 +779,14 @@ class TurnPlanBuilder:
             write_ledger=write_ledger,
             side_effect_policy=side_effect_policy,
         )
+        draft_authority = self._draft_authority_plan(
+            request_payload=request_payload,
+            response_payload=response_payload,
+            route=route,
+            write_intent=write_intent,
+            write_ledger=write_ledger,
+            side_effect_policy=side_effect_policy,
+        )
         execution = self._execution_plan(response_payload, write_intent, side_effect_policy, ui_surface_action)
         compatibility = self._compatibility_plan(response_payload, write_intent)
         validation = self._validation_plan(
@@ -761,6 +805,7 @@ class TurnPlanBuilder:
             concept_write_authority=concept_write_authority,
             protocol_write_authority=protocol_write_authority,
             operational_proposal_authority=operational_proposal_authority,
+            draft_authority=draft_authority,
             semantic=semantic,
             execution=execution,
         )
@@ -780,6 +825,7 @@ class TurnPlanBuilder:
             concept_write_authority=concept_write_authority,
             protocol_write_authority=protocol_write_authority,
             operational_proposal_authority=operational_proposal_authority,
+            draft_authority=draft_authority,
             protocols=protocols,
             semantic=semantic,
             execution=execution,
@@ -1529,6 +1575,80 @@ class TurnPlanBuilder:
             no_write_reason=no_write_reason,
         )
 
+    def _draft_authority_plan(
+        self,
+        *,
+        request_payload: dict[str, Any],
+        response_payload: dict[str, Any],
+        route: RoutePlan,
+        write_intent: WriteIntentPlan,
+        write_ledger: WriteLedgerPlan,
+        side_effect_policy: SideEffectPolicy,
+    ) -> TurnPlanDraftAuthority:
+        existing_authority = _dict_or_empty(response_payload.get("draft_authority"))
+        sources = _whiteboard_draft_authority_sources(
+            request_payload=request_payload,
+            response_payload=response_payload,
+            route=route,
+            write_intent=write_intent,
+        )
+        workspace_update = _optional_dict(response_payload.get("workspace_update"))
+        candidate_kind = _workspace_update_category(_workspace_update_status(workspace_update)) if workspace_update else None
+        effect_action = _whiteboard_action_from_ledger(write_ledger)
+        action = effect_action or _whiteboard_action_from_write_intent(write_intent)
+        if action is None and str(existing_authority.get("action") or "").strip() in {
+            "whiteboard_draft",
+            "whiteboard_offer",
+        }:
+            action = str(existing_authority.get("action")).strip()
+        if action is None and sources:
+            action = str(sources[0].get("kind") or "").strip() or None
+        source_field_paths = tuple(
+            path
+            for path in (_optional_str(source.get("field_path")) for source in sources)
+            if path
+        )
+        if not source_field_paths and isinstance(existing_authority.get("source_field_paths"), list):
+            source_field_paths = tuple(
+                path
+                for path in (_optional_str(item) for item in existing_authority["source_field_paths"])
+                if path
+            )
+        candidate_present = bool(workspace_update) or effect_action is not None
+        if not candidate_present and isinstance(existing_authority.get("candidate_present"), bool):
+            candidate_present = bool(existing_authority.get("candidate_present"))
+        if candidate_kind is None:
+            candidate_kind = _optional_str(existing_authority.get("candidate_kind"))
+        no_write_reason = side_effect_policy.suppress_auto_graph_writes_reason
+        prior_denied_reason = _optional_str(existing_authority.get("denied_reason"))
+        prior_allowed = existing_authority.get("allowed")
+        denied_reason = None
+        allowed = False
+        if action is None:
+            denied_reason = None
+        elif no_write_reason is not None:
+            denied_reason = no_write_reason
+        elif prior_allowed is False and prior_denied_reason:
+            denied_reason = prior_denied_reason
+        elif not sources:
+            denied_reason = "missing_structured_whiteboard_draft_intent"
+        else:
+            allowed = True
+        return TurnPlanDraftAuthority(
+            action=action,
+            allowed=allowed,
+            denied_reason=denied_reason,
+            authority=(
+                str(sources[0].get("source") or "structured_intent")
+                if sources
+                else (_optional_str(existing_authority.get("authority")) or "none")
+            ),
+            source_field_paths=source_field_paths,
+            candidate_present=candidate_present,
+            candidate_kind=candidate_kind,
+            no_write_reason=no_write_reason,
+        )
+
     def _execution_plan(
         self,
         response_payload: dict[str, Any],
@@ -1593,6 +1713,7 @@ class TurnPlanBuilder:
         concept_write_authority: TurnPlanConceptWriteAuthority,
         protocol_write_authority: TurnPlanProtocolWriteAuthority,
         operational_proposal_authority: TurnPlanOperationalProposalAuthority,
+        draft_authority: TurnPlanDraftAuthority,
         semantic: SemanticPlan,
         execution: ExecutionPlan,
     ) -> TurnPlanValidation:
@@ -1974,6 +2095,29 @@ class TurnPlanBuilder:
                     ],
                 )
             )
+        has_whiteboard_update_effect = any(
+            entry.category in {
+                "pending_whiteboard_offer",
+                "pending_whiteboard_draft",
+                "draft_snapshot_workspace_update",
+            }
+            for entry in write_ledger.entries
+        )
+        if (
+            has_whiteboard_update_effect
+            and not draft_authority.allowed
+            and draft_authority.action in {"whiteboard_draft", "whiteboard_offer"}
+        ):
+            warnings.append(
+                _validation_warning(
+                    "whiteboard_draft_effect_without_authority",
+                    "A Whiteboard draft/offer effect appeared after TurnPlan denied draft authority.",
+                    [
+                        "turn_plan.draft_authority",
+                        *write_side_effects,
+                    ],
+                )
+            )
 
         return TurnPlanValidation(warnings=tuple(warnings))
 
@@ -2164,6 +2308,31 @@ def build_turn_plan_operational_proposal_authority(
     return builder._operational_proposal_authority_plan(
         response_payload=payload,
         route=route,
+        write_ledger=write_ledger,
+        side_effect_policy=side_effect_policy,
+    )
+
+
+def build_turn_plan_draft_authority(
+    *,
+    response_payload: dict[str, Any],
+    request_payload: dict[str, Any] | None = None,
+) -> TurnPlanDraftAuthority:
+    """Build the TurnPlan permission gate for Whiteboard draft/offer candidates."""
+
+    payload = _with_nested_surface_action(response_payload)
+    builder = TurnPlanBuilder()
+    retrieval = builder._retrieval_plan(payload)
+    ui_surface_action = builder._ui_surface_action_plan(payload, retrieval)
+    write_intent = builder._write_intent_plan(payload, ui_surface_action)
+    side_effect_policy = builder._side_effect_policy(request_payload or {}, payload, write_intent)
+    write_ledger = builder._write_ledger_plan(payload, write_intent, ui_surface_action)
+    route = builder._route_plan(payload)
+    return builder._draft_authority_plan(
+        request_payload=request_payload or {},
+        response_payload=payload,
+        route=route,
+        write_intent=write_intent,
         write_ledger=write_ledger,
         side_effect_policy=side_effect_policy,
     )
@@ -2414,6 +2583,15 @@ def _structured_write_intent_sources(
                 action=memory_intent,
             )
         )
+
+    sources.extend(
+        _whiteboard_draft_authority_sources(
+            request_payload=request_payload,
+            response_payload=response_payload,
+            route=route,
+            write_intent=write_intent,
+        )
+    )
 
     for index, action in enumerate(_list_of_dicts(route.control_panel.get("actions"))):
         action_type = str(action.get("type") or action.get("action") or "").strip()
@@ -2816,6 +2994,114 @@ def _operational_proposal_status_is_proposed(
     if not actions:
         return False
     return all(str(action.get("status") or "").strip().lower() == "proposed" for action in actions)
+
+
+def _whiteboard_draft_authority_sources(
+    *,
+    request_payload: dict[str, Any],
+    response_payload: dict[str, Any],
+    route: RoutePlan,
+    write_intent: WriteIntentPlan,
+) -> tuple[dict[str, Any], ...]:
+    sources: list[dict[str, Any]] = []
+    requested_mode = _optional_str(request_payload.get("whiteboard_mode"))
+    if requested_mode in {"draft", "offer"}:
+        sources.append(
+            _write_source(
+                source="request",
+                field_path="request.whiteboard_mode",
+                kind=f"whiteboard_{requested_mode}",
+                action=requested_mode,
+            )
+        )
+
+    interpretation = _dict_or_empty(response_payload.get("turn_interpretation"))
+    resolved_mode = _optional_str(interpretation.get("resolved_whiteboard_mode") or write_intent.whiteboard_mode)
+    if interpretation.get("explicit_whiteboard_draft_request") is True:
+        sources.append(
+            _write_source(
+                source="turn_interpretation",
+                field_path="turn_interpretation.explicit_whiteboard_draft_request",
+                kind="whiteboard_draft",
+                action="explicit_whiteboard_draft_request",
+            )
+        )
+    mode_source = _optional_str(interpretation.get("whiteboard_mode_source"))
+    if resolved_mode in {"draft", "offer"} and mode_source in {"request", "composer", "interpreter", "surface_invocation"}:
+        sources.append(
+            _write_source(
+                source=f"turn_interpretation:{mode_source}",
+                field_path="turn_interpretation.resolved_whiteboard_mode",
+                kind=f"whiteboard_{resolved_mode}",
+                action=resolved_mode,
+            )
+        )
+
+    for index, action in enumerate(_list_of_dicts(route.control_panel.get("actions"))):
+        action_type = str(action.get("type") or action.get("action") or "").strip().lower()
+        if action_type == "draft_whiteboard":
+            sources.append(
+                _write_source(
+                    source="control_panel",
+                    field_path=f"turn_interpretation.control_panel.actions[{index}].type",
+                    kind="whiteboard_draft",
+                    action=action_type,
+                )
+            )
+        elif action_type in {"offer_whiteboard", "open_whiteboard"} and write_intent.kind == "whiteboard_offer":
+            sources.append(
+                _write_source(
+                    source="control_panel",
+                    field_path=f"turn_interpretation.control_panel.actions[{index}].type",
+                    kind="whiteboard_offer",
+                    action=action_type,
+                )
+            )
+
+    invocation = _dict_or_empty(response_payload.get("surface_invocation"))
+    write_behavior = _normalized_write_behavior(invocation)
+    invocation_mode = _optional_str(invocation.get("resolved_whiteboard_mode") or invocation.get("whiteboard_mode"))
+    if write_behavior == "draft_only" and invocation_mode == "draft":
+        sources.append(
+            _write_source(
+                source="surface_invocation",
+                field_path="surface_invocation.write_behavior",
+                kind="whiteboard_draft",
+                action="draft_only",
+            )
+        )
+    elif invocation_mode == "offer" and write_intent.kind == "whiteboard_offer":
+        sources.append(
+            _write_source(
+                source="surface_invocation",
+                field_path="surface_invocation.whiteboard_mode",
+                kind="whiteboard_offer",
+                action="offer",
+            )
+        )
+
+    return tuple(_dedupe_write_sources(sources))
+
+
+def _whiteboard_action_from_write_intent(write_intent: WriteIntentPlan) -> str | None:
+    if write_intent.kind in {"whiteboard_draft", "whiteboard_offer"}:
+        return write_intent.kind
+    if write_intent.write_behavior == "draft_only":
+        return "whiteboard_draft"
+    if write_intent.whiteboard_mode == "draft":
+        return "whiteboard_draft"
+    if write_intent.whiteboard_mode == "offer":
+        return "whiteboard_offer"
+    return None
+
+
+def _whiteboard_action_from_ledger(write_ledger: WriteLedgerPlan) -> str | None:
+    for entry in write_ledger.entries:
+        if entry.category in {"pending_whiteboard_draft", "draft_snapshot_workspace_update"}:
+            return "whiteboard_draft"
+        if entry.category == "pending_whiteboard_offer":
+            return "whiteboard_offer"
+    return None
 
 
 def _effect_write_sources(write_ledger: WriteLedgerPlan) -> tuple[dict[str, Any], ...]:

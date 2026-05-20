@@ -25,6 +25,11 @@ WHITEBOARD_TYPE_TO_STATUS = {
 WHITEBOARD_STATUS_TO_TYPE = {status: kind for kind, status in WHITEBOARD_TYPE_TO_STATUS.items()}
 PUBLIC_CURRENT_TRACE_ID = "current-turn"
 PUBLIC_PRIOR_TRACE_PREFIX = "memory_trace:prior-turn"
+MEMORY_TRACE_PUBLIC_BODY_MARKERS = (
+    "## Source Turn",
+    "## User Message",
+    "## Assistant Response",
+)
 UNSAFE_ACTIVITY_TEXT_PATTERN = re.compile(
     r"\b("
     r"memory\s+trace|debug(?:ging)?|provider|json\s+schema|turn[_\s-]?interpretation|"
@@ -528,7 +533,24 @@ def _is_memory_trace_public_item(value: dict[str, Any]) -> bool:
         str(value.get("app") or "").strip().lower(),
     }
     identifier = str(value.get("id") or value.get("resource_id") or "").strip().lower()
-    return "memory_trace" in values or identifier.startswith("memory_trace:") or identifier.startswith("turn-")
+    return (
+        "memory_trace" in values
+        or identifier.startswith("memory_trace:")
+        or identifier.startswith("turn-")
+        or _has_memory_trace_source_body(value)
+    )
+
+
+def _has_memory_trace_source_body(value: dict[str, Any]) -> bool:
+    text = "\n".join(
+        str(value.get(key) or "")
+        for key in ("body", "content", "excerpt", "summary", "card", "title")
+        if value.get(key) is not None
+    )
+    if any(marker in text for marker in MEMORY_TRACE_PUBLIC_BODY_MARKERS):
+        return True
+    title = str(value.get("title") or "").strip().lower()
+    return title.startswith("turn trace:")
 
 
 def _public_memory_trace_reason(value: dict[str, Any]) -> str:
@@ -566,7 +588,7 @@ def _public_safe_id(value: Any, *, fallback_alias: str) -> str | None:
 
 def _looks_like_memory_trace_id(value: str) -> bool:
     text = str(value or "").strip().lower()
-    return text.startswith("memory_trace:") or text.startswith("turn-")
+    return text.startswith("memory_trace:") or text.startswith("turn-") or ":turn-" in text
 
 
 def _public_text_list(value: Any) -> list[str]:
@@ -626,6 +648,10 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
         ensure_write_review(created_record)
     trace_notes = _public_memory_trace_list(parts.trace_notes)
     candidate_trace_notes = _public_memory_trace_list(parts.candidate_trace_notes)
+    concept_cards = _public_memory_trace_list(parts.concept_cards)
+    candidate_concepts = _public_memory_trace_list(parts.candidate_concepts)
+    candidate_saved_notes = _public_memory_trace_list(parts.candidate_saved_notes)
+    candidate_vault_notes = _public_memory_trace_list(parts.candidate_vault_notes)
     candidate_memory_results = _public_memory_trace_list(parts.candidate_memory)
     working_memory = _public_memory_trace_list(parts.working_memory)
     recall_details = _public_memory_trace_list(parts.recall_details)
@@ -652,15 +678,15 @@ def assemble_chat_turn_body(parts: ChatTurnBodyParts) -> dict[str, Any]:
         "memory": selected_memory,
         "selected_memory": selected_memory,
         "candidate_memory": candidate_memory,
-        "concept_cards": parts.concept_cards,
+        "concept_cards": concept_cards,
         "saved_notes": parts.saved_notes,
         "vault_notes": parts.vault_notes,
         "turn_vault_notes": parts.vault_notes,
-        "candidate_concepts": parts.candidate_concepts,
+        "candidate_concepts": candidate_concepts,
         "trace_notes": trace_notes,
         "candidate_trace_notes": candidate_trace_notes,
-        "candidate_saved_notes": parts.candidate_saved_notes,
-        "candidate_vault_notes": parts.candidate_vault_notes,
+        "candidate_saved_notes": candidate_saved_notes,
+        "candidate_vault_notes": candidate_vault_notes,
         "candidate_memory_results": candidate_memory_results,
         "recall": working_memory,
         "working_memory": working_memory,
@@ -688,6 +714,10 @@ def assemble_scenario_lab_turn_body(parts: ScenarioLabTurnBodyParts) -> dict[str
         ensure_write_review(record)
     if created_record is not None:
         ensure_write_review(created_record)
+    concept_cards = _public_memory_trace_list(parts.concept_cards)
+    candidate_concepts = _public_memory_trace_list(parts.candidate_concepts)
+    candidate_saved_notes = _public_memory_trace_list(parts.candidate_saved_notes)
+    candidate_vault_notes = _public_memory_trace_list(parts.candidate_vault_notes)
     candidate_memory_results = _public_memory_trace_list(parts.candidate_memory)
     working_memory = _public_memory_trace_list(parts.working_memory)
     selected_memory = _turn_memory_payload(parts.saved_notes, parts.vault_notes)
@@ -708,13 +738,13 @@ def assemble_scenario_lab_turn_body(parts: ScenarioLabTurnBodyParts) -> dict[str
         "memory": selected_memory,
         "selected_memory": selected_memory,
         "candidate_memory": candidate_memory,
-        "concept_cards": parts.concept_cards,
+        "concept_cards": concept_cards,
         "saved_notes": parts.saved_notes,
         "vault_notes": parts.vault_notes,
         "turn_vault_notes": parts.vault_notes,
-        "candidate_concepts": parts.candidate_concepts,
-        "candidate_saved_notes": parts.candidate_saved_notes,
-        "candidate_vault_notes": parts.candidate_vault_notes,
+        "candidate_concepts": candidate_concepts,
+        "candidate_saved_notes": candidate_saved_notes,
+        "candidate_vault_notes": candidate_vault_notes,
         "candidate_memory_results": candidate_memory_results,
         "recall": working_memory,
         "working_memory": working_memory,

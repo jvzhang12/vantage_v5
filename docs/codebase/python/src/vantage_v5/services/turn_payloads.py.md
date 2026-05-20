@@ -8,7 +8,7 @@ Final response payload assembly helpers for chat, local actions, and Scenario La
 - Normalize `created_record` / `learned`, graph-action ids, and whiteboard update `type` / `status` aliases.
 - Attach pinned-context and selected-record compatibility fields.
 - Attach safe `system_state` and final-turn `activity` payloads without leaking hidden draft content.
-- Sanitize public Memory Trace DTOs, Attention state, and vetting ids at the payload boundary so `/api/chat` can expose bounded aliases without raw trace bodies, prompt text, or prompt-derived storage ids.
+- Sanitize public Memory Trace DTOs, Memory Trace-derived candidate rows, Attention state, and vetting ids at the payload boundary so `/api/chat` can expose bounded aliases without raw trace bodies, prompt text, or prompt-derived storage ids.
 
 ## Key Classes / Functions
 
@@ -37,7 +37,7 @@ Final response payload assembly helpers for chat, local actions, and Scenario La
 ## Notable Behavior
 
 - `system_state.workspace.has_visible_content` is boolean only; hidden draft body content is not exposed through system state.
-- Public Memory Trace records are reduced to safe views: the current-turn record uses the `current-turn` alias, selected/recalled prior-turn records use bounded `memory_trace:prior-turn-N` aliases, and raw `body` / `content` / storage ids stay out of the browser payload.
+- Public Memory Trace records and Memory Trace-derived candidate rows are reduced to safe views: the current-turn record uses the `current-turn` alias, selected/recalled prior-turn records use bounded `memory_trace:prior-turn-N` aliases, and raw `body` / `content` / storage ids stay out of the browser payload.
 - Public attention-selection ids that point at Memory Trace storage are also rewritten to safe prior-turn aliases before they enter the response envelope.
 - Public Attention state reattachment and vetting payloads reuse the same aliasing so late server post-processing cannot reintroduce raw Memory Trace ids or content.
 - `system_state.available_controls` includes the Navigator/control-panel surface controls, including non-destructive `close_surface` and no-op `preserve_surface`.

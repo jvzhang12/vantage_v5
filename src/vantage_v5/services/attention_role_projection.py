@@ -296,7 +296,7 @@ def _public_turn_id(value: Any, *, trace_id: str | None) -> str | None:
     if turn_id is None:
         return _clean_optional(trace_id)
     normalized = turn_id.lower()
-    if normalized.startswith("turn-") or normalized.startswith("memory_trace:"):
+    if normalized.startswith("turn-") or normalized.startswith("memory_trace:") or ":turn-" in normalized:
         return _clean_optional(trace_id)
     return turn_id
 

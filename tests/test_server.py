@@ -6621,6 +6621,27 @@ def test_chat_turn_writes_memory_trace_and_can_recall_it_without_promoting_it(tm
 def test_chat_public_payload_sanitizes_memory_trace_records_and_turn_ids(tmp_path: Path, monkeypatch) -> None:
     client, repo_root = _client(tmp_path, openai_api_key="test-key")
     private_prompt_phrase = "private BFS trace phrase zinnia-431"
+    raw_candidate_id = "turn-20260520203053254241-what-is-bfs"
+    (repo_root / "concepts" / f"{raw_candidate_id}.md").write_text(
+        (
+            "---\n"
+            f"id: {raw_candidate_id}\n"
+            "title: 'Turn Trace: What is BFS?'\n"
+            "type: concept\n"
+            "card: 'Prior User: What is BFS?'\n"
+            "created_at: 2026-05-20\n"
+            "updated_at: 2026-05-20\n"
+            "links_to: []\n"
+            "comes_from: []\n"
+            "status: active\n"
+            "---\n\n"
+            "## Source Turn\n\n"
+            f"User: What is BFS? {private_prompt_phrase}\n\n"
+            "## Assistant Response\n\n"
+            "BFS explores graph vertices with a queue.\n"
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(MetaService, "decide", lambda self, **kwargs: MetaDecision(action="no_op", rationale="No durable write."))
     monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
     monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", lambda self, **kwargs: "Safe recall response.")
@@ -6655,9 +6676,14 @@ def test_chat_public_payload_sanitizes_memory_trace_records_and_turn_ids(tmp_pat
     assert payload["memory_trace_record"]["id"] == "current-turn"
     assert "body" not in payload["memory_trace_record"]
     assert "content" not in payload["memory_trace_record"]
+    assert payload["candidate_concepts"]
+    assert payload["candidate_memory_results"]
     assert not _payload_contains(payload, "## User Message")
+    assert not _payload_contains(payload, "## Source Turn")
+    assert not _payload_contains(payload, "## Assistant Response")
     assert not _payload_contains(payload, private_prompt_phrase)
     assert not _payload_contains(payload, raw_trace_id)
+    assert not _payload_contains(payload, raw_candidate_id)
 
     working_memory_view = payload["working_memory_view"]
     assert working_memory_view["schema"] == "working_memory_view.v1"
@@ -6670,6 +6696,7 @@ def test_chat_public_payload_sanitizes_memory_trace_records_and_turn_ids(tmp_pat
 
     for collection_name in (
         "candidate_memory_results",
+        "candidate_concepts",
         "candidate_trace_notes",
         "trace_notes",
         "working_memory",

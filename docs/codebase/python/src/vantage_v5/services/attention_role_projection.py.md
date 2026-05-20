@@ -23,4 +23,4 @@ Helpers for projecting finalized `/api/chat` context into product-safe Attention
 - Excerpts are bounded and intended for provenance/debugging only; this module does not expose hidden model reasoning or full artifact bodies.
 - `working_memory_view` is public by default in `/api/chat`, but it stays compact: resources carry ids, titles, roles, origins, flags, provenance, short excerpts, LLM-sent markers, and influence flags; execution summary carries surface mode plus write/proposal categories rather than full created content.
 - Public `working_memory_view.turn.trace_id` uses a bounded non-prompt-derived alias for the current turn instead of copying raw Memory Trace storage ids, which can include user-message slugs.
-- Public `working_memory_view.turn.turn_id` also falls back to that safe current-turn alias when TurnPlan/request metadata contains an internal Memory Trace id.
+- Public `working_memory_view.turn.turn_id` also falls back to that safe current-turn alias when TurnPlan/request metadata contains an internal Memory Trace id or a kind-prefixed prompt-derived `turn-*` id.

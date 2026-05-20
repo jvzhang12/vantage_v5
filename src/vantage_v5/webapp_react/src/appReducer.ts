@@ -358,7 +358,10 @@ export function appReducer(state: AppState, action: Action): AppState {
       const selectedResourceState = selectedResourceStateFromTurn(turn, selectedResource);
       const workspaceContent = turn.workspaceUpdate?.content || selectedResource?.content || state.whiteboardEditor.content;
       const surfacePayloads = turn.surfacePayloads.length ? turn.surfacePayloads : state.surfacePayloads;
-      const requestedActiveSurfaceId = turn.activeSurfaceId || turn.surfacePayloads[0]?.id || state.visibleSurfaces.activeSurfaceId;
+      const foregroundsWhiteboard = Boolean(turn.workspaceUpdate?.content || selectedResource);
+      const requestedActiveSurfaceId = foregroundsWhiteboard
+        ? null
+        : turn.activeSurfaceId || turn.surfacePayloads[0]?.id || state.visibleSurfaces.activeSurfaceId;
       const activeSurfaceId = validSurfaceId(requestedActiveSurfaceId, surfacePayloads);
       const foregroundsOperationalSurface = Boolean(turn.surfacePayloads.length && activeSurfaceId);
       const whiteboardVisible = Boolean(

@@ -428,6 +428,96 @@ describe("appReducer", () => {
     expect(visibleArtifacts.some((artifact) => artifact.id === "midterm-study-plan")).toBe(false);
   });
 
+  it("hides stale operational context when a whiteboard foregrounds and stays hidden after close", () => {
+    const todaySurface = {
+      id: "today-2026-05-19",
+      kind: "today_briefing" as const,
+      title: "Today",
+      summary: "1 scheduled event and one open focus block",
+      sourceRefs: [],
+      data: { calendar: { events: [{ title: "Data Structures" }] } },
+    };
+    const selectedArtifact = {
+      id: "selected-artifact-midterm-study-plan",
+      resourceId: "artifact:midterm-study-plan",
+      kind: "artifact",
+      app: "whiteboard",
+      title: "Midterm Study Plan",
+      summary: "Exam preparation material about graphs and study priorities.",
+      source: "artifact",
+      content: "# Midterm Study Plan\n\nPrioritize graph traversals and proof review.",
+      data: {},
+      timestamps: {},
+      suggestedSurface: "whiteboard",
+      whySelected: "The user asked for the saved study plan.",
+    };
+    const todayState = appReducer(initialState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "What does my day look like?",
+        surfacePayloads: [todaySurface],
+        activeSurfaceId: todaySurface.id,
+      }),
+    });
+    const whiteboardState = appReducer(todayState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "Show me the saved Midterm Study Plan.",
+        selectedAttentionResources: [selectedArtifact],
+        navigatorSelection: {
+          selectedIds: [selectedArtifact.resourceId],
+          primaryResourceId: selectedArtifact.resourceId,
+          supportingResourceIds: [],
+          rejectedCandidateIds: [],
+          surfaceToOpen: "whiteboard",
+          reason: "Open the matching saved artifact in the whiteboard.",
+          confidence: 0.9,
+          fallback: false,
+        },
+      }),
+    });
+    const whiteboardVisibleArtifacts = buildVisibleArtifacts({
+      activeSurface: activeSurface(whiteboardState),
+      workspace: whiteboardState.whiteboardEditor,
+      view: whiteboardState.view,
+      visibleSurfaces: whiteboardState.visibleSurfaces,
+    });
+    const closedState = appReducer(whiteboardState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "close the whiteboard",
+        assistantMessage: "Closed Midterm Study Plan from view.",
+        surfaceAction: {
+          type: "close_visible_surface",
+          status: "requested",
+          target: "whiteboard",
+          targetId: "midterm-study-plan",
+          targetKind: "whiteboard",
+          title: "Midterm Study Plan",
+          reason: "The user asked to close the visible whiteboard.",
+        },
+      }),
+    });
+    const closedVisibleArtifacts = buildVisibleArtifacts({
+      activeSurface: activeSurface(closedState),
+      workspace: closedState.whiteboardEditor,
+      view: closedState.view,
+      visibleSurfaces: closedState.visibleSurfaces,
+    });
+
+    expect(todayState.view).toBe("artifact");
+    expect(activeSurface(todayState)?.id).toBe(todaySurface.id);
+    expect(whiteboardState.view).toBe("whiteboard");
+    expect(whiteboardState.visibleSurfaces.activeSurfaceId).toBeNull();
+    expect(whiteboardState.visibleSurfaces.visibleSurfaceIds).toEqual([]);
+    expect(whiteboardVisibleArtifacts).toHaveLength(1);
+    expect(whiteboardVisibleArtifacts[0]).toMatchObject({ id: "midterm-study-plan", kind: "whiteboard" });
+    expect(closedState.view).toBe("chat");
+    expect(closedState.visibleSurfaces.activeSurfaceId).toBeNull();
+    expect(closedState.visibleSurfaces.whiteboardVisible).toBe(false);
+    expect(closedVisibleArtifacts).toHaveLength(0);
+  });
+
   it("keeps a selected whiteboard resource as context when there is no open directive", () => {
     const selectedArtifact = {
       id: "selected-artifact-midterm-study-plan",

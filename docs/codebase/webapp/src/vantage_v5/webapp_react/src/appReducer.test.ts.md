@@ -17,3 +17,4 @@ Vitest coverage for the React app reducer.
 - Chat success stores the normalized `working_memory_view` for the latest turn while keeping the raw resource bodies out of the React-facing DTO.
 - State-domain tests assert that open-only, close, preserve, selected-resource-only, and pinned-context flows update `visibleSurfaces`, `whiteboardEditor`, `selectedResource`, and `pinnedContext` independently while preserving legacy view behavior.
 - Regression coverage verifies that opening Today/calendar/task after a Whiteboard hides stale Whiteboard visible context while preserving the editor cache.
+- Regression coverage also verifies the reverse: opening a Whiteboard after Today/calendar/task hides stale operational visible context, and closing that Whiteboard leaves no prior surface serialized as visible.

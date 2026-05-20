@@ -330,6 +330,57 @@ describe("App", () => {
     expect(screen.getByText("This is grounding evidence and execution context, not hidden chain-of-thought.")).toBeTruthy();
   });
 
+  it("sanitizes prompt-derived surface reasons in the Vantage view", async () => {
+    api.sendChat.mockResolvedValueOnce(turn({
+      userMessage: "close the calendar",
+      assistantMessage: "Closed the calendar from view.",
+      surfaceInvocation: {
+        intent: "close_visible_surface",
+        primarySurface: "chat",
+        supportingSurfaces: [],
+        surfaces: [
+          {
+            kind: "calendar_day",
+            role: "primary",
+            reason: "User explicitly requested to close the calendar.",
+            status: "closed",
+          },
+        ],
+        writeBehavior: "none",
+        reason: "User explicitly requested to close the calendar.",
+        confidence: 0.9,
+        dataSources: [],
+        capabilityRefs: [],
+        trigger: "navigator",
+        policyVersion: "surface-invocation-v1",
+      },
+      workingMemoryView: workingMemoryView({
+        executionSummary: {
+          ...workingMemoryView().executionSummary,
+          surface: {
+            ...workingMemoryView().executionSummary.surface,
+            mode: "close",
+            surface: "calendar_day",
+          },
+        },
+      }),
+    }));
+
+    render(<App />);
+
+    const composer = await screen.findByLabelText("Ask Vantage");
+    fireEvent.change(composer, { target: { value: "close the calendar" } });
+    fireEvent.submit(composer.closest("form") as HTMLFormElement);
+
+    expect(await screen.findByText("Closed the calendar from view.")).toBeTruthy();
+    fireEvent.click(screen.getByTitle("Open Vantage"));
+
+    expect((await screen.findAllByText("Surface close action.")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("User explicitly requested to close the calendar.")).toBeNull();
+    expect(screen.queryByText("close the calendar")).toBeNull();
+    expect(screen.getByText("Answer Context")).toBeTruthy();
+  });
+
   it("opens Vantage without crashing when a turn has no Working Memory payload", async () => {
     api.sendChat.mockResolvedValueOnce(turn({
       userMessage: "Say hi",

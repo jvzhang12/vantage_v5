@@ -18,4 +18,5 @@ Focused React rendering coverage for the top-level Vantage app shell.
 - Verifies that a backend close-visible-surface action hides the Whiteboard and that the next chat request sends no visible artifact context.
 - Verifies that clicking Vantage after a response with `working_memory_view` renders Working Memory role sections, compact resource metadata, execution/write summaries, and bounded no-chain-of-thought disclosure.
 - Verifies that the Vantage Working Memory view uses safe input labels and does not render the exact raw prompt.
+- Verifies that prompt-derived surface reason strings are replaced with safe action labels in the Vantage view.
 - Verifies that older or minimal responses without `working_memory_view` still open Vantage gracefully with an empty state.

@@ -11,6 +11,6 @@ Vitest coverage for the Vantage inspection adapter.
 
 - Calendar/task Today Briefing receipt mapping.
 - Summary columns, opened surface decisions, canonical decision path labels, and read-only/no-write audit state.
-- Safe input metadata replaces raw prompt text in summary and decision-path output.
+- Safe input metadata replaces raw prompt text and prompt-derived context/surface reasons in summary and decision-path output.
 - Current-request-only fallback when no backend provenance selected additional context.
 - Test fixtures include additive `surfaceAction` and `workingMemoryView` turn fields so inspection receipt coverage stays aligned with the normalized turn contract.

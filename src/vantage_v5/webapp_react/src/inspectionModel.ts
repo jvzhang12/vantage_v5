@@ -280,7 +280,7 @@ function surfaceDecisions(turn: NormalizedTurn, surfaces: SurfacePayload[]): Sur
       name: surfaceLabel(invoked.kind),
       opened,
       mode: invoked.role ? humanize(invoked.role) : readableMode(invocation?.writeBehavior || ""),
-      reason: invoked.reason || invocation?.reason || "Surface policy selected this route.",
+      reason: safeReason(invoked.reason || invocation?.reason, "Surface policy selected this route."),
       detail: opened ? "Opened" : humanize(invoked.status || "not opened"),
     });
   }
@@ -291,7 +291,7 @@ function surfaceDecisions(turn: NormalizedTurn, surfaces: SurfacePayload[]): Sur
       name: surfaceLabel(surface.kind),
       opened: true,
       mode: readableMode(invocation?.writeBehavior || "read_only"),
-      reason: surface.summary || "The backend returned this surface payload for the latest answer.",
+      reason: safeReason(surface.summary, "The backend returned this surface payload for the latest answer."),
       detail: "Opened",
     });
   }
@@ -342,8 +342,8 @@ function decisionPath(
     { id: "request", label: "Input", value: basics.request, detail: basics.requestDetail },
     { id: "intent", label: "Intent", value: basics.intent, detail: confidenceLabel(turn.surfaceInvocation?.confidence ?? turn.semanticFrame?.confidence) },
     { id: "query", label: "Query keys", value: queryKeySummary(turn) },
-    { id: "context", label: "Context selection", value: attentionContext || selectedContext, detail: attentionSelectionDetail(turn) },
-    { id: "surface", label: "Surface decision", value: surfaceCopy, detail: turn.surfaceInvocation?.reason || "No separate surface was required." },
+    { id: "context", label: "Context selection", value: safeReason(attentionContext, selectedContext), detail: attentionSelectionDetail(turn) },
+    { id: "surface", label: "Surface decision", value: surfaceCopy, detail: safeReason(turn.surfaceInvocation?.reason, "No separate surface was required.") },
     { id: "answer", label: "Answer", value: basics.summary },
     { id: "after-turn", label: "After-turn changes", value: writes.summary },
   ];
@@ -358,6 +358,29 @@ function requestMetadata(turn: NormalizedTurn): string {
   ].filter(Boolean);
   const requestType = humanize(String(candidates[0] || "chat"));
   return `${requestType} input. Raw prompt text is not shown in Working Memory.`;
+}
+
+function safeReason(value: string | undefined | null, fallback: string): string {
+  const cleaned = text(value).trim();
+  if (!cleaned) {
+    return fallback;
+  }
+  const normalized = cleaned.toLowerCase();
+  if (
+    normalized.includes("user explicitly requested")
+    || normalized.includes("user requested")
+    || normalized.includes("user asked")
+    || normalized.includes("the user asked")
+  ) {
+    if (normalized.includes("close") || normalized.includes("hide") || normalized.includes("remove")) {
+      return "Surface close action.";
+    }
+    if (normalized.includes("keep") || normalized.includes("leave") || normalized.includes("preserve")) {
+      return "Surface preserve action.";
+    }
+    return fallback;
+  }
+  return cleaned;
 }
 
 function buildWrites(turn: NormalizedTurn, surfaces: SurfacePayload[]): MemoryActionsWritesModel {

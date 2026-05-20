@@ -229,7 +229,8 @@ describe("inspection model", () => {
 
     expect(receipt?.contextItems.some((item) => item.title === "Tuesday Draft" && item.status === "Selected")).toBe(true);
     expect(receipt?.decisionPath.some((step) => step.label === "Query keys" && step.value.includes("last Tuesday"))).toBe(true);
-    expect(receipt?.decisionPath.some((step) => step.label === "Context selection" && step.value.includes("Tuesday draft"))).toBe(true);
+    expect(receipt?.decisionPath.some((step) => step.label === "Context selection" && step.value === "Context budget: user request, recall.")).toBe(true);
+    expect(receipt?.decisionPath.some((step) => step.label === "Context selection" && step.value.includes("The user asked"))).toBe(false);
     expect(receipt?.decisionPath.some((step) => step.label === "Context selection" && step.detail?.includes("semantic vector match"))).toBe(true);
   });
 });

@@ -33,6 +33,7 @@ from vantage_v5.services.turn_staging import StageAuditResult
 from vantage_v5.services.turn_staging import TurnStage
 from vantage_v5.services.turn_plan import build_turn_plan_concept_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_memory_write_authority
+from vantage_v5.services.turn_plan import is_turn_plan_hard_no_write_reason
 from vantage_v5.services.turn_plan import turn_plan_trace_payload
 from vantage_v5.services.vetting import anchor_selected_record_candidate
 from vantage_v5.services.vetting import build_continuity_hint
@@ -1857,11 +1858,10 @@ def _protocol_write_denied_by_hard_no_write(authority: dict[str, Any] | None) ->
         return False
     if str(authority.get("action") or "").strip() != "protocol_write":
         return False
-    return str(authority.get("denied_reason") or "").strip() in {
-        "open_only_ui_handoff",
-        "close_visible_surface",
-        "preserve_visible_surface",
-    }
+    return is_turn_plan_hard_no_write_reason(
+        str(authority.get("denied_reason") or "").strip(),
+        include_artifact_qna=False,
+    )
 
 
 def _protocol_write_denied_assistant_receipt(
@@ -1955,12 +1955,7 @@ def _suppress_unauthorized_workspace_update(
 
 
 def _is_hard_workspace_update_denial(reason: str | None) -> bool:
-    return str(reason or "").strip() in {
-        "open_only_ui_handoff",
-        "close_visible_surface",
-        "preserve_visible_surface",
-        "artifact_qna_chat_first",
-    }
+    return is_turn_plan_hard_no_write_reason(reason)
 
 
 def _workspace_update_denied_assistant_message(

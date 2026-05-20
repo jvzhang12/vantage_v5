@@ -12,6 +12,8 @@ from vantage_v5.services.turn_plan import build_turn_plan_memory_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_operational_proposal_authority
 from vantage_v5.services.turn_plan import build_turn_plan_protocol_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
+from vantage_v5.services.turn_plan import is_turn_plan_hard_no_write_reason
+from vantage_v5.services.turn_plan import TurnPlanExecutionPolicy
 
 
 def _payload_has_key(value: object, forbidden_key: str) -> bool:
@@ -465,6 +467,84 @@ def test_turn_plan_draft_authority_uses_suppressed_preserve_draft_source() -> No
     assert authority.denied_reason == "preserve_visible_surface"
     assert authority.authority == "control_panel_suppressed:preserve_surface"
     assert authority.blocks_candidate_update is True
+
+
+def test_turn_plan_execution_policy_bundles_no_write_and_draft_handoff() -> None:
+    response_payload = {
+        "surface_invocation": {
+            "intent": "preserve_visible_surface",
+            "primary_surface": "chat",
+            "write_behavior": "none",
+            "whiteboard_mode": "chat",
+            "resolved_whiteboard_mode": "chat",
+        },
+        "turn_interpretation": {
+            "resolved_whiteboard_mode": "chat",
+            "control_panel": {
+                "actions": [{"type": "preserve_surface", "target": "whiteboard"}],
+                "suppressed_actions": [
+                    {
+                        "type": "draft_whiteboard",
+                        "target": "whiteboard",
+                        "suppressed_by": "preserve_surface",
+                    }
+                ],
+            },
+        },
+        "semantic_policy": {"action_type": "artifact_save", "semantic_action": "artifact_save"},
+    }
+    request_payload = {
+        "message": "keep the whiteboard open and draft this",
+        "whiteboard_mode": "auto",
+        "workspace_scope": "visible",
+        "workspace_has_content": True,
+        "artifact_write_target_available": True,
+    }
+
+    surface_authority = build_turn_plan_surface_authority(
+        response_payload=response_payload,
+        request_payload=request_payload,
+    )
+    artifact_authority = build_turn_plan_artifact_write_authority(
+        response_payload=response_payload,
+        request_payload=request_payload,
+    )
+    draft_authority = build_turn_plan_draft_authority(
+        response_payload=response_payload,
+        request_payload=request_payload,
+    )
+    policy = TurnPlanExecutionPolicy(
+        surface_authority=surface_authority,
+        artifact_write_authority=artifact_authority,
+        draft_authority=draft_authority,
+    )
+
+    assert policy.suppress_auto_graph_writes is True
+    assert policy.suppress_protocol_writes is True
+    assert policy.allow_workspace_update is False
+    assert policy.workspace_update_denied_reason == "preserve_visible_surface"
+    assert policy.blocks_denied_draft_update is True
+    assert policy.blocks_denied_artifact_write is True
+    assert policy.blocks_local_semantic_write_action(True) is True
+    assert policy.blocks_local_semantic_artifact_write_action(
+        has_write_action=True,
+        has_clarification=False,
+    ) is True
+    assert policy.chat_reply_kwargs() == {
+        "suppress_auto_graph_writes": True,
+        "suppress_protocol_writes": True,
+        "allow_workspace_update": False,
+        "workspace_update_denied_reason": "preserve_visible_surface",
+    }
+
+
+def test_turn_plan_hard_no_write_reason_helper_distinguishes_soft_artifact_qna() -> None:
+    assert is_turn_plan_hard_no_write_reason("preserve_visible_surface") is True
+    assert is_turn_plan_hard_no_write_reason("artifact_qna_chat_first") is True
+    assert is_turn_plan_hard_no_write_reason(
+        "artifact_qna_chat_first",
+        include_artifact_qna=False,
+    ) is False
 
 
 def test_turn_plan_preserve_plus_workspace_offer_warns_when_effect_leaks() -> None:

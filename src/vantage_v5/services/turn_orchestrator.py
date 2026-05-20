@@ -23,6 +23,7 @@ from vantage_v5.services.surface_invocation import build_surface_invocation
 from vantage_v5.services.turn_plan import build_turn_plan_artifact_write_authority
 from vantage_v5.services.turn_plan import build_turn_plan_draft_authority
 from vantage_v5.services.turn_plan import build_turn_plan_surface_authority
+from vantage_v5.services.turn_plan import TurnPlanExecutionPolicy
 from vantage_v5.services.turn_payloads import assemble_local_turn_payload
 from vantage_v5.services.turn_payloads import assemble_scenario_lab_fallback_payload
 from vantage_v5.services.turn_payloads import assemble_service_turn_payload
@@ -242,8 +243,6 @@ class TurnOrchestrator:
             },
             request_payload={"message": request.message, "memory_intent": effective_memory_intent},
         )
-        suppress_auto_graph_writes = surface_authority.suppress_auto_graph_writes
-        suppress_protocol_writes = surface_authority.blocks_protocol_writes
         workspace_has_content = bool(context.workspace.content.strip())
         artifact_write_authority = build_turn_plan_artifact_write_authority(
             response_payload={
@@ -274,6 +273,11 @@ class TurnOrchestrator:
                 "whiteboard_mode": request.whiteboard_mode,
             },
         )
+        execution_policy = TurnPlanExecutionPolicy(
+            surface_authority=surface_authority,
+            artifact_write_authority=artifact_write_authority,
+            draft_authority=draft_authority,
+        )
         turn_stage = build_turn_stage(
             navigation_mode=navigation.mode,
             whiteboard_mode=resolved_whiteboard_mode if navigation.mode == "chat" else "chat",
@@ -282,9 +286,7 @@ class TurnOrchestrator:
         close_surface_action = surface_authority.surface_action if surface_authority.is_close else None
         if close_surface_action is not None:
             assistant_message = _close_surface_assistant_message(close_surface_action)
-            if draft_authority.blocks_candidate_update and _whiteboard_draft_denied_by_hard_no_write(
-                draft_authority.denied_reason
-            ):
+            if execution_policy.blocks_denied_draft_update:
                 assistant_message = (
                     f"{assistant_message} "
                     f"{_denied_whiteboard_draft_sentence(draft_authority)}"
@@ -318,9 +320,7 @@ class TurnOrchestrator:
             )
             payload.update(attention_state_payload)
             return payload
-        if draft_authority.blocks_candidate_update and _whiteboard_draft_denied_by_hard_no_write(
-            draft_authority.denied_reason
-        ):
+        if execution_policy.blocks_denied_draft_update:
             local_context = LocalTurnContext(
                 user_message=request.message,
                 history=request.history,
@@ -354,22 +354,19 @@ class TurnOrchestrator:
         local_semantic_parts = None
         local_semantic_write_action = _semantic_policy_has_local_write_action(semantic_policy)
         local_semantic_clarification = _semantic_policy_should_clarify(semantic_policy)
-        local_semantic_blocked_by_surface = (
-            surface_authority.blocks_local_semantic_writes and local_semantic_write_action
+        local_semantic_blocked_by_surface = execution_policy.blocks_local_semantic_write_action(
+            local_semantic_write_action
         )
         local_semantic_blocked_by_artifact_authority = (
-            artifact_write_authority.blocks_candidate_write
-            and local_semantic_write_action
-            and not local_semantic_clarification
+            execution_policy.blocks_local_semantic_artifact_write_action(
+                has_write_action=local_semantic_write_action,
+                has_clarification=local_semantic_clarification,
+            )
         )
-        concept_write_blocked_by_hard_no_write = (
-            surface_authority.suppress_auto_graph_writes
-            and _has_structured_concept_write_action(navigation, semantic_policy)
-            and _artifact_write_denied_by_hard_no_write(surface_authority.no_write_reason)
+        concept_write_blocked_by_hard_no_write = execution_policy.blocks_structured_concept_write(
+            _has_structured_concept_write_action(navigation, semantic_policy)
         )
-        if local_semantic_blocked_by_artifact_authority and _artifact_write_denied_by_hard_no_write(
-            artifact_write_authority.denied_reason
-        ):
+        if local_semantic_blocked_by_artifact_authority and execution_policy.blocks_denied_artifact_write:
             local_context = LocalTurnContext(
                 user_message=request.message,
                 history=request.history,
@@ -520,10 +517,7 @@ class TurnOrchestrator:
                 app_capabilities=context.app_capabilities,
                 applied_protocol_kinds=applied_protocol_kinds,
                 turn_stage=turn_stage,
-                suppress_auto_graph_writes=suppress_auto_graph_writes,
-                suppress_protocol_writes=suppress_protocol_writes,
-                allow_workspace_update=draft_authority.allows_workspace_update,
-                workspace_update_denied_reason=draft_authority.denied_reason or surface_authority.no_write_reason,
+                **execution_policy.chat_reply_kwargs(),
                 surface_invocation=surface_invocation_payload,
                 turn_interpretation=assemble_turn_interpretation_payload(turn_interpretation_parts),
                 semantic_policy=semantic_policy,
@@ -591,6 +585,10 @@ class TurnOrchestrator:
                 "whiteboard_mode": request.whiteboard_mode,
             },
         )
+        execution_policy = TurnPlanExecutionPolicy(
+            surface_authority=surface_authority,
+            draft_authority=draft_authority,
+        )
         turn = runtime["chat_service"].reply(
             message=request.message,
             workspace=workspace,
@@ -619,10 +617,7 @@ class TurnOrchestrator:
                 whiteboard_mode=resolved_whiteboard_mode,
                 public_summary="Scenario Lab fell back to a chat response.",
             ),
-            suppress_auto_graph_writes=surface_authority.suppress_auto_graph_writes,
-            suppress_protocol_writes=surface_authority.blocks_protocol_writes,
-            allow_workspace_update=draft_authority.allows_workspace_update,
-            workspace_update_denied_reason=draft_authority.denied_reason or surface_authority.no_write_reason,
+            **execution_policy.chat_reply_kwargs(),
             surface_invocation=surface_invocation,
             turn_interpretation=assemble_turn_interpretation_payload(turn_interpretation),
             semantic_policy=semantic_policy,
@@ -755,14 +750,6 @@ def _semantic_policy_should_clarify(policy: dict[str, Any]) -> bool:
     return bool(policy.get("should_clarify") or policy.get("needs_clarification"))
 
 
-def _artifact_write_denied_by_hard_no_write(reason: str | None) -> bool:
-    return reason in {
-        "open_only_ui_handoff",
-        "close_visible_surface",
-        "preserve_visible_surface",
-    }
-
-
 def _effective_memory_intent(
     requested_memory_intent: str,
     *,
@@ -863,15 +850,6 @@ def _denied_concept_write_assistant_message(surface_authority: Any) -> str:
 
 def _denied_concept_write_sentence() -> str:
     return "I did not learn it as a concept."
-
-
-def _whiteboard_draft_denied_by_hard_no_write(reason: str | None) -> bool:
-    return str(reason or "").strip() in {
-        "open_only_ui_handoff",
-        "close_visible_surface",
-        "preserve_visible_surface",
-        "artifact_qna_chat_first",
-    }
 
 
 def _denied_whiteboard_draft_assistant_message(surface_authority: Any, draft_authority: Any) -> str:

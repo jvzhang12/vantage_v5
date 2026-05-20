@@ -6,6 +6,15 @@ from typing import Any
 
 TURN_PLAN_VERSION = "turn_plan.v1"
 NO_WRITE_LEDGER_CATEGORIES = frozenset({"none", "open_only_no_write"})
+STRICT_HARD_NO_WRITE_REASONS = frozenset(
+    {
+        "open_only_ui_handoff",
+        "close_visible_surface",
+        "preserve_visible_surface",
+    }
+)
+ARTIFACT_QNA_NO_WRITE_REASON = "artifact_qna_chat_first"
+HARD_NO_WRITE_REASONS = frozenset({*STRICT_HARD_NO_WRITE_REASONS, ARTIFACT_QNA_NO_WRITE_REASON})
 NO_WRITE_EXECUTION_CATEGORIES = {
     "open_only_ui_handoff": "open_only_no_write",
     "close_visible_surface": "close_visible_surface",
@@ -434,6 +443,103 @@ class TurnPlanDraftAuthority:
             "candidate_present": self.candidate_present,
             "candidate_kind": self.candidate_kind,
             "no_write_reason": self.no_write_reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TurnPlanExecutionPolicy:
+    """Small execution handoff that bundles TurnPlan authority verdicts."""
+
+    surface_authority: TurnPlanSurfaceAuthority
+    artifact_write_authority: TurnPlanArtifactWriteAuthority | None = None
+    draft_authority: TurnPlanDraftAuthority | None = None
+
+    @property
+    def suppress_auto_graph_writes(self) -> bool:
+        return self.surface_authority.suppress_auto_graph_writes
+
+    @property
+    def suppress_protocol_writes(self) -> bool:
+        return self.surface_authority.blocks_protocol_writes
+
+    @property
+    def allow_workspace_update(self) -> bool:
+        if self.draft_authority is None:
+            return True
+        return self.draft_authority.allows_workspace_update
+
+    @property
+    def workspace_update_denied_reason(self) -> str | None:
+        if self.draft_authority is not None and self.draft_authority.denied_reason:
+            return self.draft_authority.denied_reason
+        return self.surface_authority.no_write_reason
+
+    @property
+    def blocks_denied_draft_update(self) -> bool:
+        return bool(
+            self.draft_authority is not None
+            and self.draft_authority.blocks_candidate_update
+            and is_turn_plan_hard_no_write_reason(self.draft_authority.denied_reason)
+        )
+
+    @property
+    def blocks_denied_artifact_write(self) -> bool:
+        return bool(
+            self.artifact_write_authority is not None
+            and self.artifact_write_authority.blocks_candidate_write
+            and is_turn_plan_hard_no_write_reason(
+                self.artifact_write_authority.denied_reason,
+                include_artifact_qna=False,
+            )
+        )
+
+    def blocks_local_semantic_write_action(self, has_write_action: bool) -> bool:
+        return bool(has_write_action and self.surface_authority.blocks_local_semantic_writes)
+
+    def blocks_local_semantic_artifact_write_action(
+        self,
+        *,
+        has_write_action: bool,
+        has_clarification: bool,
+    ) -> bool:
+        return bool(
+            self.artifact_write_authority is not None
+            and self.artifact_write_authority.blocks_candidate_write
+            and has_write_action
+            and not has_clarification
+        )
+
+    def blocks_structured_concept_write(self, has_structured_concept_action: bool) -> bool:
+        return bool(
+            self.surface_authority.suppress_auto_graph_writes
+            and has_structured_concept_action
+            and is_turn_plan_hard_no_write_reason(
+                self.surface_authority.no_write_reason,
+                include_artifact_qna=False,
+            )
+        )
+
+    def chat_reply_kwargs(self) -> dict[str, Any]:
+        return {
+            "suppress_auto_graph_writes": self.suppress_auto_graph_writes,
+            "suppress_protocol_writes": self.suppress_protocol_writes,
+            "allow_workspace_update": self.allow_workspace_update,
+            "workspace_update_denied_reason": self.workspace_update_denied_reason,
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "suppress_auto_graph_writes": self.suppress_auto_graph_writes,
+            "suppress_protocol_writes": self.suppress_protocol_writes,
+            "allow_workspace_update": self.allow_workspace_update,
+            "workspace_update_denied_reason": self.workspace_update_denied_reason,
+            "blocks_denied_draft_update": self.blocks_denied_draft_update,
+            "blocks_denied_artifact_write": self.blocks_denied_artifact_write,
+            "surface_authority": self.surface_authority.to_dict(),
+            "artifact_write_authority": (
+                self.artifact_write_authority.to_dict() if self.artifact_write_authority else None
+            ),
+            "draft_authority": self.draft_authority.to_dict() if self.draft_authority else None,
         }
 
 
@@ -2336,6 +2442,18 @@ def build_turn_plan_draft_authority(
         write_ledger=write_ledger,
         side_effect_policy=side_effect_policy,
     )
+
+
+def is_turn_plan_hard_no_write_reason(
+    reason: str | None,
+    *,
+    include_artifact_qna: bool = True,
+) -> bool:
+    """Return whether a TurnPlan denial reason is a hard no-write boundary."""
+
+    normalized = str(reason or "").strip()
+    reasons = HARD_NO_WRITE_REASONS if include_artifact_qna else STRICT_HARD_NO_WRITE_REASONS
+    return normalized in reasons
 
 
 def project_write_intent_compatibility(

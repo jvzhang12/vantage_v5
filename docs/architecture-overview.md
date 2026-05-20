@@ -152,15 +152,19 @@ Experiment mode swaps the writable stores to session-local directories while dur
 
 ## Frontend Architecture
 
-The browser entrypoint is `app.js`, supported by smaller modules:
+The active browser app is the React frontend under `src/vantage_v5/webapp_react/`.
 
-- `turn_payloads.mjs`: backend DTO normalization.
-- `product_identity.mjs`: product-facing copy/view models for grounding, learned items, Scenario Lab, and semantic policy.
-- `surface_state.mjs`: explicit chat/whiteboard/Vantage surface state.
-- `whiteboard_decisions.mjs`: non-destructive pending draft/offer choices.
-- `chat_request.mjs`: chat request shaping, whiteboard scope, pending carry, and deictic reopen target resolution.
-- `workspace_state.mjs`: local whiteboard snapshot/reconciliation behavior.
-- `math_render.mjs`: shared read-surface Markdown/math/code rendering.
+- `index.html` provides the Vite development shell and `#root` mount point.
+- `src/main.tsx` mounts the React `App` and registers the root service worker when the browser context is secure.
+- `src/App.tsx` owns the top-level browser workflow and delegates surface rendering, request shaping, and state transitions to typed React modules.
+- `src/appReducer.ts`: explicit chat, Whiteboard, Vantage, visible-surface, selected-resource, pinned-context, and request-context state.
+- `src/normalizers.ts`: backend DTO normalization for the React state model.
+- `src/visibleArtifacts.ts`: visible-surface and Whiteboard context serialization for chat requests.
+- `src/components/`: React presentation components for core shell, inspection, artifact surfaces, and product mark.
+
+`npm run build` emits the production bundle into `src/vantage_v5/webapp/generated/` with public URLs under `/static/generated/`. FastAPI serves that generated React `index.html` at `/` when it exists, while root PWA asset routes prefer generated files and fall back to `src/vantage_v5/webapp_react/public/`.
+
+The older vanilla files under `src/vantage_v5/webapp/` remain present as a server fallback when no generated React build exists and as direct fixtures for some legacy helper tests. They should not be treated as the active frontend entrypoint without first removing or replacing those fallback and test dependencies.
 
 The UI is intentionally not a control panel for every internal subsystem. Chat stays primary, Whiteboard is for drafting, and Vantage is for guided inspection.
 

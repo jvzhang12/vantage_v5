@@ -12,7 +12,7 @@ Focused React rendering coverage for the top-level Vantage app shell.
 - Verifies that sending chat shows a generic pending assistant state, then clears it when the response succeeds.
 - Verifies that failed chat clears the pending assistant state and leaves the existing warning notice visible.
 - Opens a selected saved artifact into the Whiteboard, then sends a normal follow-up turn while the Whiteboard remains active.
-- Asserts the latest assistant answer is rendered and the Whiteboard content remains open, preserving chat-first visibility without creating or replacing a surface.
+- Asserts the latest assistant answer card is rendered and the Whiteboard content remains open, preserving chat-first visibility without creating or replacing a surface.
 - Opens a Today artifact surface, then verifies both pending and completed follow-up chat states remain rendered while that surface stays open.
 - Opens a Task Focus artifact surface, then verifies completed answer, pending state, and composer presence while the task surface remains foregrounded.
 - Verifies that a backend close-visible-surface action hides the Whiteboard and that the next chat request sends no visible artifact context.

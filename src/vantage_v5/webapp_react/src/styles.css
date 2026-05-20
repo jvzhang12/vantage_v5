@@ -141,13 +141,11 @@
   }
 
   .app-main--whiteboard .latest-answer {
-    display: none;
-  }
-
-  .app-main--whiteboard .latest-answer--pending {
     display: block;
     order: -1;
     flex-shrink: 0;
+    max-height: clamp(128px, 18svh, 220px);
+    overflow-y: auto;
   }
 
   .latest-answer__top,

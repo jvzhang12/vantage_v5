@@ -360,10 +360,11 @@ export function appReducer(state: AppState, action: Action): AppState {
       const surfacePayloads = turn.surfacePayloads.length ? turn.surfacePayloads : state.surfacePayloads;
       const requestedActiveSurfaceId = turn.activeSurfaceId || turn.surfacePayloads[0]?.id || state.visibleSurfaces.activeSurfaceId;
       const activeSurfaceId = validSurfaceId(requestedActiveSurfaceId, surfacePayloads);
+      const foregroundsOperationalSurface = Boolean(turn.surfacePayloads.length && activeSurfaceId);
       const whiteboardVisible = Boolean(
         turn.workspaceUpdate?.content
         || selectedResource
-        || state.visibleSurfaces.whiteboardVisible,
+        || (!foregroundsOperationalSurface && state.visibleSurfaces.whiteboardVisible),
       );
       const visibleSurfaces = {
         ...state.visibleSurfaces,
@@ -468,6 +469,7 @@ export function appReducer(state: AppState, action: Action): AppState {
               foreground: "artifact",
               activeSurfaceId: action.surface.id,
               visibleSurfaceIds: [action.surface.id],
+              whiteboardVisible: false,
             }
           : state.visibleSurfaces,
         view: action.active ? "artifact" : state.view,
@@ -513,6 +515,7 @@ export function appReducer(state: AppState, action: Action): AppState {
           foreground: activeSurfaceId ? "artifact" : state.visibleSurfaces.foreground,
           activeSurfaceId,
           visibleSurfaceIds: activeSurfaceId ? [activeSurfaceId] : [],
+          whiteboardVisible: activeSurfaceId ? false : state.visibleSurfaces.whiteboardVisible,
         },
         view: activeSurfaceId ? "artifact" : state.view,
       });

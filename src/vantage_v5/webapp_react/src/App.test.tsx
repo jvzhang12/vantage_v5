@@ -400,6 +400,7 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByText("Start with graph traversals, then spend the next block on proof review.")).toBeTruthy();
     });
+    expect(screen.getByLabelText("Latest Vantage answer")).toBeTruthy();
     expect((screen.getByLabelText("Whiteboard content") as HTMLTextAreaElement).value).toContain("Prioritize graph traversals");
   });
 

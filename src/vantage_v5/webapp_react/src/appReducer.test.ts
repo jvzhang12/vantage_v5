@@ -343,6 +343,91 @@ describe("appReducer", () => {
     expect(state.surfacePayloads).toHaveLength(0);
   });
 
+  it("hides stale whiteboard context when an operational surface foregrounds", () => {
+    const selectedArtifact = {
+      id: "selected-artifact-midterm-study-plan",
+      resourceId: "artifact:midterm-study-plan",
+      kind: "artifact",
+      app: "whiteboard",
+      title: "Midterm Study Plan",
+      summary: "Exam preparation material about graphs and study priorities.",
+      source: "artifact",
+      content: "# Midterm Study Plan\n\nPrioritize graph traversals and proof review.",
+      data: {},
+      timestamps: {},
+      suggestedSurface: "whiteboard",
+      whySelected: "The user asked for the saved study plan.",
+    };
+    const todaySurface = {
+      id: "today-2026-05-19",
+      kind: "today_briefing" as const,
+      title: "Today",
+      summary: "1 scheduled event and one open focus block",
+      sourceRefs: [],
+      data: { calendar: { events: [{ title: "Data Structures" }] } },
+    };
+    const whiteboardState = appReducer(initialState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "Show me the saved Midterm Study Plan.",
+        selectedAttentionResources: [selectedArtifact],
+        navigatorSelection: {
+          selectedIds: [selectedArtifact.resourceId],
+          primaryResourceId: selectedArtifact.resourceId,
+          supportingResourceIds: [],
+          rejectedCandidateIds: [],
+          surfaceToOpen: "whiteboard",
+          reason: "Open the matching saved artifact in the whiteboard.",
+          confidence: 0.9,
+          fallback: false,
+        },
+      }),
+    });
+    const todayState = appReducer(whiteboardState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "What does my day look like?",
+        surfacePayloads: [todaySurface],
+        activeSurfaceId: todaySurface.id,
+      }),
+    });
+    const preserveState = appReducer(todayState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "leave the calendar open",
+        assistantMessage: "I left the calendar open.",
+        surfaceInvocation: {
+          intent: "preserve_visible_surface",
+          primarySurface: "chat",
+          supportingSurfaces: [],
+          surfaces: [],
+          writeBehavior: "none",
+          reason: "Preserve the current visible surface.",
+          confidence: 1,
+          dataSources: [],
+          capabilityRefs: [],
+          trigger: "navigator",
+          policyVersion: "surface-invocation-v1",
+        },
+      }),
+    });
+    const visibleArtifacts = buildVisibleArtifacts({
+      activeSurface: activeSurface(preserveState),
+      workspace: preserveState.whiteboardEditor,
+      view: preserveState.view,
+      visibleSurfaces: preserveState.visibleSurfaces,
+    });
+
+    expect(todayState.view).toBe("artifact");
+    expect(todayState.visibleSurfaces.whiteboardVisible).toBe(false);
+    expect(todayState.whiteboardEditor.content).toContain("graph traversals");
+    expect(preserveState.view).toBe("artifact");
+    expect(preserveState.visibleSurfaces.activeSurfaceId).toBe(todaySurface.id);
+    expect(visibleArtifacts).toHaveLength(1);
+    expect(visibleArtifacts[0]).toMatchObject({ id: todaySurface.id, kind: "today_briefing" });
+    expect(visibleArtifacts.some((artifact) => artifact.id === "midterm-study-plan")).toBe(false);
+  });
+
   it("keeps a selected whiteboard resource as context when there is no open directive", () => {
     const selectedArtifact = {
       id: "selected-artifact-midterm-study-plan",

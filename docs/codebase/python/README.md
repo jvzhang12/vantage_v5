@@ -20,6 +20,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 
 - [src/vantage_v5/services/chat.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/chat.py.md)
 - [src/vantage_v5/services/context_engine.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/context_engine.py.md)
+- [src/vantage_v5/services/context_handoff.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/context_handoff.py.md)
 - [src/vantage_v5/services/context_sources.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/context_sources.py.md)
 - [src/vantage_v5/services/context_support.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/context_support.py.md)
 - [src/vantage_v5/services/corrections.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/corrections.py.md)
@@ -60,6 +61,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - `draft_artifact_lifecycle.py` owns saved-item reopen, whiteboard snapshot saves, visible-whiteboard publish, workspace save snapshots, promotion of saved or unsaved whiteboard buffers into artifacts, and artifact lifecycle card enrichment.
 - `record_cards.py` owns UI-facing record-card DTOs for concepts, protocols, saved notes, vault notes, lineage, scenario metadata, and grouped memory payloads.
 - `context_engine.py` prepares a single `PreparedTurnContext`: runtime/session, whiteboard scope, redacted or overlaid whiteboard document, pinned context, pending whiteboard carry state, entry mode, and Navigator continuity.
+- `context_handoff.py` builds the internal Attention/Recall/Working Memory read model from finalized turn payloads so traces and the public Working Memory view share one compact role/provenance source while generation still uses the existing context paths.
 - `context_sources.py` resolves pinned-context summaries, whiteboard source summaries, and Navigator continuity frames from active/durable stores, vault notes, Memory Trace, and recent whiteboards.
 - `context_support.py` owns pure workspace-scope, live-buffer, redaction, pending-whiteboard, and whiteboard-entry helper behavior for context preparation.
 - `corrections.py` owns the backend saved-item negative correction route semantics: `mark_incorrect` and `forget` suppress concept, memory, or artifact records from list/search/recall/open without hard deleting files or adding freshness/confidence claims.
@@ -100,6 +102,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 
 - [tests/test_repo_hygiene.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_repo_hygiene.py.md)
 - [tests/test_context_engine.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_context_engine.py.md)
+- [tests/test_context_handoff.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_context_handoff.py.md)
 - [tests/test_context_support.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_context_support.py.md)
 - [tests/test_draft_artifact_lifecycle.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_draft_artifact_lifecycle.py.md)
 - [tests/test_local_semantic_actions.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_local_semantic_actions.py.md)

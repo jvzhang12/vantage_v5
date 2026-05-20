@@ -23,6 +23,8 @@ The server now refuses to listen on a non-local host without auth unless
 `VANTAGE_V5_ALLOW_UNSAFE_PUBLIC_NO_AUTH=true` is explicitly set. Treat that override
 as a temporary private-network escape hatch, not an internet setting.
 
+The FastAPI browser shell serves only the generated React build. Source-checkout runs should execute `npm ci` and `npm run build` before starting `vantage-v5-web`; Docker Compose builds the React bundle into the image during `docker compose up --build`.
+
 ## Environment
 
 ```bash

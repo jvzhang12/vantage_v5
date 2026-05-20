@@ -30,7 +30,7 @@ The normal `/api/chat` path is:
 8. Normal chat calls `ChatService.reply()`. Scenario turns call `ScenarioLabService.run()`.
 9. The chosen service performs bounded retrieval, protocol injection when requested, vetting, model response or scenario generation, conservative graph writes, and Memory Trace creation.
 10. `turn_payloads.py` finalizes response compatibility, `turn_interpretation`, whiteboard scope disclosure, safe state, and activity while `TurnOrchestrator` supplies the typed parts needed for assembly.
-11. The browser normalizes payloads in `turn_payloads.mjs` and renders chat evidence, Inspect/Vantage state, whiteboard proposals, and Scenario Lab review.
+11. The React browser app normalizes payloads in `normalizers.ts` and renders chat evidence, Vantage inspection state, whiteboard proposals, and Scenario Lab review.
 
 ## LLM Interpretation vs Deterministic Execution
 
@@ -162,9 +162,9 @@ The active browser app is the React frontend under `src/vantage_v5/webapp_react/
 - `src/visibleArtifacts.ts`: visible-surface and Whiteboard context serialization for chat requests.
 - `src/components/`: React presentation components for core shell, inspection, artifact surfaces, and product mark.
 
-`npm run build` emits the production bundle into `src/vantage_v5/webapp/generated/` with public URLs under `/static/generated/`. FastAPI serves that generated React `index.html` at `/` when it exists, while root PWA asset routes prefer generated files and fall back to `src/vantage_v5/webapp_react/public/`.
+`npm run build` emits the production bundle into `src/vantage_v5/webapp/generated/` with public URLs under `/static/generated/`. FastAPI serves that generated React `index.html` at `/`; if the generated index is missing, `/` returns a clear setup/build error instead of silently serving an older shell. Root PWA asset routes prefer generated files and fall back to `src/vantage_v5/webapp_react/public/`.
 
-The older vanilla files under `src/vantage_v5/webapp/` remain present as a server fallback when no generated React build exists and as direct fixtures for some legacy helper tests. They should not be treated as the active frontend entrypoint without first removing or replacing those fallback and test dependencies.
+The older committed vanilla shell and helper files under `src/vantage_v5/webapp/` have been retired. React source plus the generated build output are now the only product frontend path.
 
 The UI is intentionally not a control panel for every internal subsystem. Chat stays primary, Whiteboard is for drafting, and Vantage is for guided inspection.
 

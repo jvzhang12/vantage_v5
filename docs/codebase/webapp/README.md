@@ -1,8 +1,8 @@
 # Webapp Codebase Summaries
 
-This directory mirrors the legacy web client under `src/vantage_v5/webapp`, the React migration under `src/vantage_v5/webapp_react`, plus the browser-facing frontend tests.
+This directory mirrors the React web client under `src/vantage_v5/webapp_react`, plus the browser-facing frontend tests.
 
-The goal is the same as the Python summaries: let future agents understand the shipped client surfaces, state model, payload contract, and focused browser-side tests without reverse-engineering `app.js` from scratch.
+The goal is the same as the Python summaries: let future agents understand the shipped client surfaces, state model, payload contract, and focused browser-side tests without reverse-engineering the React app from scratch.
 
 ## Suggested Reading Order
 
@@ -10,9 +10,8 @@ The goal is the same as the Python summaries: let future agents understand the s
 2. `src/vantage_v5/webapp_react/src/components/Core.tsx.md`
 3. `src/vantage_v5/webapp_react/src/components/Surfaces.tsx.md`
 4. `src/vantage_v5/webapp_react/src/normalizers.ts.md`
-5. Legacy `src/vantage_v5/webapp/app.js.md` and helper summaries when comparing parity
 
-## React Migration Surface
+## React Frontend Surface
 
 - `src/vantage_v5/webapp_react/index.html.md`
 - `src/vantage_v5/webapp_react/public/sw.js.md`
@@ -26,25 +25,6 @@ The goal is the same as the Python summaries: let future agents understand the s
 - `src/vantage_v5/webapp_react/src/normalizers.ts.md`
 - `src/vantage_v5/webapp_react/src/visibleArtifacts.ts.md`
 - `src/vantage_v5/webapp_react/src/styles.css.md`
-
-## Legacy Entry Surface
-
-- [src/vantage_v5/webapp/index.html.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/index.html.md)
-- [src/vantage_v5/webapp/styles.css.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/styles.css.md)
-- [src/vantage_v5/webapp/app.js.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/app.js.md)
-
-## State And Helper Modules
-
-- [src/vantage_v5/webapp/chat_request.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/chat_request.mjs.md)
-- [src/vantage_v5/webapp/auth_state.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/auth_state.mjs.md)
-- [src/vantage_v5/webapp/math_render.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/math_render.mjs.md)
-- [src/vantage_v5/webapp/product_identity.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/product_identity.mjs.md)
-- [src/vantage_v5/webapp/surface_state.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/surface_state.mjs.md)
-- [src/vantage_v5/webapp/turn_panel_grounding.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/turn_panel_grounding.mjs.md)
-- [src/vantage_v5/webapp/turn_payloads.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/turn_payloads.mjs.md)
-- [src/vantage_v5/webapp/vendor/katex.min.js.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/vendor/katex.min.js.md)
-- [src/vantage_v5/webapp/whiteboard_decisions.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/whiteboard_decisions.mjs.md)
-- [src/vantage_v5/webapp/workspace_state.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp/workspace_state.mjs.md)
 
 ## Current Frontend Shape
 
@@ -63,12 +43,12 @@ The goal is the same as the Python summaries: let future agents understand the s
 - The auth gate can switch between sign-in and create-account modes when account creation is enabled, with the create path posting to `/api/accounts` and then entering the same authenticated shell.
 - The authenticated masthead includes a compact `API key` control that opens the provider-key dialog and mirrors `/api/openai-key` masked status, save, and clear behavior.
 - The React shell now includes PWA metadata and a root service worker so a Cloudflare-protected Vantage v6 deployment can be installed from iPhone Safari. The service worker caches only public generated assets and icons, never `/api/*` user data.
+- The generated React production bundle under `src/vantage_v5/webapp/generated/` is the only product frontend served by FastAPI. If it is missing, `/` returns a clear build-required error rather than falling back to a legacy shell.
 
 ## Webapp Tests
 
 - [src/vantage_v5/webapp_react/src/App.test.tsx.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp_react/src/App.test.tsx.md)
 - [src/vantage_v5/webapp_react/src/entrypoints.test.ts.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp_react/src/entrypoints.test.ts.md)
-- [tests/product_identity.test.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/tests/product_identity.test.mjs.md)
-- [tests/math_render.test.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/tests/math_render.test.mjs.md)
-- [tests/webapp_state_model.test.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/tests/webapp_state_model.test.mjs.md)
-- [tests/webapp_whiteboard_decisions.test.mjs.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/tests/webapp_whiteboard_decisions.test.mjs.md)
+- [src/vantage_v5/webapp_react/src/appReducer.test.ts.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp_react/src/appReducer.test.ts.md)
+- [src/vantage_v5/webapp_react/src/inspectionModel.test.ts.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp_react/src/inspectionModel.test.ts.md)
+- [src/vantage_v5/webapp_react/src/visibleArtifacts.test.ts.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp_react/src/visibleArtifacts.test.ts.md)

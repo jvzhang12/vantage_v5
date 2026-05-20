@@ -135,22 +135,16 @@ def _frontend_contract_client(
     monkeypatch: pytest.MonkeyPatch,
     *,
     generated_index: bool,
+    generated_assets: bool = True,
 ) -> tuple[TestClient, Path]:
     package_dir = tmp_path / "package" / "vantage_v5"
     web_dir = package_dir / "webapp"
     generated_dir = web_dir / "generated"
     public_dir = package_dir / "webapp_react" / "public"
-    (generated_dir / "assets").mkdir(parents=True)
-    (generated_dir / "icons").mkdir(parents=True)
     (public_dir / "icons").mkdir(parents=True)
 
-    (web_dir / "index.html").write_text(
-        "<!doctype html><html><body>legacy shell"
-        '<script type="module" src="/static/app.js?v=legacy"></script></body></html>',
-        encoding="utf-8",
-    )
-    (web_dir / "app.js").write_text("window.__legacyShell = true;", encoding="utf-8")
     if generated_index:
+        (generated_dir / "assets").mkdir(parents=True)
         (generated_dir / "index.html").write_text(
             "<!doctype html><html><head>"
             '<script type="module" crossorigin src="/static/generated/assets/app.js"></script>'
@@ -158,14 +152,17 @@ def _frontend_contract_client(
             "</head><body><div id=\"root\">generated react shell</div></body></html>",
             encoding="utf-8",
         )
-    (generated_dir / "assets" / "app.js").write_text("window.__generatedReactShell = true;", encoding="utf-8")
-    (generated_dir / "assets" / "index.css").write_text(":root { color-scheme: dark; }", encoding="utf-8")
-    (generated_dir / "manifest.webmanifest").write_text(
-        json.dumps({"name": "Generated Vantage Shell", "icons": [{"src": "/icons/vantage-icon-192.png"}]}),
-        encoding="utf-8",
-    )
-    (generated_dir / "sw.js").write_text('const SHELL = "generated";', encoding="utf-8")
-    (generated_dir / "icons" / "vantage-icon-192.png").write_bytes(b"\x89PNG\r\n\x1a\ngenerated")
+    if generated_assets:
+        (generated_dir / "assets").mkdir(parents=True, exist_ok=True)
+        (generated_dir / "icons").mkdir(parents=True)
+        (generated_dir / "assets" / "app.js").write_text("window.__generatedReactShell = true;", encoding="utf-8")
+        (generated_dir / "assets" / "index.css").write_text(":root { color-scheme: dark; }", encoding="utf-8")
+        (generated_dir / "manifest.webmanifest").write_text(
+            json.dumps({"name": "Generated Vantage Shell", "icons": [{"src": "/icons/vantage-icon-192.png"}]}),
+            encoding="utf-8",
+        )
+        (generated_dir / "sw.js").write_text('const SHELL = "generated";', encoding="utf-8")
+        (generated_dir / "icons" / "vantage-icon-192.png").write_bytes(b"\x89PNG\r\n\x1a\ngenerated")
     (public_dir / "manifest.webmanifest").write_text(json.dumps({"name": "Public Fallback Shell"}), encoding="utf-8")
     (public_dir / "sw.js").write_text('const SHELL = "public";', encoding="utf-8")
     (public_dir / "icons" / "vantage-icon-192.png").write_bytes(b"\x89PNG\r\n\x1a\npublic")
@@ -3898,7 +3895,6 @@ def test_generated_react_shell_is_served_when_generated_index_exists(
     index = client.get("/")
     assert index.status_code == 200
     assert "generated react shell" in index.text
-    assert "legacy shell" not in index.text
     assert '/static/generated/assets/app.js' in index.text
     assert '/static/generated/assets/index.css' in index.text
     assert "/static/app.js" not in index.text
@@ -3920,18 +3916,25 @@ def test_generated_react_shell_is_served_when_generated_index_exists(
     assert icon.content == b"\x89PNG\r\n\x1a\ngenerated"
 
 
-def test_legacy_shell_fallback_is_served_when_generated_index_is_absent(
+def test_missing_generated_index_returns_clear_build_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client, _ = _frontend_contract_client(tmp_path, monkeypatch, generated_index=False)
+    client, _ = _frontend_contract_client(
+        tmp_path,
+        monkeypatch,
+        generated_index=False,
+        generated_assets=False,
+    )
 
     index = client.get("/")
-    assert index.status_code == 200
-    assert "legacy shell" in index.text
-    assert "generated react shell" not in index.text
-    assert "/static/app.js" in index.text
-    assert "/static/generated/assets/app.js" not in index.text
+    assert index.status_code == 503
+    detail = index.json()["detail"]
+    assert "generated React frontend build is missing" in detail
+    assert "npm run build" in detail
+    assert "src/vantage_v5/webapp/generated/index.html" in detail
+    assert "legacy shell" not in index.text
+    assert "/static/app.js" not in index.text
 
 
 def test_pwa_assets_are_served_with_safe_cache_headers(tmp_path: Path) -> None:

@@ -34,6 +34,6 @@ The following older paths still deterministically interpret user text and should
 - `server.py`: explicit whiteboard overrides, current-draft continuation checks, pending-whiteboard carry checks, and save/publish target confirmation helpers.
 - `services/meta.py`: fallback graph-write decisions based on message phrases.
 - `services/vetting.py`: follow-up and whiteboard-edit continuity heuristics.
-- `webapp/app.js`: local deictic whiteboard reopen interception before `/api/chat`.
+- `webapp_react/src/appReducer.ts`: local handling for navigator-selected/openable whiteboard resources after `/api/chat`.
 
 The migration order should be: move semantic frame fields into the Navigator schema, make pending-whiteboard carry a Navigator control action, replace whiteboard override regexes with `draft_whiteboard` / `open_whiteboard` actions, then move graph-write choices into explicit control-panel actions validated by deterministic executors.

@@ -315,7 +315,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     package_dir = Path(__file__).resolve().parent
     web_dir = package_dir / "webapp"
     pwa_public_dir = package_dir / "webapp_react" / "public"
-    app.mount("/static", StaticFiles(directory=web_dir), name="static")
+    app.mount("/static", StaticFiles(directory=web_dir, check_dir=False), name="static")
 
     @app.middleware("http")
     async def _basic_auth_middleware(request: Request, call_next):
@@ -1852,11 +1852,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
 
     @app.get("/")
-    def index() -> FileResponse:
+    def index() -> Response:
         react_index = web_dir / "generated" / "index.html"
         if react_index.exists():
             return FileResponse(react_index)
-        return FileResponse(web_dir / "index.html")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": (
+                    "The generated React frontend build is missing. "
+                    "Run `npm run build` before starting Vantage so "
+                    "src/vantage_v5/webapp/generated/index.html exists."
+                )
+            },
+        )
 
     return app
 

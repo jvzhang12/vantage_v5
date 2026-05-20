@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 import json
 import re
@@ -140,6 +140,10 @@ def _latest_trace_payload(repo_root: Path) -> dict[str, object]:
         trace_paths = sorted((repo_root / "traces").glob("chat-final-response-*.json"))
     assert trace_paths
     return json.loads(trace_paths[-1].read_text(encoding="utf-8"))
+
+
+def _relative_date(days: int) -> str:
+    return (datetime.now(tz=UTC).date() + timedelta(days=days)).isoformat()
 
 
 def _today_calendar_artifact() -> dict[str, object]:
@@ -544,6 +548,7 @@ def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     assert "candidate_memory_results" in payload
     assert "recall" in payload
     assert "working_memory" in payload
+    assert "attention_recall_context_handoff" not in payload
     assert "attention_recall_role_projection" not in payload
     assert payload["working_memory_view"]["schema"] == "working_memory_view.v1"
     assert payload["recall"] == payload["working_memory"]
@@ -588,8 +593,16 @@ def test_chat_search_and_concept_inspection(tmp_path: Path) -> None:
     assert {"kind", "memory_role", "recall_status", "source_tier"} <= set(recalled_item)
     assert recalled_item["recall_status"] == "recalled"
     final_response = _latest_trace_payload(repo_root)["final_response"]
+    context_handoff = final_response["attention_recall_context_handoff"]
+    assert context_handoff["schema"] == "attention_recall_context_handoff.v1"
+    assert context_handoff["roles"]["recall_context"]
+    assert context_handoff["comparison"]["recall_resource_ids"]
+    assert not _payload_has_key(context_handoff, "content")
+    assert not _payload_has_key(context_handoff, "body")
     role_projection = final_response["attention_recall_role_projection"]
     assert role_projection["schema"] == "attention_recall_role_projection.v1"
+    assert role_projection["roles"] == context_handoff["roles"]
+    assert role_projection["comparison"] == context_handoff["comparison"]
     assert role_projection["roles"]["recall_context"]
     assert role_projection["comparison"]["recall_resource_ids"]
     assert not _payload_has_key(role_projection, "content")
@@ -3230,11 +3243,11 @@ def test_chat_capture_task_statement_proposes_task_and_opens_task_focus(tmp_path
             'Create a task titled "Create slides" with due_date 2026-05-19. Requires confirmation before applying',
             "2026-05-19",
         ),
-        (
-            "I need to create slides tomorrow.",
-            'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
-            "2026-05-20",
-        ),
+            (
+                "I need to create slides tomorrow.",
+                'Create a task titled "Create slides" due tomorrow. Requires confirmation before applying',
+                _relative_date(1),
+            ),
     ],
 )
 def test_chat_task_create_slides_titles_are_clean_without_memory_write(
@@ -3311,7 +3324,7 @@ def test_task_proposal_suppresses_conflicting_whiteboard_offer(tmp_path: Path, m
     assert action["artifact_kind"] == "task"
     assert action["operation"] == "create_task"
     assert action["payload"]["title"] == "Create slides"
-    assert action["payload"]["due_date"] == "2026-05-20"
+    assert action["payload"]["due_date"] == _relative_date(1)
     assert payload["workspace_update"] is None
     final_response = _latest_trace_payload(repo_root / "users" / "eden")["final_response"]
     assert final_response["workspace_update"] is None
@@ -3350,7 +3363,7 @@ def test_task_proposal_preserves_explicit_whiteboard_offer_request(tmp_path: Pat
     assert action["artifact_kind"] == "task"
     assert action["operation"] == "create_task"
     assert action["payload"]["title"] == "Create slides"
-    assert action["payload"]["due_date"] == "2026-05-20"
+    assert action["payload"]["due_date"] == _relative_date(1)
     assert payload["workspace_update"]["type"] == "offer_whiteboard"
     assert payload["workspace_update"]["status"] == "offered"
     final_response = _latest_trace_payload(repo_root / "users" / "eden")["final_response"]
@@ -3416,7 +3429,7 @@ def test_chat_remember_to_task_proposal_does_not_also_write_memory(tmp_path: Pat
     assert action["artifact_kind"] == "task"
     assert action["operation"] == "create_task"
     assert action["payload"]["title"] == "Create slides"
-    assert action["payload"]["due_date"] == "2026-05-20"
+    assert action["payload"]["due_date"] == _relative_date(1)
     assert payload["workspace_update"] is None
     assert payload["meta_action"]["action"] == "no_op"
     assert payload["meta_action"]["blocked_action"] == "create_memory"

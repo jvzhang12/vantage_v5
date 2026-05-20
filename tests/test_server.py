@@ -10,6 +10,7 @@ import shutil
 import pytest
 from fastapi.testclient import TestClient
 
+import vantage_v5.server as server_module
 from vantage_v5.config import AppConfig
 from vantage_v5.services.artifact_actions import ArtifactActionPlan
 from vantage_v5.services.executor import GraphActionExecutor
@@ -124,6 +125,64 @@ def _client(
             allowed_origins=allowed_origins or [],
             cookie_secure=cookie_secure,
             allow_unsafe_public_no_auth=allow_unsafe_public_no_auth,
+        )
+    )
+    return TestClient(app), repo_root
+
+
+def _frontend_contract_client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    generated_index: bool,
+) -> tuple[TestClient, Path]:
+    package_dir = tmp_path / "package" / "vantage_v5"
+    web_dir = package_dir / "webapp"
+    generated_dir = web_dir / "generated"
+    public_dir = package_dir / "webapp_react" / "public"
+    (generated_dir / "assets").mkdir(parents=True)
+    (generated_dir / "icons").mkdir(parents=True)
+    (public_dir / "icons").mkdir(parents=True)
+
+    (web_dir / "index.html").write_text(
+        "<!doctype html><html><body>legacy shell"
+        '<script type="module" src="/static/app.js?v=legacy"></script></body></html>',
+        encoding="utf-8",
+    )
+    (web_dir / "app.js").write_text("window.__legacyShell = true;", encoding="utf-8")
+    if generated_index:
+        (generated_dir / "index.html").write_text(
+            "<!doctype html><html><head>"
+            '<script type="module" crossorigin src="/static/generated/assets/app.js"></script>'
+            '<link rel="stylesheet" crossorigin href="/static/generated/assets/index.css">'
+            "</head><body><div id=\"root\">generated react shell</div></body></html>",
+            encoding="utf-8",
+        )
+    (generated_dir / "assets" / "app.js").write_text("window.__generatedReactShell = true;", encoding="utf-8")
+    (generated_dir / "assets" / "index.css").write_text(":root { color-scheme: dark; }", encoding="utf-8")
+    (generated_dir / "manifest.webmanifest").write_text(
+        json.dumps({"name": "Generated Vantage Shell", "icons": [{"src": "/icons/vantage-icon-192.png"}]}),
+        encoding="utf-8",
+    )
+    (generated_dir / "sw.js").write_text('const SHELL = "generated";', encoding="utf-8")
+    (generated_dir / "icons" / "vantage-icon-192.png").write_bytes(b"\x89PNG\r\n\x1a\ngenerated")
+    (public_dir / "manifest.webmanifest").write_text(json.dumps({"name": "Public Fallback Shell"}), encoding="utf-8")
+    (public_dir / "sw.js").write_text('const SHELL = "public";', encoding="utf-8")
+    (public_dir / "icons" / "vantage-icon-192.png").write_bytes(b"\x89PNG\r\n\x1a\npublic")
+
+    repo_root = _test_repo(tmp_path)
+    monkeypatch.setattr(server_module, "__file__", str(package_dir / "server.py"))
+    app = create_app(
+        AppConfig(
+            repo_root=repo_root,
+            openai_api_key=None,
+            model="gpt-4.1",
+            host="127.0.0.1",
+            port=8005,
+            active_workspace="v5-milestone-1",
+            nexus_root=repo_root / "fixtures" / "nexus",
+            nexus_include_paths=["allowed"],
+            nexus_exclude_paths=["private"],
         )
     )
     return TestClient(app), repo_root
@@ -3828,6 +3887,51 @@ def test_create_account_is_disabled_when_auth_is_not_enabled(tmp_path: Path) -> 
 
     created = client.post("/api/accounts", json={"username": "Taylor_01", "password": "taylor-password"})
     assert created.status_code == 404
+
+
+def test_generated_react_shell_is_served_when_generated_index_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _ = _frontend_contract_client(tmp_path, monkeypatch, generated_index=True)
+
+    index = client.get("/")
+    assert index.status_code == 200
+    assert "generated react shell" in index.text
+    assert "legacy shell" not in index.text
+    assert '/static/generated/assets/app.js' in index.text
+    assert '/static/generated/assets/index.css' in index.text
+    assert "/static/app.js" not in index.text
+
+    generated_script = client.get("/static/generated/assets/app.js")
+    assert generated_script.status_code == 200
+    assert "window.__generatedReactShell = true" in generated_script.text
+
+    manifest = client.get("/manifest.webmanifest")
+    assert manifest.status_code == 200
+    assert manifest.json()["name"] == "Generated Vantage Shell"
+
+    service_worker = client.get("/sw.js")
+    assert service_worker.status_code == 200
+    assert 'SHELL = "generated"' in service_worker.text
+
+    icon = client.get("/icons/vantage-icon-192.png")
+    assert icon.status_code == 200
+    assert icon.content == b"\x89PNG\r\n\x1a\ngenerated"
+
+
+def test_legacy_shell_fallback_is_served_when_generated_index_is_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _ = _frontend_contract_client(tmp_path, monkeypatch, generated_index=False)
+
+    index = client.get("/")
+    assert index.status_code == 200
+    assert "legacy shell" in index.text
+    assert "generated react shell" not in index.text
+    assert "/static/app.js" in index.text
+    assert "/static/generated/assets/app.js" not in index.text
 
 
 def test_pwa_assets_are_served_with_safe_cache_headers(tmp_path: Path) -> None:

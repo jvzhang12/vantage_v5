@@ -51,7 +51,7 @@ This audit covers browser-facing frontend entrypoints, generated/static bundle p
 - `npm run typecheck` typechecks the React/TypeScript source.
 - `npm test` runs Vitest. Current React coverage includes `App.test.tsx`, reducer tests, inspection model tests, visible artifact tests, and `entrypoints.test.ts`.
 - Legacy helper tests still import committed static modules under `src/vantage_v5/webapp/`, especially `tests/product_identity.test.mjs`, `tests/math_render.test.mjs`, `tests/webapp_state_model.test.mjs`, `tests/webapp_whiteboard_decisions.test.mjs`, and `tests/webapp_draft_status.test.mjs`.
-- `tests/test_server.py` covers HTTP static/PWA routes and auth behavior around public shell assets, but the requested check set for this slice does not include `pytest`.
+- `tests/test_server.py` covers HTTP static/PWA routes, generated React shell precedence, legacy shell fallback, and auth behavior around public shell assets.
 
 ## Documentation References
 
@@ -93,6 +93,9 @@ Suspected legacy, not safe to delete in this slice:
 
 - Source inspection confirms Vite points at the React tree and outputs to `/static/generated/`.
 - Source inspection confirms FastAPI serves generated React `index.html` first and falls back to the legacy static shell.
+- Focused server-route tests confirm `GET /` serves generated React HTML with `/static/generated/assets/app.js` and `/static/generated/assets/index.css` when `generated/index.html` exists.
+- Focused server-route tests confirm `GET /` currently falls back to the legacy `src/vantage_v5/webapp/index.html` shell when `generated/index.html` is absent.
+- Focused server-route tests confirm root PWA routes prefer generated manifest, service worker, and icon files over React public fallbacks when generated files exist.
 - `git check-ignore` confirms `src/vantage_v5/webapp/generated/` is ignored build output.
 - `npm run build` confirms the generated React bundle is recreated in the expected server-served directory.
 - Browser smoke against the Vite dev server confirms the React shell loads from `http://127.0.0.1:5173/static/generated/`.
@@ -109,8 +112,7 @@ Suspected legacy, not safe to delete in this slice:
 ## Proposed Removal Slices
 
 1. Build-contract hardening:
-   - Keep the new entrypoint test.
-   - Add Python route coverage only after deciding whether `GET /` should require a generated build or keep a fallback.
+   - Keep the React entrypoint and server-route tests.
    - Decide whether CI should run `npm run build` before server-route smoke tests.
 
 2. Test migration:

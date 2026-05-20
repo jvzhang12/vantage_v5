@@ -50,7 +50,7 @@ The assessment was split across these domains:
 - Backend/API: `server.py`, config, routes, app composition, auth, runtime store selection.
 - Memory/recall: markdown stores, Memory Trace, search, vetting, response grounding, corrections.
 - Turn orchestration: context preparation, routing, semantic policy, whiteboard continuation, staged output.
-- Frontend/Inspect: `index.html`, `app.js`, turn payload normalization, surface state, product copy.
+- Frontend/Inspect: React source under `src/vantage_v5/webapp_react`, generated bundle serving under `src/vantage_v5/webapp/generated`, legacy fallback/static helpers under `src/vantage_v5/webapp`, turn payload normalization, surface state, product copy.
 - Scenario/protocol/artifact lifecycle: Scenario Lab, protocol engine, experiment stores, draft artifacts.
 - Tests/contracts: documented behavior promises, payload compatibility, routing invariants, gaps.
 
@@ -73,6 +73,9 @@ Primary source paths:
 - `src/vantage_v5/services/protocols.py`
 - `src/vantage_v5/services/draft_artifact_lifecycle.py`
 - `src/vantage_v5/storage/*.py`
+- `src/vantage_v5/webapp_react/src/App.tsx`
+- `src/vantage_v5/webapp_react/src/*.ts`
+- `src/vantage_v5/webapp_react/src/components/*.tsx`
 - `src/vantage_v5/webapp/app.js`
 - `src/vantage_v5/webapp/*.mjs`
 - `tests/*.py`
@@ -82,11 +85,11 @@ Primary source paths:
 
 | Surface | What It Does | Important Files | Current Assessment |
 |---|---|---|---|
-| Chat | Primary interaction mode. Sends message, history, selected context, whiteboard scope, pinned context, and pending draft updates to `/api/chat`. | `webapp/app.js`, `webapp/chat_request.mjs`, `server.py`, `chat.py` | Mature and central. Chat remains the default even when memory and protocols are active. |
+| Chat | Primary interaction mode. Sends message, history, selected context, whiteboard scope, pinned context, and pending draft updates to `/api/chat`. | React `webapp_react/src/App.tsx` / `appReducer.ts` / `visibleArtifacts.ts`, legacy fallback `webapp/app.js` / `chat_request.mjs`, `server.py`, `chat.py` | Mature and central. Chat remains the default even when memory and protocols are active. |
 | Whiteboard / Draft | Live markdown workspace for longer work products. Can be offered, accepted, drafted, saved, published, or reopened from saved records. | `context_engine.py`, `whiteboard_routing.py`, `draft_artifact_lifecycle.py`, `workspaces.py`, `webapp/whiteboard_decisions.mjs` | Strong user-facing draft model. Pending-offer carry is deliberately narrow. Draft retention and expiry are still TODO-level. |
-| Inspect / Vantage | Shows answer context, pulled-in memory, saved items, Memory Trace, reasoning path, Scenario Lab state, correction affordances, and product-facing grounding labels. | `webapp/app.js`, `webapp/product_identity.mjs`, `webapp/turn_payloads.mjs`, `turn_payloads.py` | One of Vantage's strongest differentiators. It makes the context loop legible. Real browser/DOM integration coverage appears thinner than model-level tests. |
-| Library | Durable saved layer: concepts, memories, artifacts, protocols, vault notes. Some library dock UI exists but is hidden by a feature flag. | `markdown_store.py`, `concepts.py`, `memories.py`, `artifacts.py`, `vault.py`, `record_cards.py`, `webapp/app.js` | The storage model is clear and inspectable. The product surface is less prominent than the underlying capability. |
-| Scenario Lab | Generates 2-3 branches, writes branch workspaces, creates a comparison artifact, and records a scenario turn trace. | `scenario_lab.py`, `workspaces.py`, `artifacts.py`, `record_cards.py`, `webapp/app.js` | Substantial and well-integrated, but model-dependent and only lightly semantically validated before durable writes. |
+| Inspect / Vantage | Shows answer context, pulled-in memory, saved items, Memory Trace, reasoning path, Scenario Lab state, correction affordances, and product-facing grounding labels. | React `webapp_react/src/components/Inspection.tsx` / `normalizers.ts`, legacy fallback `webapp/app.js` / `product_identity.mjs` / `turn_payloads.mjs`, `turn_payloads.py` | One of Vantage's strongest differentiators. It makes the context loop legible. Real browser/DOM integration coverage appears thinner than model-level tests. |
+| Library | Durable saved layer: concepts, memories, artifacts, protocols, vault notes. Some library dock UI exists but is hidden by a feature flag. | `markdown_store.py`, `concepts.py`, `memories.py`, `artifacts.py`, `vault.py`, `record_cards.py`, React shell state plus legacy fallback `webapp/app.js` | The storage model is clear and inspectable. The product surface is less prominent than the underlying capability. |
+| Scenario Lab | Generates 2-3 branches, writes branch workspaces, creates a comparison artifact, and records a scenario turn trace. | `scenario_lab.py`, `workspaces.py`, `artifacts.py`, `record_cards.py`, React shell state plus legacy fallback `webapp/app.js` | Substantial and well-integrated, but model-dependent and only lightly semantically validated before durable writes. |
 | Experiment Mode | Starts isolated temporary stores under `state/experiments`, overlays durable/canonical references, deletes the session on end. | `experiments.py`, `server.py` | Clean isolation. Missing a first-class "promote useful experiment outputs to durable" path before deletion. |
 
 ## Backend/API Map
@@ -95,7 +98,7 @@ Backend entrypoints:
 
 - Package script: `vantage-v5-web = "vantage_v5.server:main"` in `pyproject.toml`.
 - App factory: `create_app(config)` in `server.py`.
-- Static app: `/static` serves `src/vantage_v5/webapp`; `/` returns `index.html`.
+- Static app: `/static` serves `src/vantage_v5/webapp`; `/` returns `src/vantage_v5/webapp/generated/index.html` when the generated React build exists and falls back to the legacy `src/vantage_v5/webapp/index.html` otherwise. Root PWA routes prefer generated files and fall back to `src/vantage_v5/webapp_react/public`.
 - Docker runtime creates `/data/{artifacts,concepts,memories,memory_trace,state,traces,users,workspaces}`.
 
 Major route families:
@@ -312,12 +315,12 @@ Risks:
 
 Frontend structure:
 
-- `index.html` defines the sibling product surfaces: chat panel, draft/whiteboard panel, Inspect panel.
-- `app.js` owns a large mutable state object covering auth, experiment, composer, surfaces, catalog, turn memory, pinned context, workspace, pending whiteboard decisions, and current turn.
-- `surface_state.mjs` contains pure helpers for chat/whiteboard/vantage surface state and session-scoped snapshots.
-- `workspace_state.mjs` preserves dirty drafts and clears stale inspection state when workspace anchors change.
-- `turn_payloads.mjs` normalizes backend payloads across snake/camel/legacy shapes.
-- `product_identity.mjs` centralizes product-facing labels for memory, grounding, corrections, Scenario Lab, and Inspect summaries.
+- The active browser app is the React source under `src/vantage_v5/webapp_react`.
+- `npm run build` writes the generated React browser shell under ignored `src/vantage_v5/webapp/generated/`, and FastAPI serves that generated shell at `/` when present.
+- `src/vantage_v5/webapp_react/src/App.tsx` owns the top-level browser workflow.
+- `src/vantage_v5/webapp_react/src/appReducer.ts`, `normalizers.ts`, and `visibleArtifacts.ts` carry the typed state, backend DTO, and visible-context contracts.
+- `src/vantage_v5/webapp_react/src/components/` contains the core shell, inspection, and surface presentation components.
+- The older `src/vantage_v5/webapp/index.html`, `app.js`, `styles.css`, helper modules, and vendor files remain current fallback/test dependencies when no generated React shell exists. They should not be treated as the primary frontend and are not safe to delete until fallback and test dependencies are removed or replaced.
 
 Inspect renders:
 
@@ -339,9 +342,9 @@ Strengths:
 
 Risks:
 
-- `app.js` is a large monolith with state mutation, request composition, rendering, catalog behavior, and correction workflows tightly coupled.
+- The legacy fallback `app.js` is a large monolith with state mutation, request composition, rendering, catalog behavior, and correction workflows tightly coupled.
 - Frontend and backend duplicate normalization concepts, especially context budget, response mode, and workspace updates.
-- Intent routing in `chat_request.mjs` is regex-heavy.
+- Legacy fallback intent routing in `chat_request.mjs` is regex-heavy.
 - True browser/DOM integration coverage appears limited compared with pure state/model tests.
 - The Library dock is hidden behind `SHOW_LIBRARY_DOCK = false`, leaving semi-dead UI paths.
 

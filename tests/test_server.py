@@ -6594,7 +6594,10 @@ def test_chat_turn_writes_memory_trace_and_can_recall_it_without_promoting_it(tm
     assert first_payload["memory_trace_record"]["recalled_ids"] == [
         item["id"] for item in first_payload["working_memory"]
     ]
-    assert (repo_root / "memory_trace" / f"{first_payload['memory_trace_record']['id']}.md").exists()
+    assert first_payload["memory_trace_record"]["id"] == "current-turn"
+    assert "body" not in first_payload["memory_trace_record"]
+    assert "content" not in first_payload["memory_trace_record"]
+    assert list((repo_root / "memory_trace").glob("turn-*.md"))
     assert first_payload["learned"] == []
 
     second = client.post(
@@ -6613,6 +6616,80 @@ def test_chat_turn_writes_memory_trace_and_can_recall_it_without_promoting_it(tm
     assert any(item["source"] == "memory_trace" for item in second_payload["candidate_memory_results"])
     assert any(item["source"] == "memory_trace" for item in second_payload["working_memory"])
     assert any(item["source"] == "memory_trace" for item in second_payload["trace_notes"])
+
+
+def test_chat_public_payload_sanitizes_memory_trace_records_and_turn_ids(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    private_prompt_phrase = "private BFS trace phrase zinnia-431"
+    monkeypatch.setattr(MetaService, "decide", lambda self, **kwargs: MetaDecision(action="no_op", rationale="No durable write."))
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", lambda self, **kwargs: "Safe recall response.")
+
+    first = client.post(
+        "/api/chat",
+        json={
+            "message": f"BFS recall topic. Keep this raw user text hidden: {private_prompt_phrase}.",
+            "memory_intent": "dont_save",
+        },
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+    trace_paths = list((repo_root / "memory_trace").glob("turn-*.md"))
+    assert trace_paths
+    raw_trace_id = trace_paths[0].stem
+    assert private_prompt_phrase in trace_paths[0].read_text(encoding="utf-8")
+    assert first_payload["memory_trace_record"]["id"] == "current-turn"
+    assert "body" not in first_payload["memory_trace_record"]
+    assert "content" not in first_payload["memory_trace_record"]
+
+    second = client.post(
+        "/api/chat",
+        json={
+            "message": "What do you remember about the BFS recall topic?",
+            "memory_intent": "dont_save",
+        },
+    )
+    assert second.status_code == 200
+    payload = second.json()
+
+    assert payload["memory_trace_record"]["id"] == "current-turn"
+    assert "body" not in payload["memory_trace_record"]
+    assert "content" not in payload["memory_trace_record"]
+    assert not _payload_contains(payload, "## User Message")
+    assert not _payload_contains(payload, private_prompt_phrase)
+    assert not _payload_contains(payload, raw_trace_id)
+
+    working_memory_view = payload["working_memory_view"]
+    assert working_memory_view["schema"] == "working_memory_view.v1"
+    assert working_memory_view["turn"]["trace_id"] == "current-turn"
+    assert working_memory_view["turn"]["turn_id"] in (None, "current-turn")
+    assert not _payload_contains(working_memory_view, private_prompt_phrase)
+    assert not _payload_contains(working_memory_view, raw_trace_id)
+    assert not _payload_has_key(working_memory_view, "body")
+    assert not _payload_has_key(working_memory_view, "content")
+
+    for collection_name in (
+        "candidate_memory_results",
+        "candidate_trace_notes",
+        "trace_notes",
+        "working_memory",
+        "recall",
+        "recall_details",
+        "selected_attention_resources",
+    ):
+        for item in payload.get(collection_name, []):
+            if item.get("source") != "memory_trace" and item.get("kind") != "memory_trace":
+                continue
+            assert item["id"].startswith("memory_trace:prior-turn-")
+            assert "body" not in item
+            assert "content" not in item
+            assert not _payload_contains(item, private_prompt_phrase)
+            assert not _payload_contains(item, raw_trace_id)
+
+    trace_payload = _latest_trace_payload(repo_root)
+    assert trace_payload["generation_context"]["schema"] == "generation_context_adapter.v1"
+    assert not _payload_contains(trace_payload["generation_context"], private_prompt_phrase)
+    assert not _payload_contains(trace_payload["generation_context"], raw_trace_id)
 
 
 def test_chat_generation_uses_handoff_context_and_sanitizes_memory_trace(tmp_path: Path, monkeypatch) -> None:
@@ -6636,7 +6713,10 @@ def test_chat_generation_uses_handoff_context_and_sanitizes_memory_trace(tmp_pat
     )
     assert first.status_code == 200
     first_payload = first.json()
-    raw_trace_id = first_payload["memory_trace_record"]["id"]
+    raw_trace_paths = list((repo_root / "memory_trace").glob("turn-*.md"))
+    assert raw_trace_paths
+    raw_trace_id = raw_trace_paths[0].stem
+    assert first_payload["memory_trace_record"]["id"] == "current-turn"
 
     second = client.post(
         "/api/chat",
@@ -6795,8 +6875,8 @@ def test_experiment_chat_writes_memory_trace_inside_experiment_scope(tmp_path: P
     assert payload["memory_trace_record"]["scope"] == "experiment"
     assert payload["memory_trace_record"]["trace_scope"] == "experiment"
     assert payload["memory_trace_record"]["turn_mode"] == "chat"
-    experiment_trace_path = repo_root / "state" / "experiments" / session_id / "memory_trace" / f"{payload['memory_trace_record']['id']}.md"
-    assert experiment_trace_path.exists()
+    assert payload["memory_trace_record"]["id"] == "current-turn"
+    assert list((repo_root / "state" / "experiments" / session_id / "memory_trace").glob("turn-*.md"))
 
 
 def test_scenario_lab_turn_writes_memory_trace(tmp_path: Path, monkeypatch) -> None:
@@ -6818,7 +6898,8 @@ def test_scenario_lab_turn_writes_memory_trace(tmp_path: Path, monkeypatch) -> N
     assert payload["memory_trace_record"]["source"] == "memory_trace"
     assert payload["memory_trace_record"]["turn_mode"] == "scenario_lab"
     assert payload["memory_trace_record"]["learned_count"] == 1
-    assert (repo_root / "memory_trace" / f"{payload['memory_trace_record']['id']}.md").exists()
+    assert payload["memory_trace_record"]["id"] == "current-turn"
+    assert list((repo_root / "memory_trace").glob("turn-*.md"))
 
 
 def test_fallback_turn_blocks_linked_concept_without_structured_intent(tmp_path: Path, monkeypatch) -> None:

@@ -68,10 +68,11 @@ def build_working_memory_view_payload(
     trace_record = response_payload.get("memory_trace_record")
     trace_id = _public_turn_trace_id(trace_record)
     turn_request = plan.get("request") if isinstance(plan.get("request"), dict) else {}
+    turn_id = _public_turn_id(request_payload.get("turn_id") or turn_request.get("turn_id"), trace_id=trace_id)
     return {
         "schema": WORKING_MEMORY_VIEW_VERSION,
         "turn": {
-            "turn_id": _clean_optional(request_payload.get("turn_id") or turn_request.get("turn_id")),
+            "turn_id": turn_id,
             "trace_id": _clean_optional(trace_id),
             "response_mode": _clean_optional(_response_mode_kind(response_payload.get("response_mode"))),
             "mode": _clean_optional(response_payload.get("mode")),
@@ -286,6 +287,18 @@ def _public_turn_trace_id(value: Any) -> str | None:
     if not _clean_optional(value.get("id")):
         return None
     return "current-turn"
+
+
+def _public_turn_id(value: Any, *, trace_id: str | None) -> str | None:
+    """Return a public turn id without exposing prompt-derived Memory Trace ids."""
+
+    turn_id = _clean_optional(value)
+    if turn_id is None:
+        return _clean_optional(trace_id)
+    normalized = turn_id.lower()
+    if normalized.startswith("turn-") or normalized.startswith("memory_trace:"):
+        return _clean_optional(trace_id)
+    return turn_id
 
 
 def _list_of_dicts(value: Any) -> list[dict[str, Any]]:

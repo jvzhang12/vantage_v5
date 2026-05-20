@@ -100,6 +100,17 @@ def build_attention_recall_context_handoff(
     visible_ids: list[str] = []
     pinned_ids: list[str] = []
     recall_ids: list[str] = []
+    memory_trace_aliases: dict[str, str] = {}
+
+    def safe_memory_trace_resource_id(item: dict[str, Any]) -> str | None:
+        if not is_memory_trace_resource(item):
+            return None
+        raw_id = resource_id_from_item(item)
+        alias = memory_trace_aliases.get(raw_id)
+        if alias is None:
+            alias = f"memory_trace:prior-turn-{len(memory_trace_aliases) + 1}"
+            memory_trace_aliases[raw_id] = alias
+        return alias
 
     for item in list_of_dicts(response_payload.get("selected_attention_resources")):
         resource = compact_resource(
@@ -108,6 +119,7 @@ def build_attention_recall_context_handoff(
             origins=["attention_selection"],
             selected=True,
             sent_to_response_llm=sent_to_llm,
+            safe_resource_id=safe_memory_trace_resource_id(item),
         )
         merge_resource(resources, resource)
         selected_ids.append(resource["resource_id"])
@@ -119,6 +131,7 @@ def build_attention_recall_context_handoff(
             origins=["current_visible_context"],
             visible=True,
             sent_to_response_llm=sent_to_llm,
+            safe_resource_id=safe_memory_trace_resource_id(item),
         )
         merge_resource(resources, resource)
         visible_ids.append(resource["resource_id"])
@@ -134,6 +147,7 @@ def build_attention_recall_context_handoff(
             roles=roles,
             origins=origins,
             sent_to_response_llm=sent_to_llm,
+            safe_resource_id=safe_memory_trace_resource_id(item),
         )
         merge_resource(resources, resource)
         recall_ids.append(resource["resource_id"])
@@ -146,6 +160,7 @@ def build_attention_recall_context_handoff(
             origins=["pinned_continuity"],
             pinned=True,
             sent_to_response_llm=sent_to_llm,
+            safe_resource_id=safe_memory_trace_resource_id(pinned_context),
         )
         merge_resource(resources, resource)
         pinned_ids.append(resource["resource_id"])
@@ -166,12 +181,14 @@ def build_attention_recall_context_handoff(
 
     observed_context_ids = set(resources)
     for item in surface_open_resources(response_payload):
-        resource_id = resource_id_from_item(item)
+        safe_resource_id = safe_memory_trace_resource_id(item)
+        resource_id = safe_resource_id or resource_id_from_item(item)
         resource = compact_resource(
             item,
             roles=["surface_to_open"],
             origins=["navigator_surface_open"],
             sent_to_response_llm=sent_to_llm if resource_id in observed_context_ids else None,
+            safe_resource_id=safe_resource_id,
         )
         merge_resource(resources, resource)
 
@@ -215,8 +232,9 @@ def compact_resource(
     visible: bool = False,
     pinned: bool = False,
     sent_to_response_llm: bool | None = None,
+    safe_resource_id: str | None = None,
 ) -> dict[str, Any]:
-    resource_id = resource_id_from_item(item, visible=visible)
+    resource_id = safe_resource_id or resource_id_from_item(item, visible=visible)
     source_status = item.get("source_status") if isinstance(item.get("source_status"), dict) else {}
     memory_trace = is_memory_trace_resource(item)
     kind = "memory_trace" if memory_trace else (clean_optional(item.get("kind") or item.get("type")) or "resource")
@@ -232,20 +250,24 @@ def compact_resource(
         else short_text(item.get("summary") or item.get("card"), limit=SUMMARY_LIMIT)
     )
     excerpt = None if memory_trace else short_text(item.get("excerpt") or item.get("content") or item.get("body"), limit=EXCERPT_LIMIT)
-    provenance = {
-        "source": clean_optional(item.get("source")),
-        "source_label": clean_optional(item.get("source_label")),
-        "scope": clean_optional(item.get("scope")),
-        "durability": clean_optional(item.get("durability")),
-        "is_canonical": item.get("is_canonical") if isinstance(item.get("is_canonical"), bool) else None,
-        "source_status": {
-            key: source_status.get(key)
-            for key in ("store", "read_only", "writable")
-            if key in source_status
-        },
-    }
+    provenance = (
+        memory_trace_provenance(item, source_status)
+        if memory_trace
+        else {
+            "source": clean_optional(item.get("source")),
+            "source_label": clean_optional(item.get("source_label")),
+            "scope": clean_optional(item.get("scope")),
+            "durability": clean_optional(item.get("durability")),
+            "is_canonical": item.get("is_canonical") if isinstance(item.get("is_canonical"), bool) else None,
+            "source_status": {
+                key: source_status.get(key)
+                for key in ("store", "read_only", "writable")
+                if key in source_status
+            },
+        }
+    )
     return {
-        "id": clean_optional(item.get("id")) or resource_id,
+        "id": resource_id if memory_trace else clean_optional(item.get("id")) or resource_id,
         "resource_id": resource_id,
         "kind": kind,
         "type": clean_optional(item.get("type")),
@@ -366,6 +388,24 @@ def memory_trace_public_title(item: dict[str, Any]) -> str:
     if identifier:
         return "Prior turn trace"
     return "Memory trace"
+
+
+def memory_trace_provenance(item: dict[str, Any], source_status: dict[str, Any]) -> dict[str, Any]:
+    provenance: dict[str, Any] = {"source": "memory_trace"}
+    scope = clean_optional(item.get("scope"))
+    if scope:
+        provenance["scope"] = scope
+    durability = clean_optional(item.get("durability"))
+    if durability:
+        provenance["durability"] = durability
+    compact_status = {
+        key: source_status.get(key)
+        for key in ("store", "read_only", "writable")
+        if key in source_status
+    }
+    if compact_status:
+        provenance["source_status"] = compact_status
+    return provenance
 
 
 def sent_to_response_llm(response_payload: dict[str, Any]) -> bool | None:

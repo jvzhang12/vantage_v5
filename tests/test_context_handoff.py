@@ -200,12 +200,73 @@ def test_memory_trace_resources_are_public_safe_across_handoff_projection_and_vi
         assert not _payload_contains(payload, raw_assistant)
         assert not _payload_has_key(payload, "body")
         assert not _payload_has_key(payload, "content")
-    memory_trace_resource = next(resource for resource in trace_payload["resources"] if resource["resource_id"] == "memory_trace:turn-20260520")
+    safe_alias = "memory_trace:prior-turn-1"
+    memory_trace_resource = next(resource for resource in trace_payload["resources"] if resource["resource_id"] == safe_alias)
+    assert memory_trace_resource["id"] == safe_alias
     assert memory_trace_resource["title"] == "Prior turn trace"
     assert memory_trace_resource["label"] == "Prior turn trace"
     assert memory_trace_resource["summary"] == "Prior turn context selected by Recall."
     assert memory_trace_resource["excerpt"] is None
-    assert trace_payload["roles"]["recall_context"][0]["resource_id"] == "memory_trace:turn-20260520"
+    assert trace_payload["roles"]["recall_context"][0]["resource_id"] == safe_alias
+    assert projection["roles"]["recall_context"][0]["resource_id"] == safe_alias
+    assert view["roles"]["recall_context"][0]["resource_id"] == safe_alias
+
+
+def test_memory_trace_prompt_derived_storage_ids_are_aliased_publicly() -> None:
+    raw_phrase = "can-you-help-me-plan-the-confidential-graph-exam-retake"
+    raw_id = f"memory_trace:turn-20260520-{raw_phrase}"
+    raw_prompt = "Can you help me plan the confidential graph exam retake?"
+    raw_assistant = "The confidential graph exam retake plan should stay private."
+    response_payload = {
+        "mode": "chat",
+        "recall": [
+            {
+                "id": raw_id,
+                "resource_id": raw_id,
+                "kind": "memory_trace",
+                "source": "memory_trace",
+                "source_label": raw_prompt,
+                "title": raw_prompt,
+                "summary": raw_prompt,
+                "excerpt": raw_assistant,
+                "body": f"USER: {raw_prompt}\nASSISTANT: {raw_assistant}",
+            }
+        ],
+        "workspace_update": None,
+        "graph_action": None,
+        "created_record": None,
+        "artifact_actions": [],
+    }
+
+    handoff = build_attention_recall_context_handoff(
+        request_payload={"message": raw_prompt},
+        response_payload=response_payload,
+    )
+    trace_payload = handoff.to_trace_payload()
+    projection = build_attention_recall_role_projection(
+        request_payload={"message": raw_prompt},
+        response_payload=response_payload,
+    )
+    view = build_working_memory_view_payload(
+        request_payload={"message": raw_prompt},
+        response_payload=response_payload,
+        context_handoff=handoff,
+        turn_plan={"version": "test", "write_ledger": {"categories": ["none"]}},
+    )
+
+    safe_alias = "memory_trace:prior-turn-1"
+    for payload in (trace_payload, projection, view):
+        assert _payload_contains(payload, safe_alias)
+        assert not _payload_contains(payload, raw_id)
+        assert not _payload_contains(payload, raw_phrase)
+        assert not _payload_contains(payload, raw_prompt)
+        assert not _payload_contains(payload, raw_assistant)
+        assert payload["roles"]["recall_context"][0]["resource_id"] == safe_alias
+        assert payload["comparison"]["recall_resource_ids"] == [safe_alias]
+
+    assert trace_payload["resources"][0]["id"] == safe_alias
+    assert trace_payload["resources"][0]["resource_id"] == safe_alias
+    assert trace_payload["roles"]["answer_context"][0]["resource_id"] == safe_alias
 
 
 def test_synthetic_surface_open_placeholder_does_not_claim_llm_context() -> None:

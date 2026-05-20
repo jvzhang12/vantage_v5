@@ -238,15 +238,24 @@ describe("appReducer", () => {
     });
     const visibleArtifacts = buildVisibleArtifacts({
       activeSurface: activeSurface(state),
-      workspace: state.workspace,
+      workspace: state.whiteboardEditor,
       view: state.view,
+      visibleSurfaces: state.visibleSurfaces,
     });
 
     expect(state.view).toBe("whiteboard");
+    expect(state.visibleSurfaces.foreground).toBe("whiteboard");
+    expect(state.visibleSurfaces.whiteboardVisible).toBe(true);
     expect(state.workspace.id).toBe("midterm-study-plan");
+    expect(state.whiteboardEditor.id).toBe("midterm-study-plan");
     expect(state.workspace.title).toBe("Midterm Study Plan");
     expect(state.workspace.content).toContain("graph traversals");
+    expect(state.whiteboardEditor.sourceResourceId).toBe("artifact:midterm-study-plan");
     expect(state.workspace.dirty).toBe(false);
+    expect(state.selectedResource).toMatchObject({
+      resourceId: "artifact:midterm-study-plan",
+      openedInSurface: true,
+    });
     expect(state.surfacePayloads).toHaveLength(0);
     expect(activeSurface(state)).toBeNull();
     expect(visibleArtifacts).toHaveLength(1);
@@ -326,6 +335,7 @@ describe("appReducer", () => {
     });
 
     expect(state.view).toBe("whiteboard");
+    expect(state.visibleSurfaces.whiteboardVisible).toBe(true);
     expect(state.workspace.id).toBe("midterm-study-plan");
     expect(state.workspace.title).toBe("Midterm Study Plan");
     expect(state.workspace.content).toContain("Prioritize graph traversals");
@@ -367,8 +377,13 @@ describe("appReducer", () => {
     });
 
     expect(state.view).toBe("chat");
+    expect(state.visibleSurfaces.whiteboardVisible).toBe(false);
     expect(state.workspace.id).toBe(initialState.workspace.id);
     expect(state.workspace.content).toBe(initialState.workspace.content);
+    expect(state.selectedResource).toMatchObject({
+      resourceId: "artifact:midterm-study-plan",
+      openedInSurface: false,
+    });
   });
 
   it("removes the active artifact without treating cached surfaces as visible", () => {
@@ -388,19 +403,28 @@ describe("appReducer", () => {
 
     expect(removed.view).toBe("chat");
     expect(removed.activeSurfaceId).toBeNull();
+    expect(removed.visibleSurfaces.activeSurfaceId).toBeNull();
+    expect(removed.visibleSurfaces.visibleSurfaceIds).toEqual([]);
     expect(activeSurface(removed)).toBeNull();
     expect(removed.surfacePayloads).toHaveLength(1);
   });
 
   it("applies backend close actions to hide a visible whiteboard without clearing the saved content", () => {
+    const whiteboardEditor = {
+      ...initialState.whiteboardEditor,
+      id: "midterm-study-plan",
+      title: "Midterm Study Plan",
+      content: "# Midterm Study Plan\n\nPrioritize graph traversals.",
+    };
     const visibleState = {
       ...initialState,
       view: "whiteboard" as const,
-      workspace: {
-        ...initialState.workspace,
-        id: "midterm-study-plan",
-        title: "Midterm Study Plan",
-        content: "# Midterm Study Plan\n\nPrioritize graph traversals.",
+      workspace: whiteboardEditor,
+      whiteboardEditor,
+      visibleSurfaces: {
+        ...initialState.visibleSurfaces,
+        foreground: "whiteboard" as const,
+        whiteboardVisible: true,
       },
     };
     const state = appReducer(visibleState, {
@@ -421,12 +445,15 @@ describe("appReducer", () => {
     });
     const visibleArtifacts = buildVisibleArtifacts({
       activeSurface: activeSurface(state),
-      workspace: state.workspace,
+      workspace: state.whiteboardEditor,
       view: state.view,
+      visibleSurfaces: state.visibleSurfaces,
     });
 
     expect(state.view).toBe("chat");
+    expect(state.visibleSurfaces.whiteboardVisible).toBe(false);
     expect(state.workspace.content).toContain("Prioritize graph traversals");
+    expect(state.whiteboardEditor.content).toContain("Prioritize graph traversals");
     expect(visibleArtifacts).toHaveLength(0);
   });
 
@@ -462,8 +489,84 @@ describe("appReducer", () => {
 
     expect(state.view).toBe("chat");
     expect(state.activeSurfaceId).toBeNull();
+    expect(state.visibleSurfaces.activeSurfaceId).toBeNull();
+    expect(state.visibleSurfaces.visibleSurfaceIds).toEqual([]);
     expect(activeSurface(state)).toBeNull();
     expect(state.surfacePayloads).toHaveLength(1);
+  });
+
+  it("preserves a visible whiteboard when the backend reports preserve/no-op", () => {
+    const whiteboardEditor = {
+      ...initialState.whiteboardEditor,
+      id: "midterm-study-plan",
+      title: "Midterm Study Plan",
+      content: "# Midterm Study Plan\n\nKeep this visible.",
+    };
+    const visibleState = {
+      ...initialState,
+      view: "whiteboard" as const,
+      workspace: whiteboardEditor,
+      whiteboardEditor,
+      visibleSurfaces: {
+        ...initialState.visibleSurfaces,
+        foreground: "whiteboard" as const,
+        whiteboardVisible: true,
+      },
+    };
+    const state = appReducer(visibleState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({
+        userMessage: "keep the whiteboard open",
+        assistantMessage: "The whiteboard is still open.",
+        surfaceInvocation: {
+          intent: "preserve_visible_surface",
+          primarySurface: "chat",
+          supportingSurfaces: [],
+          surfaces: [],
+          writeBehavior: "none",
+          reason: "Preserve the current visible surface.",
+          confidence: 1,
+          dataSources: [],
+          capabilityRefs: [],
+          trigger: "navigator",
+          policyVersion: "surface-invocation-v1",
+        },
+      }),
+    });
+
+    expect(state.view).toBe("whiteboard");
+    expect(state.visibleSurfaces.whiteboardVisible).toBe(true);
+    expect(state.whiteboardEditor.id).toBe("midterm-study-plan");
+    expect(state.whiteboardEditor.content).toContain("Keep this visible.");
+  });
+
+  it("keeps pinned context separate from visible surface open and close state", () => {
+    const pinnedState = {
+      ...initialState,
+      pinnedContext: {
+        id: "artifact:pinned-roadmap",
+        kind: "artifact",
+        title: "Pinned Roadmap",
+        source: "artifact",
+      },
+    };
+    const surface = {
+      id: "today-2026-05-14",
+      kind: "today_briefing" as const,
+      title: "Today",
+      summary: "1 scheduled event",
+      sourceRefs: [],
+      data: { calendar: { events: [{ title: "Algorithms lab" }] } },
+    };
+    const visible = appReducer(pinnedState, {
+      type: "CHAT_SUCCESS",
+      turn: turn({ surfacePayloads: [surface], activeSurfaceId: surface.id }),
+    });
+    const closed = appReducer(visible, { type: "REMOVE_ACTIVE_ARTIFACT" });
+
+    expect(visible.pinnedContext?.id).toBe("artifact:pinned-roadmap");
+    expect(closed.pinnedContext?.id).toBe("artifact:pinned-roadmap");
+    expect(closed.visibleSurfaces.activeSurfaceId).toBeNull();
   });
 
   it("merges artifact action results and refreshed surfaces", () => {

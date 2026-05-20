@@ -1,5 +1,5 @@
 import { surfaceToMarkdown } from "./capabilities";
-import type { SurfacePayload, WorkspaceState } from "./types";
+import type { SurfacePayload, VisibleSurfacesState, WorkspaceState } from "./types";
 
 export { surfaceToMarkdown };
 
@@ -7,9 +7,16 @@ export function buildVisibleArtifacts(params: {
   activeSurface?: SurfacePayload | null;
   workspace: WorkspaceState;
   view: string;
+  visibleSurfaces?: VisibleSurfacesState;
 }): Record<string, unknown>[] {
   const artifacts: Record<string, unknown>[] = [];
-  if (params.view === "artifact" && params.activeSurface) {
+  const activeSurfaceVisible = params.visibleSurfaces
+    ? Boolean(params.activeSurface && params.visibleSurfaces.activeSurfaceId === params.activeSurface.id)
+    : params.view === "artifact";
+  const whiteboardVisible = params.visibleSurfaces
+    ? params.visibleSurfaces.whiteboardVisible
+    : params.view === "whiteboard";
+  if (activeSurfaceVisible && params.activeSurface) {
     artifacts.push({
       id: params.activeSurface.id,
       kind: params.activeSurface.kind,
@@ -19,7 +26,7 @@ export function buildVisibleArtifacts(params: {
       data: params.activeSurface.data,
     });
   }
-  if (params.view === "whiteboard" && params.workspace.content.trim()) {
+  if (whiteboardVisible && params.workspace.content.trim()) {
     artifacts.push({
       id: params.workspace.id || "whiteboard",
       kind: "whiteboard",

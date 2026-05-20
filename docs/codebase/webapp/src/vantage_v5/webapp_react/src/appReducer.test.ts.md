@@ -15,3 +15,4 @@ Vitest coverage for the React app reducer.
 - Selected saved artifacts without `surface_to_open=whiteboard` or Whiteboard `open_only` remain context and do not foreground the Whiteboard.
 - Backend close-visible-surface actions hide an open Whiteboard or active Today/calendar surface without clearing saved workspace content or cached surface payloads.
 - Chat success stores the normalized `working_memory_view` for the latest turn while keeping the raw resource bodies out of the React-facing DTO.
+- State-domain tests assert that open-only, close, preserve, selected-resource-only, and pinned-context flows update `visibleSurfaces`, `whiteboardEditor`, `selectedResource`, and `pinnedContext` independently while preserving legacy view behavior.

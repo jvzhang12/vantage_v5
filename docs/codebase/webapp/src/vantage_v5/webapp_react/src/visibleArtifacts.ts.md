@@ -11,3 +11,4 @@ Visible artifact context builder for React.
 
 - Calendar week, calendar day, today briefing, task focus, and whiteboard visible-context payloads.
 - Calendar week markdown includes the active week’s days and events, so switching weeks changes the next model-call context.
+- The builder can now consume explicit `visibleSurfaces` state, so cached surfaces and selected resources are not serialized as visible context unless the reducer says they are actually visible.

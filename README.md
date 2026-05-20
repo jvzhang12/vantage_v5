@@ -284,7 +284,7 @@ The old implementation roadmap has been archived. Current implementation directi
 
 The next backend architecture move is TurnPlan execution consolidation: reduce duplicated authority checks across `TurnOrchestrator`, `ChatService`, `server.py`, local semantic actions, draft/offer handling, and artifact-action compilation so TurnPlan remains the single authority source and downstream layers validate, dispatch, or serialize its verdicts.
 
-After backend TurnPlan contracts are stable, the next frontend architecture move is to split visible-surface state more explicitly: `view`, `visibleSurfaces`, `whiteboardEditor`, `selectedResource`, `pinnedContext`, and responsive layout should stop implying one another.
+The React frontend now starts that split: `view`, `visibleSurfaces`, `whiteboardEditor`, `selectedResource`, `pinnedContext`, and included request context are represented as separate reducer facts while compatibility props remain in sync for existing components. Responsive layout state remains a later cleanup.
 
 ## Meta Call
 

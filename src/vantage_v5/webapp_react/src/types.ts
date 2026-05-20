@@ -472,6 +472,41 @@ export interface WorkspaceState {
   pinnedToChat: boolean;
 }
 
+export interface WhiteboardEditorState extends WorkspaceState {
+  sourceResourceId: string;
+  sourceKind: string;
+}
+
+export interface VisibleSurfacesState {
+  foreground: ViewKind;
+  activeSurfaceId: string | null;
+  visibleSurfaceIds: string[];
+  whiteboardVisible: boolean;
+}
+
+export interface SelectedResourceState {
+  id: string;
+  resourceId: string;
+  kind: string;
+  title: string;
+  source: string;
+  suggestedSurface: string;
+  openedInSurface: boolean;
+}
+
+export interface PinnedContextState {
+  id: string;
+  kind: string;
+  title: string;
+  source: string;
+}
+
+export interface IncludedContextState {
+  visibleArtifactIds: string[];
+  activeSurfaceId: string | null;
+  whiteboardVisible: boolean;
+}
+
 export interface AuthState {
   checking: boolean;
   required: boolean;
@@ -502,6 +537,11 @@ export interface AppState {
   activeSurfaceId: string | null;
   surfacePayloads: SurfacePayload[];
   workspace: WorkspaceState;
+  visibleSurfaces: VisibleSurfacesState;
+  whiteboardEditor: WhiteboardEditorState;
+  selectedResource: SelectedResourceState | null;
+  pinnedContext: PinnedContextState | null;
+  includedContext: IncludedContextState;
   notice: Notice | null;
 }
 

@@ -9,6 +9,7 @@ Top-level React application container for the Vantage frontend migration.
 - Renders the premium default chat UI, artifact host, Vantage/Inspect view, and whiteboard surface.
 - Sends chat turns with hidden backend history and visible artifact context.
 - Shows a generic pending assistant state while chat requests are in flight, then clears it on success or failure.
+- Uses explicit reducer state domains for visible surfaces and the active whiteboard editor when shaping request context, saving/publishing the whiteboard, and rendering the current surface, while leaving backend payload shapes unchanged.
 
 ## Coverage
 

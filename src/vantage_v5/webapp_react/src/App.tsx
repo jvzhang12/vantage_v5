@@ -95,14 +95,15 @@ export function App() {
   const contextLabel = useMemo(() => {
     const artifacts = buildVisibleArtifacts({
       activeSurface: currentSurface,
-      workspace: state.workspace,
+      workspace: state.whiteboardEditor,
       view: state.view,
+      visibleSurfaces: state.visibleSurfaces,
     });
     if (!artifacts.length) {
       return "No visible artifacts";
     }
     return `${artifacts.length} visible artifact${artifacts.length === 1 ? "" : "s"}`;
-  }, [currentSurface, state.view, state.workspace]);
+  }, [currentSurface, state.view, state.visibleSurfaces, state.whiteboardEditor]);
 
   async function handleLogin(username: string, password: string) {
     try {
@@ -140,16 +141,17 @@ export function App() {
     try {
       const visibleArtifacts = buildVisibleArtifacts({
         activeSurface: currentSurface,
-        workspace: state.workspace,
+        workspace: state.whiteboardEditor,
         view: state.view,
+        visibleSurfaces: state.visibleSurfaces,
       });
-      const workspaceVisible = state.view === "whiteboard" && state.workspace.content.trim();
+      const workspaceVisible = state.visibleSurfaces.whiteboardVisible && state.whiteboardEditor.content.trim();
       const turn = await sendChat({
         message,
         history: state.history,
-        workspaceId: state.workspace.id || undefined,
+        workspaceId: state.whiteboardEditor.id || undefined,
         workspaceScope: workspaceVisible ? "visible" : "excluded",
-        workspaceContent: workspaceVisible ? state.workspace.content : null,
+        workspaceContent: workspaceVisible ? state.whiteboardEditor.content : null,
         visibleArtifacts,
       });
       dispatch({ type: "CHAT_SUCCESS", turn });
@@ -160,7 +162,7 @@ export function App() {
 
   async function handleSaveWorkspace() {
     try {
-      const payload = await saveWorkspace(state.workspace.content, state.workspace.id || undefined);
+      const payload = await saveWorkspace(state.whiteboardEditor.content, state.whiteboardEditor.id || undefined);
       dispatch({ type: "WORKSPACE_SAVED", payload });
     } catch (error) {
       dispatch({
@@ -175,9 +177,9 @@ export function App() {
   async function handlePromoteWorkspace() {
     try {
       await promoteWorkspace({
-        workspaceId: state.workspace.id || undefined,
-        title: state.workspace.title,
-        content: state.workspace.content,
+        workspaceId: state.whiteboardEditor.id || undefined,
+        title: state.whiteboardEditor.title,
+        content: state.whiteboardEditor.content,
       });
       dispatch({
         type: "SET_NOTICE",
@@ -300,7 +302,7 @@ export function App() {
             surface={currentSurface}
             surfaces={state.surfacePayloads}
             view={state.view}
-            workspace={state.workspace}
+            workspace={state.whiteboardEditor}
           />
           {showLatestAnswer && state.latestTurn ? (
             <LatestAnswerCard turn={state.latestTurn} onInspect={() => dispatch({ type: "SET_VIEW", view: "vantage" })} />
@@ -316,7 +318,7 @@ export function App() {
               onDismiss={handleArtifactActionDismiss}
             />
           ) : null}
-          {state.view !== "vantage" ? <WorkspaceDecision workspace={state.workspace} onSave={handleSaveWorkspace} /> : null}
+          {state.view !== "vantage" ? <WorkspaceDecision workspace={state.whiteboardEditor} onSave={handleSaveWorkspace} /> : null}
         </div>
         {state.view !== "vantage" ? (
           <CommandComposer

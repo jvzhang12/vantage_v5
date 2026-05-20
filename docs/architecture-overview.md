@@ -120,7 +120,7 @@ The old implementation roadmap is archived. Active implementation direction shou
 
 The next backend cleanup is TurnPlan execution consolidation. The goal is to reduce duplicated authority paths across `TurnOrchestrator`, `ChatService`, `server.py`, local semantic actions, draft/offer handling, protocol/meta execution, and artifact-action compilation. TurnPlan should compute authority; orchestrator should dispatch; downstream services should consume explicit allow/deny policy and serialize/project safe outputs rather than recomputing broad semantic gates.
 
-The next frontend architecture cleanup is visible-surface state separation. After backend contracts are stable, the React app should split `view`, `visibleSurfaces`, `whiteboardEditor`, `selectedResource`, `pinnedContext`, and responsive layout so opening a surface, selecting a resource, including context, and editing a whiteboard are represented as separate state facts.
+The React frontend now begins visible-surface state separation. The reducer keeps `view`, `visibleSurfaces`, `whiteboardEditor`, `selectedResource`, `pinnedContext`, and included request context as separate facts, while compatibility props still feed existing components. Responsive layout state remains a later cleanup.
 
 ## Scenario Lab
 

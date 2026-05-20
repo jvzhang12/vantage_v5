@@ -54,6 +54,12 @@ describe("visible artifact context", () => {
       activeSurface: calendarWeekSurface,
       workspace,
       view: "artifact",
+      visibleSurfaces: {
+        foreground: "artifact",
+        activeSurfaceId: calendarWeekSurface.id,
+        visibleSurfaceIds: [calendarWeekSurface.id],
+        whiteboardVisible: false,
+      },
     });
 
     expect(artifacts).toHaveLength(1);
@@ -65,16 +71,28 @@ describe("visible artifact context", () => {
       activeSurface: calendarWeekSurface,
       workspace,
       view: "chat",
+      visibleSurfaces: {
+        foreground: "chat",
+        activeSurfaceId: null,
+        visibleSurfaceIds: [],
+        whiteboardVisible: false,
+      },
     });
 
     expect(artifacts).toHaveLength(0);
   });
 
-  it("includes visible whiteboard content only when the whiteboard is in view", () => {
+  it("includes visible whiteboard content when visible surface state says it is open", () => {
     const artifacts = buildVisibleArtifacts({
       activeSurface: null,
       workspace,
-      view: "whiteboard",
+      view: "chat",
+      visibleSurfaces: {
+        foreground: "chat",
+        activeSurfaceId: null,
+        visibleSurfaceIds: [],
+        whiteboardVisible: true,
+      },
     });
 
     expect(artifacts).toHaveLength(1);

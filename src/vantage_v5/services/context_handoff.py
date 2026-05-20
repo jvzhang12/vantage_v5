@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
+
+from vantage_v5.services.search import CandidateMemory
 
 
 ROLE_NAMES = (
@@ -55,9 +58,9 @@ class ContextHandoffResource:
 class AttentionRecallContextHandoff:
     """Internal read model for selected context across Attention, Recall, and Working Memory.
 
-    The handoff is an observability/read-model contract only. It is built from
-    finalized request/response fields and does not alter retrieval, generation,
-    routing, UI actions, or writes.
+    The handoff is a compact context contract. It is built from finalized
+    request/response fields and from pre-generation ChatService context without
+    altering retrieval, routing, UI actions, or writes.
     """
 
     resources: tuple[ContextHandoffResource, ...]
@@ -81,10 +84,18 @@ class AttentionRecallContextHandoff:
             "resources": [resource.to_dict() for resource in self.resources],
             "comparison": self.comparison,
             "notes": [
-                "Trace-only projection; ChatService.search_context and response generation are unchanged.",
+                "Projection of the shared Attention/Recall context handoff used for generation context plumbing.",
                 "Excerpts are compact debugging summaries, not hidden reasoning.",
             ],
         }
+
+
+@dataclass(frozen=True)
+class GenerationContextAdapterResult:
+    """Handoff-derived generation context plus bounded parity diagnostics."""
+
+    memory: tuple[CandidateMemory, ...]
+    trace: dict[str, Any]
 
 
 def build_attention_recall_context_handoff(
@@ -217,10 +228,146 @@ def build_attention_recall_context_handoff(
             "recall_not_in_selected_attention_ids": unique([item for item in recall_ids if item not in selected_set]),
         },
         notes=(
-            "Internal read model; ChatService.search_context and response generation are unchanged.",
+            "Internal read model for shared Attention/Recall context handoff.",
             "Excerpts are compact grounding summaries, not hidden reasoning.",
         ),
     )
+
+
+def adapt_handoff_to_generation_memory(
+    *,
+    context_handoff: AttentionRecallContextHandoff,
+    legacy_vetted_memory: list[CandidateMemory],
+) -> GenerationContextAdapterResult:
+    """Adapt handoff recall roles into the CandidateMemory shape generation expects.
+
+    Retrieval and vetting still decide the bounded legacy set in this narrow
+    cutover. The generation step consumes that set through the handoff roles so
+    Recall and Working Memory share one source model. Memory Trace items are
+    sanitized before generation so prompt-derived storage ids and raw turn
+    bodies are not forwarded to the response model.
+    """
+
+    recall_refs = list_of_dicts(context_handoff.roles.get("recall_context"))
+    resource_refs = {
+        resource.resource_id: resource
+        for resource in context_handoff.resources
+    }
+    used_legacy_indexes: set[int] = set()
+    adapted: list[CandidateMemory] = []
+    sanitized_ids: list[str] = []
+    missing_handoff_ids: list[str] = []
+
+    for ref in recall_refs:
+        resource_id = clean_optional(ref.get("resource_id"))
+        if not resource_id:
+            continue
+        legacy_index = _legacy_memory_index_for_resource(
+            resource_id,
+            legacy_vetted_memory=legacy_vetted_memory,
+            used_indexes=used_legacy_indexes,
+        )
+        if legacy_index is None:
+            missing_handoff_ids.append(resource_id)
+            continue
+        used_legacy_indexes.add(legacy_index)
+        candidate = legacy_vetted_memory[legacy_index]
+        resource = resource_refs.get(resource_id)
+        if candidate.source == "memory_trace":
+            candidate = _safe_memory_trace_generation_candidate(candidate, resource_id=resource_id, resource=resource)
+            sanitized_ids.append(resource_id)
+        adapted.append(candidate)
+
+    legacy_ids = [
+        _safe_trace_candidate_id(candidate, fallback_alias=f"memory_trace:legacy-vetted-{index}")
+        for index, candidate in enumerate(legacy_vetted_memory, start=1)
+    ]
+    generation_ids = [candidate.id for candidate in adapted]
+    omitted_legacy_ids = [
+        _safe_trace_candidate_id(candidate, fallback_alias=f"memory_trace:legacy-omitted-{index + 1}")
+        for index, candidate in enumerate(legacy_vetted_memory)
+        if index not in used_legacy_indexes
+    ]
+    trace = {
+        "schema": "generation_context_adapter.v1",
+        "source": "attention_recall_context_handoff",
+        "mode": "handoff_derived",
+        "legacy_vetted_memory_ids": legacy_ids,
+        "handoff_recall_resource_ids": [ref.get("resource_id") for ref in recall_refs if ref.get("resource_id")],
+        "generation_memory_ids": generation_ids,
+        "sanitized_memory_trace_ids": sanitized_ids,
+        "omitted_legacy_memory_ids": omitted_legacy_ids,
+        "missing_handoff_resource_ids": missing_handoff_ids,
+        "parity": {
+            "legacy_count": len(legacy_vetted_memory),
+            "handoff_count": len(recall_refs),
+            "generation_count": len(adapted),
+            "same_count": len(legacy_vetted_memory) == len(adapted),
+            "memory_trace_sanitized": bool(sanitized_ids),
+            "mismatch": bool(omitted_legacy_ids or missing_handoff_ids),
+        },
+        "notes": [
+            "Generation consumed recall context through the AttentionRecallContextHandoff adapter.",
+            "Mismatches are diagnostic only and do not block the turn.",
+        ],
+    }
+    return GenerationContextAdapterResult(memory=tuple(adapted), trace=trace)
+
+
+def sanitize_selected_attention_resources_for_generation(
+    selected_attention_resources: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Return generation-safe selected Attention resources.
+
+    Non-Memory-Trace resources are copied unchanged for compatibility. Memory
+    Trace resources are projected through the same compact public alias model as
+    the handoff so raw turn bodies, raw prompts, and prompt-derived ids do not
+    enter response-model input through selected Attention context.
+    """
+
+    aliases: dict[str, str] = {}
+    sanitized: list[dict[str, Any]] = []
+    for item in list_of_dicts(selected_attention_resources):
+        if not is_memory_trace_resource(item):
+            sanitized.append(dict(item))
+            continue
+        raw_id = resource_id_from_item(item)
+        alias = aliases.get(raw_id)
+        if alias is None:
+            alias = f"memory_trace:prior-turn-{len(aliases) + 1}"
+            aliases[raw_id] = alias
+        resource = compact_resource(
+            item,
+            roles=["answer_context"],
+            origins=["attention_selection"],
+            selected=True,
+            sent_to_response_llm=True,
+            safe_resource_id=alias,
+        )
+        sanitized.append(
+            {
+                "id": resource["id"],
+                "resource_id": resource["resource_id"],
+                "kind": resource["kind"],
+                "type": resource["type"],
+                "title": resource["title"],
+                "label": resource["label"],
+                "summary": resource["summary"],
+                "excerpt": resource["excerpt"],
+                "source": "memory_trace",
+                "source_label": "Memory Trace",
+                "memory_role": "turn_continuity",
+                "recall_status": "selected",
+                "source_tier": "recent",
+                "scope": resource["provenance"].get("scope"),
+                "durability": resource["provenance"].get("durability"),
+                "is_canonical": resource["provenance"].get("is_canonical"),
+            }
+        )
+    return [
+        {key: value for key, value in item.items() if value not in (None, "", {}, [])}
+        for item in sanitized
+    ]
 
 
 def compact_resource(
@@ -285,6 +432,50 @@ def compact_resource(
         "sent_to_response_llm": sent_to_response_llm,
         "provenance": {key: value for key, value in provenance.items() if value not in (None, "", {})},
     }
+
+
+def _legacy_memory_index_for_resource(
+    resource_id: str,
+    *,
+    legacy_vetted_memory: list[CandidateMemory],
+    used_indexes: set[int],
+) -> int | None:
+    normalized_resource_id = normalize_resource_id(resource_id)
+    for index, candidate in enumerate(legacy_vetted_memory):
+        if index in used_indexes:
+            continue
+        if normalize_resource_id(candidate.id) == normalized_resource_id:
+            return index
+    if normalized_resource_id.startswith("memory_trace:"):
+        for index, candidate in enumerate(legacy_vetted_memory):
+            if index not in used_indexes and candidate.source == "memory_trace":
+                return index
+    return None
+
+
+def _safe_memory_trace_generation_candidate(
+    candidate: CandidateMemory,
+    *,
+    resource_id: str,
+    resource: ContextHandoffResource | None,
+) -> CandidateMemory:
+    title = resource.title if resource is not None else "Prior turn trace"
+    summary = resource.summary if resource is not None else "Prior turn context selected by Recall."
+    return replace(
+        candidate,
+        id=resource_id,
+        title=title or "Prior turn trace",
+        card=summary or "Prior turn context selected by Recall.",
+        body="",
+        path=None,
+        reason="memory_trace: handoff_sanitized_for_generation",
+    )
+
+
+def _safe_trace_candidate_id(candidate: CandidateMemory, *, fallback_alias: str) -> str:
+    if candidate.source == "memory_trace":
+        return fallback_alias
+    return candidate.id
 
 
 def merge_resource(resources: dict[str, dict[str, Any]], incoming: dict[str, Any]) -> None:

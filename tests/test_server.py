@@ -12,6 +12,10 @@ from fastapi.testclient import TestClient
 
 import vantage_v5.server as server_module
 from vantage_v5.config import AppConfig
+from vantage_v5.services.attention import AttentionCandidate
+from vantage_v5.services.attention import AttentionResource
+from vantage_v5.services.attention import AttentionTurn
+from vantage_v5.services.attention import QueryFrame
 from vantage_v5.services.artifact_actions import ArtifactActionPlan
 from vantage_v5.services.executor import GraphActionExecutor
 from vantage_v5.services.meta import MetaDecision
@@ -524,6 +528,16 @@ def _payload_has_key(value: Any, forbidden_key: str) -> bool:
         return forbidden_key in value or any(_payload_has_key(item, forbidden_key) for item in value.values())
     if isinstance(value, list):
         return any(_payload_has_key(item, forbidden_key) for item in value)
+    return False
+
+
+def _payload_contains(value: Any, needle: str) -> bool:
+    if isinstance(value, dict):
+        return any(_payload_contains(key, needle) or _payload_contains(item, needle) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_payload_contains(item, needle) for item in value)
+    if isinstance(value, str):
+        return needle in value
     return False
 
 
@@ -6599,6 +6613,166 @@ def test_chat_turn_writes_memory_trace_and_can_recall_it_without_promoting_it(tm
     assert any(item["source"] == "memory_trace" for item in second_payload["candidate_memory_results"])
     assert any(item["source"] == "memory_trace" for item in second_payload["working_memory"])
     assert any(item["source"] == "memory_trace" for item in second_payload["trace_notes"])
+
+
+def test_chat_generation_uses_handoff_context_and_sanitizes_memory_trace(tmp_path: Path, monkeypatch) -> None:
+    client, repo_root = _client(tmp_path, openai_api_key="test-key")
+    monkeypatch.setattr(MetaService, "decide", lambda self, **kwargs: MetaDecision(action="no_op", rationale="No durable write."))
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _fallback_vet_for_tests)
+    captured_generation_memory: list[CandidateMemory] = []
+
+    def _reply(self, **kwargs):
+        captured_generation_memory[:] = list(kwargs["vetted_memory"])
+        return "I can help with that."
+
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+
+    first = client.post(
+        "/api/chat",
+        json={
+            "message": "Jerry likes warm, short check-in emails from Jordan.",
+            "memory_intent": "dont_save",
+        },
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+    raw_trace_id = first_payload["memory_trace_record"]["id"]
+
+    second = client.post(
+        "/api/chat",
+        json={
+            "message": "What do you remember about Jerry emails?",
+            "history": [
+                {"role": "user", "content": "Jerry likes warm, short check-in emails from Jordan."},
+                {"role": "assistant", "content": first_payload["assistant_message"]},
+            ],
+            "memory_intent": "dont_save",
+        },
+    )
+    assert second.status_code == 200
+    assert any(item["source"] == "memory_trace" for item in second.json()["working_memory"])
+
+    trace_items = [item for item in captured_generation_memory if item.source == "memory_trace"]
+    assert trace_items
+    assert trace_items[0].id.startswith("memory_trace:prior-turn-")
+    assert trace_items[0].title == "Prior turn trace"
+    assert trace_items[0].body == ""
+    assert raw_trace_id not in trace_items[0].to_dict().values()
+
+    final_response = _latest_trace_payload(repo_root)["final_response"]
+    parity = final_response["generation_context_parity"]
+    assert parity["generation_source"] == "attention_recall_context_handoff"
+    assert parity["blocking"] is False
+    assert parity["mismatch"] is False
+    assert parity["normalized_legacy_recall_ids"] == parity["normalized_handoff_recall_ids"]
+    assert not _payload_contains(final_response["attention_recall_context_handoff"], raw_trace_id)
+
+
+def test_selected_attention_memory_trace_is_sanitized_before_generation(tmp_path: Path, monkeypatch) -> None:
+    client, _ = _client(tmp_path, openai_api_key="test-key")
+    raw_phrase = "plan-the-confidential-graph-exam-retake"
+    raw_trace_id = f"memory_trace:turn-20260520-{raw_phrase}"
+    raw_prompt = "Plan the confidential graph exam retake."
+    captured_selected_attention: list[dict[str, object]] = []
+
+    def _prepare_turn(self, **kwargs):
+        resource = AttentionResource(
+            id=raw_trace_id,
+            kind="memory_trace",
+            app="memory",
+            title=raw_prompt,
+            summary=raw_prompt,
+            keys=("graph", "exam", "retake"),
+            content=f"USER: {raw_prompt}\nASSISTANT: Private retake plan.",
+            source="memory_trace",
+            scope="durable",
+            durability="durable",
+            is_canonical=False,
+            source_status={"store": "memory_trace", "read_only": False, "writable": True},
+            timestamps={},
+            value_ref={"kind": "memory_trace", "id": raw_trace_id},
+        )
+        candidate = AttentionCandidate(
+            id=raw_trace_id,
+            resource_id=raw_trace_id,
+            kind="memory_trace",
+            app="memory",
+            title=raw_prompt,
+            summary=raw_prompt,
+            source="memory_trace",
+            scope="durable",
+            durability="durable",
+            is_canonical=False,
+            score=10.0,
+            matched_keys=("graph", "exam"),
+            temporal_matches=(),
+            suggested_surface=None,
+            why_candidate="Recent Memory Trace matched the request.",
+            value_ref={"kind": "memory_trace", "id": raw_trace_id},
+            retrieval_scores={"deterministic": 10.0},
+        )
+        return AttentionTurn(
+            query_frame=QueryFrame(
+                raw_text=kwargs["message"],
+                normalized_text=kwargs["message"].lower(),
+                tokens=("graph", "exam"),
+                domains=("memory",),
+                operations=("read",),
+                entities=(),
+                artifact_kinds=(),
+                temporal_references=(),
+            ),
+            candidates=(candidate,),
+            resources={raw_trace_id: resource},
+        )
+
+    def _route(self, **kwargs):
+        return NavigationDecision(
+            mode="chat",
+            confidence=0.95,
+            reason="Use the selected Memory Trace as context.",
+            whiteboard_mode="chat",
+            attention_selection={
+                "selected_ids": [raw_trace_id],
+                "primary_resource_id": raw_trace_id,
+                "supporting_resource_ids": [],
+                "rejected_candidate_ids": [],
+                "surface_to_open": None,
+                "reason": "Selected by test Navigator.",
+                "confidence": 0.95,
+            },
+        )
+
+    def _reply(self, **kwargs):
+        captured_selected_attention[:] = list(kwargs["selected_attention_resources"])
+        return "I can answer from the selected prior-turn context."
+
+    monkeypatch.setattr("vantage_v5.services.attention.AttentionEngine.prepare_turn", _prepare_turn)
+    monkeypatch.setattr("vantage_v5.server.NavigatorService.route_turn", _route)
+    monkeypatch.setattr("vantage_v5.services.vetting.ConceptVettingService.vet", _no_relevant_matches_for_tests)
+    monkeypatch.setattr("vantage_v5.services.chat.ChatService._openai_reply", _reply)
+    monkeypatch.setattr(MetaService, "decide", lambda self, **kwargs: MetaDecision(action="no_op", rationale="No durable write."))
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "What should I do first for the graph retake?",
+            "memory_intent": "dont_save",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert captured_selected_attention
+    assert captured_selected_attention[0]["resource_id"] == "memory_trace:prior-turn-1"
+    assert not _payload_contains(captured_selected_attention, raw_trace_id)
+    assert not _payload_contains(captured_selected_attention, raw_phrase)
+    assert not _payload_contains(captured_selected_attention, raw_prompt)
+    assert not _payload_has_key(captured_selected_attention, "body")
+    assert not _payload_has_key(captured_selected_attention, "content")
+    assert not _payload_contains(payload["working_memory_view"], raw_trace_id)
+    assert not _payload_contains(payload["working_memory_view"], raw_phrase)
+    assert not _payload_contains(payload["working_memory_view"], raw_prompt)
 
 
 def test_experiment_chat_writes_memory_trace_inside_experiment_scope(tmp_path: Path, monkeypatch) -> None:

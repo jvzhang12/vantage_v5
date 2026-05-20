@@ -19,7 +19,7 @@ Helpers for projecting finalized `/api/chat` context into product-safe Attention
 
 - Roles include `answer_context`, `recall_context`, `surface_to_open`, `protocol_guidance`, and `pinned_or_continuity_context`.
 - Resource entries include ids, kind/type, title/label, roles, provenance, selected/visible/pinned flags, compact summary/excerpt fields, and a best-effort `sent_to_response_llm` marker.
-- The underlying context handoff compares selected Attention ids with legacy Recall ids so trace readers can see overlap and gaps while `ChatService.search_context()` remains unchanged.
+- The underlying context handoff compares selected Attention ids with legacy Recall ids so trace readers can see overlap and gaps while `ChatService.search_context()` remains the transitional retrieval/vetting source.
 - Excerpts are bounded and intended for provenance/debugging only; this module does not expose hidden model reasoning or full artifact bodies.
 - `working_memory_view` is public by default in `/api/chat`, but it stays compact: resources carry ids, titles, roles, origins, flags, provenance, short excerpts, LLM-sent markers, and influence flags; execution summary carries surface mode plus write/proposal categories rather than full created content.
 - Public `working_memory_view.turn.trace_id` uses a bounded non-prompt-derived alias for the current turn instead of copying raw Memory Trace storage ids, which can include user-message slugs.

@@ -262,9 +262,29 @@ In practice:
 
 This keeps routing fluid and semantic without making persistence or safety brittle.
 
+### Deterministic Fallback Rule
+Vantage is first and foremost an LLM-backed reasoning system.
+
+Deterministic fallback may exist only as a narrow, conservative guardrail for unavailable model/control-plane output, provider failures, or compatibility repair. It should not become the primary semantic interpreter.
+
+In practice:
+- semantic intent should come from the Navigator, model-mediated control panel, protocol interpreter, composer mode, or another structured LLM-mediated decision
+- deterministic code should validate structured intent, enforce safety, apply UI state, persist writes, and serialize provenance
+- fallback must be debug-visible and explicitly labeled when it affects behavior, for example `compiler.source="deterministic_fallback"` or a clearly named authority/provenance field
+- fallback must not silently masquerade as Navigator, model, or control-plane authority
+- if a normal product prompt only passes because a broad raw-text fallback was added, prefer surfacing the missing structured intent and fixing the LLM-mediated path
+- deterministic repairs should be scoped to the missing field they repair, such as recovering a due date while preserving a model-normalized task title
+
 See also:
 
 - [docs/navigator-continuity-contract.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/navigator-continuity-contract.md)
+
+### Near-Term Architecture Direction
+The old implementation roadmap has been archived. Current implementation direction should be read from the active product and architecture docs plus the live lane handoff.
+
+The next backend architecture move is TurnPlan execution consolidation: reduce duplicated authority checks across `TurnOrchestrator`, `ChatService`, `server.py`, local semantic actions, draft/offer handling, and artifact-action compilation so TurnPlan remains the single authority source and downstream layers validate, dispatch, or serialize its verdicts.
+
+After backend TurnPlan contracts are stable, the next frontend architecture move is to split visible-surface state more explicitly: `view`, `visibleSurfaces`, `whiteboardEditor`, `selectedResource`, `pinnedContext`, and responsive layout should stop implying one another.
 
 ## Meta Call
 

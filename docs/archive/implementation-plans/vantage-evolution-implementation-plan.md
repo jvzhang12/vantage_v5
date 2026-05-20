@@ -26,7 +26,7 @@ This plan is grounded in:
 - [docs/codebase/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/README.md)
 - [docs/working-memory-and-trace-model.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/working-memory-and-trace-model.md)
 - [docs/reasoning-path.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/reasoning-path.md)
-- [docs/implementation-roadmap.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/implementation-roadmap.md)
+- [docs/archive/implementation-roadmap.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/archive/implementation-roadmap.md)
 - [docs/subagent-orchestration-protocol.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/subagent-orchestration-protocol.md)
 - [docs/ui-research/vantage-ui-direction.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-ui-direction.md)
 
@@ -491,7 +491,7 @@ For every implementation wave that changes behavior or semantics, update:
 - `README.md`
 - `docs/working-memory-and-trace-model.md`
 - `docs/reasoning-path.md`
-- `docs/implementation-roadmap.md` when a roadmap section is effectively landed or superseded
+- `docs/archive/implementation-roadmap.md` when checking historical roadmap sections that have since landed or been superseded
 - mirrored summaries under `docs/codebase/python/...`
 - mirrored summaries under `docs/codebase/webapp/...`
 

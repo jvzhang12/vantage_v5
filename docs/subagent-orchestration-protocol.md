@@ -32,9 +32,9 @@ When deciding what the repository means today, use this order:
 3. [docs/glossary.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/glossary.md)
 4. [docs/semantic-rules.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/semantic-rules.md)
 5. [docs/implementation-vs-canon.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/implementation-vs-canon.md)
-6. [docs/implementation-roadmap.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/implementation-roadmap.md)
+6. [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md)
 7. [docs/codebase/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/README.md) and the mirrored summaries
-8. older canonical Nexus docs only when they do not conflict with the current repo truth
+8. archived planning docs only for historical context, and only when they do not conflict with current repo truth
 
 This order keeps implementation work grounded in what `vantage-v5` actually does now.
 

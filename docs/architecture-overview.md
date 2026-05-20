@@ -56,6 +56,10 @@ Current implemented control-panel actions include:
 
 Some deterministic raw-text helpers still exist as transitional guardrails, especially in semantic frame/policy handling, whiteboard carry logic, meta fallback, and client-side deictic reopen. Treat those as migration targets, not the desired long-term architecture. See [control-panel-navigation.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/control-panel-navigation.md).
 
+Deterministic fallback is allowed only when it stays narrow, conservative, and visible. It may repair or validate a missing structured field, protect a safety boundary, keep the app responsive when the model/provider is unavailable, or preserve compatibility with older payloads. It must not become a silent semantic crutch.
+
+When fallback affects behavior, traces or payload metadata should label it explicitly, for example `compiler.source="deterministic_fallback"` or a similarly clear authority/provenance field. Fallback must not masquerade as Navigator, model, or control-panel authority. If a normal product prompt requires broad raw-text fallback to pass, the preferred fix is to expose and repair the missing LLM-mediated structured intent.
+
 ## Working Memory And Recall
 
 Product `Working Memory` means the full bounded context used for generation: current user request, recent chat, recalled items, pinned context, whiteboard context when in scope, and pending whiteboard context when intentionally carried forward.
@@ -109,6 +113,14 @@ This layer is deterministic by design for local safety, but it should not become
 Whiteboard draft/offer authority now follows the same boundary. Navigator, control-panel, composer mode, or existing Whiteboard routing provide structured draft/offer intent; TurnPlan validates that authority before a pending `workspace_update` draft or offer can be materialized. Hard no-write surface actions such as open-only, close, preserve, and ordinary visible-artifact Q&A block draft/offer candidates and force honest receipts instead of allowing draft snapshots or misleading offer copy.
 
 When semantic policy chooses a visible-whiteboard save or publish action, `draft_artifact_lifecycle.py` executes the storage lifecycle. The policy decides whether a local action is allowed; the lifecycle service owns how whiteboards become snapshots or promoted artifacts.
+
+## Near-Term Architecture Direction
+
+The old implementation roadmap is archived. Active implementation direction should come from the current product docs, this architecture overview, codebase maps, and the live lane handoff.
+
+The next backend cleanup is TurnPlan execution consolidation. The goal is to reduce duplicated authority paths across `TurnOrchestrator`, `ChatService`, `server.py`, local semantic actions, draft/offer handling, protocol/meta execution, and artifact-action compilation. TurnPlan should compute authority; orchestrator should dispatch; downstream services should consume explicit allow/deny policy and serialize/project safe outputs rather than recomputing broad semantic gates.
+
+The next frontend architecture cleanup is visible-surface state separation. After backend contracts are stable, the React app should split `view`, `visibleSurfaces`, `whiteboardEditor`, `selectedResource`, `pinnedContext`, and responsive layout so opening a surface, selecting a resource, including context, and editing a whiteboard are represented as separate state facts.
 
 ## Scenario Lab
 

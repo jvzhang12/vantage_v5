@@ -16,6 +16,7 @@ Internal read model for Attention, Recall, and Working Memory context handoff.
 - `build_attention_recall_context_handoff()`: constructs the handoff from selected attention resources, visible artifacts, `recall`/`working_memory`, pinned context, and explicit surface-open targets.
 - `adapt_handoff_to_generation_memory()`: maps handoff `recall_context` roles back into the `CandidateMemory` shape expected by chat generation while sanitizing Memory Trace ids/bodies.
 - `sanitize_selected_attention_resources_for_generation()`: copies selected non-Memory-Trace Attention resources unchanged while replacing selected Memory Trace resources with safe prior-turn aliases and compact categorical fields before model input serialization.
+- Memory Trace detection, public titles, prior-turn aliases, and compact provenance are shared with `public_context_projection.py` so trace-safe handoff resources match `/api/chat` payload projection.
 
 ## Notable Behavior
 

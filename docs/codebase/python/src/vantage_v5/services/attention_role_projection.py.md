@@ -14,6 +14,7 @@ Helpers for projecting finalized `/api/chat` context into product-safe Attention
 
 - `build_attention_recall_role_projection()`: builds the internal context handoff from finalized request/response dictionaries and returns the compatibility trace payload.
 - `build_working_memory_view_payload()`: consumes finalized request/response dictionaries plus an optional context handoff, role projection, and TurnPlan trace payload, then returns the bounded public Working Memory view.
+- Public turn id and trace id aliases are delegated to `public_context_projection.py` so Working Memory view uses the same prompt-derived id rules as the rest of the public payload.
 
 ## Notable Behavior
 

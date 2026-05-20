@@ -6632,6 +6632,8 @@ def test_chat_public_payload_sanitizes_memory_trace_records_and_turn_ids(tmp_pat
     client, repo_root = _client(tmp_path, openai_api_key="test-key")
     private_prompt_phrase = "private BFS trace phrase zinnia-431"
     raw_candidate_id = "turn-20260520203053254241-what-is-bfs"
+    raw_memory_candidate_id = "turn-20260520203053254241-bfs-memory-shaped"
+    safe_concept_id = "bfs-safe-reference-concept"
     (repo_root / "concepts" / f"{raw_candidate_id}.md").write_text(
         (
             "---\n"
@@ -6649,6 +6651,43 @@ def test_chat_public_payload_sanitizes_memory_trace_records_and_turn_ids(tmp_pat
             f"User: What is BFS? {private_prompt_phrase}\n\n"
             "## Assistant Response\n\n"
             "BFS explores graph vertices with a queue.\n"
+        ),
+        encoding="utf-8",
+    )
+    (repo_root / "memories" / f"{raw_memory_candidate_id}.md").write_text(
+        (
+            "---\n"
+            f"id: {raw_memory_candidate_id}\n"
+            "title: 'Turn Trace: BFS memory-shaped candidate'\n"
+            "type: memory\n"
+            "card: 'Prior User: What is BFS?'\n"
+            "created_at: 2026-05-20\n"
+            "updated_at: 2026-05-20\n"
+            "links_to: []\n"
+            "comes_from: []\n"
+            "status: active\n"
+            "---\n\n"
+            "## Source Turn\n\n"
+            f"User: What is BFS? {private_prompt_phrase}\n\n"
+            "## Assistant Response\n\n"
+            "BFS explores graph vertices with a queue.\n"
+        ),
+        encoding="utf-8",
+    )
+    (repo_root / "concepts" / f"{safe_concept_id}.md").write_text(
+        (
+            "---\n"
+            f"id: {safe_concept_id}\n"
+            "title: BFS Safe Reference Concept\n"
+            "type: concept\n"
+            "card: BFS uses a queue to visit graph vertices layer by layer.\n"
+            "created_at: 2026-05-20\n"
+            "updated_at: 2026-05-20\n"
+            "links_to: []\n"
+            "comes_from: []\n"
+            "status: active\n"
+            "---\n\n"
+            "BFS uses a queue and is safe non-Memory-Trace public context.\n"
         ),
         encoding="utf-8",
     )
@@ -6692,6 +6731,9 @@ def test_chat_public_payload_sanitizes_memory_trace_records_and_turn_ids(tmp_pat
     assert not _payload_contains(payload, private_prompt_phrase)
     assert not _payload_contains(payload, raw_trace_id)
     assert not _payload_contains(payload, raw_candidate_id)
+    assert not _payload_contains(payload, raw_memory_candidate_id)
+    safe_concept = next(item for item in payload["candidate_concepts"] if item["id"] == safe_concept_id)
+    assert safe_concept["body"] == "BFS uses a queue and is safe non-Memory-Trace public context."
 
     working_memory_view = payload["working_memory_view"]
     assert working_memory_view["schema"] == "working_memory_view.v1"
@@ -6720,6 +6762,15 @@ def test_chat_public_payload_sanitizes_memory_trace_records_and_turn_ids(tmp_pat
             assert "content" not in item
             assert not _payload_contains(item, private_prompt_phrase)
             assert not _payload_contains(item, raw_trace_id)
+    safe_trace_rows = [
+        item
+        for collection_name in ("candidate_memory_results", "candidate_concepts")
+        for item in payload.get(collection_name, [])
+        if item.get("source") == "memory_trace" or item.get("kind") == "memory_trace"
+    ]
+    assert safe_trace_rows
+    assert all(item["id"].startswith("memory_trace:prior-turn-") for item in safe_trace_rows)
+    assert all(item["title"] == "Prior turn trace" for item in safe_trace_rows)
 
     trace_payload = _latest_trace_payload(repo_root)
     assert trace_payload["generation_context"]["schema"] == "generation_context_adapter.v1"

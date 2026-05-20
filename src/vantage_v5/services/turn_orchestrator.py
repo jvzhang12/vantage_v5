@@ -17,6 +17,7 @@ from vantage_v5.services.navigator import NavigationDecision
 from vantage_v5.services.navigator import NavigatorService
 from vantage_v5.services.navigator import apply_control_panel_open_intent_fallback
 from vantage_v5.services.protocol_engine import ProtocolEngine
+from vantage_v5.services.public_context_projection import sanitize_public_attention_state_payload
 from vantage_v5.services.semantic_frame import build_semantic_frame
 from vantage_v5.services.semantic_policy import decide_semantic_policy
 from vantage_v5.services.surface_invocation import build_surface_invocation
@@ -33,7 +34,6 @@ from vantage_v5.services.turn_payloads import LocalTurnBodyParts
 from vantage_v5.services.turn_payloads import LocalTurnContext
 from vantage_v5.services.turn_payloads import ScenarioLabFallbackParts
 from vantage_v5.services.turn_payloads import ServiceTurnPayloadParts
-from vantage_v5.services.turn_payloads import sanitize_public_attention_state_payload
 from vantage_v5.services.turn_payloads import TurnInterpretationParts
 from vantage_v5.services.turn_staging import build_turn_stage
 from vantage_v5.services.turn_staging import initial_stage_progress

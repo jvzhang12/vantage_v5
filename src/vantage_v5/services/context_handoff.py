@@ -4,6 +4,12 @@ from dataclasses import dataclass
 from dataclasses import replace
 from typing import Any
 
+from vantage_v5.services.public_context_projection import PUBLIC_PRIOR_TRACE_SUMMARY
+from vantage_v5.services.public_context_projection import PUBLIC_PRIOR_TRACE_TITLE
+from vantage_v5.services.public_context_projection import is_memory_trace_derived
+from vantage_v5.services.public_context_projection import prior_turn_alias
+from vantage_v5.services.public_context_projection import public_memory_trace_provenance
+from vantage_v5.services.public_context_projection import public_memory_trace_title
 from vantage_v5.services.search import CandidateMemory
 
 
@@ -119,7 +125,7 @@ def build_attention_recall_context_handoff(
         raw_id = resource_id_from_item(item)
         alias = memory_trace_aliases.get(raw_id)
         if alias is None:
-            alias = f"memory_trace:prior-turn-{len(memory_trace_aliases) + 1}"
+            alias = prior_turn_alias(len(memory_trace_aliases) + 1)
             memory_trace_aliases[raw_id] = alias
         return alias
 
@@ -334,7 +340,7 @@ def sanitize_selected_attention_resources_for_generation(
         raw_id = resource_id_from_item(item)
         alias = aliases.get(raw_id)
         if alias is None:
-            alias = f"memory_trace:prior-turn-{len(aliases) + 1}"
+            alias = prior_turn_alias(len(aliases) + 1)
             aliases[raw_id] = alias
         resource = compact_resource(
             item,
@@ -390,9 +396,9 @@ def compact_resource(
         if memory_trace
         else clean_optional(item.get("title") or item.get("label") or resource_id)
     )
-    label = "Prior turn trace" if memory_trace else clean_optional(item.get("label"))
+    label = PUBLIC_PRIOR_TRACE_TITLE if memory_trace else clean_optional(item.get("label"))
     summary = (
-        "Prior turn context selected by Recall."
+        PUBLIC_PRIOR_TRACE_SUMMARY
         if memory_trace
         else short_text(item.get("summary") or item.get("card"), limit=SUMMARY_LIMIT)
     )
@@ -459,13 +465,13 @@ def _safe_memory_trace_generation_candidate(
     resource_id: str,
     resource: ContextHandoffResource | None,
 ) -> CandidateMemory:
-    title = resource.title if resource is not None else "Prior turn trace"
-    summary = resource.summary if resource is not None else "Prior turn context selected by Recall."
+    title = resource.title if resource is not None else PUBLIC_PRIOR_TRACE_TITLE
+    summary = resource.summary if resource is not None else PUBLIC_PRIOR_TRACE_SUMMARY
     return replace(
         candidate,
         id=resource_id,
-        title=title or "Prior turn trace",
-        card=summary or "Prior turn context selected by Recall.",
+        title=title or PUBLIC_PRIOR_TRACE_TITLE,
+        card=summary or PUBLIC_PRIOR_TRACE_SUMMARY,
         body="",
         path=None,
         reason="memory_trace: handoff_sanitized_for_generation",
@@ -563,40 +569,15 @@ def is_protocol_resource(item: dict[str, Any]) -> bool:
 
 
 def is_memory_trace_resource(item: dict[str, Any]) -> bool:
-    values = {
-        str(item.get("kind") or "").strip().lower(),
-        str(item.get("type") or "").strip().lower(),
-        str(item.get("source") or "").strip().lower(),
-        str(item.get("memory_role") or "").strip().lower(),
-        str(item.get("source_tier") or "").strip().lower(),
-    }
-    identifier = str(item.get("id") or item.get("resource_id") or "").strip().lower()
-    return "memory_trace" in values or identifier.startswith("memory_trace:")
+    return is_memory_trace_derived(item)
 
 
 def memory_trace_public_title(item: dict[str, Any]) -> str:
-    identifier = clean_optional(item.get("id") or item.get("resource_id"))
-    if identifier:
-        return "Prior turn trace"
-    return "Memory trace"
+    return public_memory_trace_title(item)
 
 
 def memory_trace_provenance(item: dict[str, Any], source_status: dict[str, Any]) -> dict[str, Any]:
-    provenance: dict[str, Any] = {"source": "memory_trace"}
-    scope = clean_optional(item.get("scope"))
-    if scope:
-        provenance["scope"] = scope
-    durability = clean_optional(item.get("durability"))
-    if durability:
-        provenance["durability"] = durability
-    compact_status = {
-        key: source_status.get(key)
-        for key in ("store", "read_only", "writable")
-        if key in source_status
-    }
-    if compact_status:
-        provenance["source_status"] = compact_status
-    return provenance
+    return public_memory_trace_provenance(item, source_status)
 
 
 def sent_to_response_llm(response_payload: dict[str, Any]) -> bool | None:

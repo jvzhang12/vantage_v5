@@ -33,6 +33,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - [src/vantage_v5/services/protocol_engine.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/protocol_engine.py.md)
 - [src/vantage_v5/services/protocols.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/protocols.py.md)
 - [src/vantage_v5/services/product_scope.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/product_scope.py.md)
+- [src/vantage_v5/services/public_context_projection.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/public_context_projection.py.md)
 - [src/vantage_v5/services/record_cards.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/record_cards.py.md)
 - [src/vantage_v5/services/response_mode.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/response_mode.py.md)
 - [src/vantage_v5/services/scenario_lab.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/scenario_lab.py.md)
@@ -58,6 +59,7 @@ The goal is to let future agents understand the codebase shape, responsibilities
 - `navigator_eval.py` reduces Navigator decisions to a compact behavior-summary contract for offline and live routing evals.
 - `protocols.py` owns reusable task guidance and protocol record helpers. Protocols can be learned/recalled by the protocol interpreter or applied by Navigator `apply_protocol` actions before vetting.
 - `protocol_engine.py` validates Navigator `apply_protocol` actions into a typed `ResolvedTurnProtocols` object before Chat or Scenario Lab receive applied protocol kinds, and owns protocol API catalog/update semantics.
+- `public_context_projection.py` owns the shared public-safe Memory Trace/Recall/Working Memory projection helpers used by payload assembly, role handoff views, Working Memory turn ids, Navigator selection summaries, and vetting summaries.
 - `draft_artifact_lifecycle.py` owns saved-item reopen, whiteboard snapshot saves, visible-whiteboard publish, workspace save snapshots, promotion of saved or unsaved whiteboard buffers into artifacts, and artifact lifecycle card enrichment.
 - `record_cards.py` owns UI-facing record-card DTOs for concepts, protocols, saved notes, vault notes, lineage, scenario metadata, and grouped memory payloads.
 - `context_engine.py` prepares a single `PreparedTurnContext`: runtime/session, whiteboard scope, redacted or overlaid whiteboard document, pinned context, pending whiteboard carry state, entry mode, and Navigator continuity.

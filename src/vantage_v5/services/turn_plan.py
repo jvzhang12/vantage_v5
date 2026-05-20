@@ -3058,6 +3058,23 @@ def _whiteboard_draft_authority_sources(
                 )
             )
 
+    for index, action in enumerate(_list_of_dicts(route.control_panel.get("suppressed_actions"))):
+        action_type = str(action.get("type") or action.get("action") or "").strip().lower()
+        suppressed_by = str(action.get("suppressed_by") or "").strip().lower()
+        if action_type != "draft_whiteboard" or suppressed_by not in {
+            "preserve_surface",
+            "close_surface",
+        }:
+            continue
+        sources.append(
+            _write_source(
+                source=f"control_panel_suppressed:{suppressed_by}",
+                field_path=f"turn_interpretation.control_panel.suppressed_actions[{index}].type",
+                kind="whiteboard_draft",
+                action=action_type,
+            )
+        )
+
     invocation = _dict_or_empty(response_payload.get("surface_invocation"))
     write_behavior = _normalized_write_behavior(invocation)
     invocation_mode = _optional_str(invocation.get("resolved_whiteboard_mode") or invocation.get("whiteboard_mode"))

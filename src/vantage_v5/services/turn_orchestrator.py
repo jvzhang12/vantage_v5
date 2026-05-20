@@ -282,6 +282,13 @@ class TurnOrchestrator:
         close_surface_action = surface_authority.surface_action if surface_authority.is_close else None
         if close_surface_action is not None:
             assistant_message = _close_surface_assistant_message(close_surface_action)
+            if draft_authority.blocks_candidate_update and _whiteboard_draft_denied_by_hard_no_write(
+                draft_authority.denied_reason
+            ):
+                assistant_message = (
+                    f"{assistant_message} "
+                    f"{_denied_whiteboard_draft_sentence(draft_authority)}"
+                )
             if _has_structured_concept_write_action(navigation, semantic_policy):
                 assistant_message = f"{assistant_message} {_denied_concept_write_sentence()}"
             local_context = LocalTurnContext(
@@ -303,6 +310,39 @@ class TurnOrchestrator:
                     local_context,
                     turn_body=LocalTurnBodyParts(
                         assistant_message=assistant_message,
+                        mode="local_action",
+                    ),
+                    turn_interpretation=turn_interpretation_parts,
+                    turn_stage=turn_stage,
+                )
+            )
+            payload.update(attention_state_payload)
+            return payload
+        if draft_authority.blocks_candidate_update and _whiteboard_draft_denied_by_hard_no_write(
+            draft_authority.denied_reason
+        ):
+            local_context = LocalTurnContext(
+                user_message=request.message,
+                history=request.history,
+                workspace=context.workspace,
+                workspace_scope=context.normalized_workspace_scope,
+                runtime_scope=context.runtime["scope"],
+                transient_workspace=context.transient_workspace,
+                semantic_frame=semantic_frame,
+                semantic_policy=semantic_policy,
+                pinned_context_id=request.pinned_context_id,
+                pinned_context=context.pinned_context,
+                experiment=self.local_semantic_actions.session_info(context.session),
+                surface_invocation=surface_invocation_payload,
+            )
+            payload = assemble_local_turn_payload(
+                build_local_turn_parts(
+                    local_context,
+                    turn_body=LocalTurnBodyParts(
+                        assistant_message=_denied_whiteboard_draft_assistant_message(
+                            surface_authority,
+                            draft_authority,
+                        ),
                         mode="local_action",
                     ),
                     turn_interpretation=turn_interpretation_parts,
@@ -823,6 +863,34 @@ def _denied_concept_write_assistant_message(surface_authority: Any) -> str:
 
 def _denied_concept_write_sentence() -> str:
     return "I did not learn it as a concept."
+
+
+def _whiteboard_draft_denied_by_hard_no_write(reason: str | None) -> bool:
+    return str(reason or "").strip() in {
+        "open_only_ui_handoff",
+        "close_visible_surface",
+        "preserve_visible_surface",
+        "artifact_qna_chat_first",
+    }
+
+
+def _denied_whiteboard_draft_assistant_message(surface_authority: Any, draft_authority: Any) -> str:
+    denied_sentence = _denied_whiteboard_draft_sentence(draft_authority)
+    reason = str(draft_authority.denied_reason or surface_authority.no_write_reason or "")
+    if reason == "preserve_visible_surface":
+        target = _surface_target_label(surface_authority)
+        return f"I kept the {target} open. {denied_sentence}"
+    if reason == "open_only_ui_handoff":
+        return f"I opened the selected material in the whiteboard. {denied_sentence}"
+    if reason == "close_visible_surface":
+        return f"Closed the {_surface_target_label(surface_authority)} from view. {denied_sentence}"
+    return denied_sentence
+
+
+def _denied_whiteboard_draft_sentence(draft_authority: Any) -> str:
+    if str(getattr(draft_authority, "action", "") or "") == "whiteboard_offer":
+        return "I did not offer a new whiteboard draft."
+    return "I did not draft or update the whiteboard."
 
 
 def _surface_target_label(surface_authority: Any) -> str:

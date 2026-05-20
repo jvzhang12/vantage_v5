@@ -558,12 +558,44 @@ def _normalize_control_panel(value: object) -> dict[str, object]:
             for query in (" ".join(str(item).strip().split()) for item in raw_queries)
             if query
         ]
+    raw_suppressed_actions = value.get("suppressed_actions")
+    suppressed_actions: list[dict[str, object]] = []
+    if isinstance(raw_suppressed_actions, list):
+        for action in raw_suppressed_actions:
+            normalized = _normalize_suppressed_control_panel_action(action)
+            if normalized is not None:
+                suppressed_actions.append(normalized)
     response_call = value.get("response_call")
-    return {
+    payload: dict[str, object] = {
         "actions": actions,
         "working_memory_queries": working_memory_queries,
         "response_call": response_call if isinstance(response_call, dict) else None,
     }
+    if suppressed_actions:
+        payload["suppressed_actions"] = suppressed_actions
+    return payload
+
+
+def _normalize_suppressed_control_panel_action(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    action_type = str(value.get("type") or value.get("action") or "").strip().lower()
+    if action_type not in ALLOWED_CONTROL_PANEL_ACTIONS:
+        return None
+    suppressed_by = str(value.get("suppressed_by") or "").strip().lower()
+    if not suppressed_by:
+        return None
+    normalized: dict[str, object] = {
+        "type": action_type,
+        "suppressed_by": suppressed_by,
+    }
+    target = _normalize_surface_target(value.get("target") or value.get("surface") or value.get("target_surface"))
+    if target:
+        normalized["target"] = target
+    reason = _normalize_reason(value.get("reason"))
+    if reason is not None:
+        normalized["reason"] = reason
+    return normalized
 
 
 def _normalize_attention_selection(value: object) -> dict[str, object] | None:
@@ -886,9 +918,10 @@ def _with_preserve_surface_intent(decision: NavigationDecision, *, user_message:
             "reason": attention_selection.get("reason")
             or "The user asked to keep the current visible surface in place.",
         }
-    control_panel = _without_control_panel_actions(
+    control_panel = _without_control_panel_actions_with_suppressed(
         _normalize_control_panel(decision.control_panel),
         {"open_whiteboard", "draft_whiteboard", "close_surface"},
+        suppressed_by="preserve_surface",
     )
     control_panel = _ensure_control_panel_action(
         control_panel,
@@ -1091,6 +1124,42 @@ def _without_control_panel_actions(control_panel: dict[str, object], action_type
         {
             **control_panel,
             "actions": filtered_actions,
+            "working_memory_queries": control_panel.get("working_memory_queries", []),
+            "response_call": control_panel.get("response_call") or {"type": "chat_response", "after_working_memory": True},
+        }
+    )
+
+
+def _without_control_panel_actions_with_suppressed(
+    control_panel: dict[str, object],
+    action_types: set[str],
+    *,
+    suppressed_by: str,
+) -> dict[str, object]:
+    actions = control_panel.get("actions") if isinstance(control_panel.get("actions"), list) else []
+    filtered_actions: list[object] = []
+    suppressed_actions = list(
+        control_panel.get("suppressed_actions") if isinstance(control_panel.get("suppressed_actions"), list) else []
+    )
+    for action in actions:
+        if isinstance(action, dict) and str(action.get("type") or "").strip().lower() in action_types:
+            suppressed = _normalize_suppressed_control_panel_action(
+                {
+                    **action,
+                    "suppressed_by": suppressed_by,
+                }
+            )
+            if suppressed is not None:
+                suppressed_actions.append(suppressed)
+            continue
+        filtered_actions.append(action)
+    if len(filtered_actions) == len(actions):
+        return control_panel
+    return _normalize_control_panel(
+        {
+            **control_panel,
+            "actions": filtered_actions,
+            "suppressed_actions": suppressed_actions,
             "working_memory_queries": control_panel.get("working_memory_queries", []),
             "response_call": control_panel.get("response_call") or {"type": "chat_response", "after_working_memory": True},
         }

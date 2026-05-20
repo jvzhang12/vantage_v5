@@ -297,6 +297,38 @@ def test_control_panel_fallback_preserves_visible_surface_for_keep_open_language
     )
 
 
+def test_preserve_surface_fallback_records_suppressed_draft_action() -> None:
+    decision = apply_control_panel_open_intent_fallback(
+        NavigationDecision(
+            mode="chat",
+            confidence=0.8,
+            reason="Model returned mixed preserve and draft controls.",
+            whiteboard_mode="chat",
+            control_panel={
+                "actions": [
+                    {"type": "draft_whiteboard", "target": "whiteboard", "reason": "Draft in the Whiteboard."},
+                    {"type": "respond", "protocol_kind": None, "reason": "Answer in chat."},
+                ],
+                "working_memory_queries": [],
+                "response_call": None,
+            },
+        ),
+        user_message="keep the whiteboard open and draft this in the whiteboard",
+        attention_candidates=[],
+    )
+
+    assert all(action["type"] != "draft_whiteboard" for action in decision.control_panel["actions"])
+    assert any(action["type"] == "preserve_surface" for action in decision.control_panel["actions"])
+    assert decision.control_panel["suppressed_actions"] == [
+        {
+            "type": "draft_whiteboard",
+            "suppressed_by": "preserve_surface",
+            "target": "whiteboard",
+            "reason": "Draft in the Whiteboard.",
+        }
+    ]
+
+
 def test_stabilized_decision_keeps_simple_message_and_subject_line_drafts_in_chat() -> None:
     for message in [
         "Compose a message to Morgan asking whether Friday still works.",

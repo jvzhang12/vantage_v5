@@ -433,6 +433,40 @@ def test_turn_plan_draft_authority_denies_open_only_workspace_update() -> None:
     assert authority.blocks_candidate_update is True
 
 
+def test_turn_plan_draft_authority_uses_suppressed_preserve_draft_source() -> None:
+    authority = build_turn_plan_draft_authority(
+        request_payload={"message": "keep the whiteboard open and draft this", "whiteboard_mode": "auto"},
+        response_payload={
+            "surface_invocation": {
+                "intent": "preserve_visible_surface",
+                "primary_surface": "chat",
+                "write_behavior": "none",
+                "whiteboard_mode": "chat",
+                "resolved_whiteboard_mode": "chat",
+            },
+            "turn_interpretation": {
+                "resolved_whiteboard_mode": "chat",
+                "control_panel": {
+                    "actions": [{"type": "preserve_surface", "target": "whiteboard"}],
+                    "suppressed_actions": [
+                        {
+                            "type": "draft_whiteboard",
+                            "target": "whiteboard",
+                            "suppressed_by": "preserve_surface",
+                        }
+                    ],
+                },
+            },
+        },
+    )
+
+    assert authority.action == "whiteboard_draft"
+    assert authority.allowed is False
+    assert authority.denied_reason == "preserve_visible_surface"
+    assert authority.authority == "control_panel_suppressed:preserve_surface"
+    assert authority.blocks_candidate_update is True
+
+
 def test_turn_plan_preserve_plus_workspace_offer_warns_when_effect_leaks() -> None:
     plan = _plan(
         message="keep the whiteboard open and draft this",

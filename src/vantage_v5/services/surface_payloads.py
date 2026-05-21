@@ -36,9 +36,11 @@ class SurfacePayloadBuilder:
         *,
         calendar_provider: LocalCalendarProvider,
         task_provider: LocalTaskProvider,
+        time_zone: str = "UTC",
     ) -> None:
         self.calendar_provider = calendar_provider
         self.task_provider = task_provider
+        self.time_zone = time_zone
 
     def build_for_turn(
         self,
@@ -50,7 +52,7 @@ class SurfacePayloadBuilder:
         requested_kinds = _requested_surface_kinds(invocation)
         if not requested_kinds:
             return SurfacePayloadResult(surface_payloads=[], active_surface_id=None)
-        target_date = resolve_surface_date(message)
+        target_date = resolve_surface_date(message, time_zone=self.time_zone)
         calendar_week = self.calendar_provider.week(target_date) if SURFACE_CALENDAR_WEEK in requested_kinds else None
         calendar_day = self.calendar_provider.day(target_date) if SURFACE_CALENDAR_DAY in requested_kinds else None
         task_focus = self.task_provider.focus(target_date) if SURFACE_TASK_FOCUS in requested_kinds else None
@@ -191,16 +193,16 @@ def build_focus_suggestions(
     return suggestions
 
 
-def resolve_surface_date(message: str) -> date:
+def resolve_surface_date(message: str, *, time_zone: str = "UTC") -> date:
     text = str(message or "")
     iso_match = ISO_DATE_RE.search(text)
     if iso_match:
-        return resolve_calendar_date(iso_match.group(0))
+        return resolve_calendar_date(iso_match.group(0), time_zone=time_zone)
     lowered = text.lower()
     for phrase in ("tomorrow", "yesterday", "today"):
         if phrase in lowered:
-            return resolve_calendar_date(phrase)
-    return resolve_calendar_date("today")
+            return resolve_calendar_date(phrase, time_zone=time_zone)
+    return resolve_calendar_date("today", time_zone=time_zone)
 
 
 def _requested_surface_kinds(invocation: dict[str, Any]) -> list[str]:

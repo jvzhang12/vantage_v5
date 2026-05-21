@@ -38,6 +38,7 @@ class AppConfig:
     allowed_origins: list[str] = field(default_factory=list)
     cookie_secure: bool = False
     allow_unsafe_public_no_auth: bool = False
+    time_zone: str = "UTC"
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -73,6 +74,7 @@ class AppConfig:
             allowed_origins=_csv_env("VANTAGE_V5_ALLOWED_ORIGINS"),
             cookie_secure=_bool_env("VANTAGE_V5_COOKIE_SECURE"),
             allow_unsafe_public_no_auth=_bool_env("VANTAGE_V5_ALLOW_UNSAFE_PUBLIC_NO_AUTH"),
+            time_zone=os.getenv("VANTAGE_V5_TIME_ZONE", "UTC").strip() or "UTC",
         )
 
 

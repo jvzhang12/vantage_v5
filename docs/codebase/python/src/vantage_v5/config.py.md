@@ -34,6 +34,7 @@ Environment-backed configuration layer for Vantage V5. It centralizes repo/data 
   - `allowed_origins`
   - `cookie_secure`
   - `allow_unsafe_public_no_auth`
+  - `time_zone`
 - `AppConfig.from_env()`: reads environment variables and constructs the config.
 - `_default_active_workspace(repo_root)`: reads `state/active_workspace.json` if present, otherwise falls back to `v5-milestone-1`.
 - `_csv_env(name)`: parses comma-separated env vars into trimmed string lists.
@@ -59,6 +60,7 @@ Environment-backed configuration layer for Vantage V5. It centralizes repo/data 
 - Defaults `VANTAGE_V5_MODEL_PROVIDER` to `codex_oauth`; the model default follows the provider (`gpt-5.5` for Codex OAuth, `gpt-4.1` for direct OpenAI API-key mode). Host and port still default to `127.0.0.1:8005`.
 - Reads `VANTAGE_V5_CALENDAR_EVENTS_FILE` as an optional local JSON event source for the read-only calendar backend; when unset, the server defaults to `state/calendar/events.json` under the repo root.
 - Reads `VANTAGE_V5_TASKS_FILE` as an optional local JSON task source for the read-only task focus backend; when unset, the server defaults to `state/tasks/tasks.json` under the repo root.
+- Reads `VANTAGE_V5_TIME_ZONE` as the app/user timezone for relative operational dates such as `today` and `tomorrow`, defaulting to `UTC` so calendar/task proposals do not depend on the process `TZ`.
 - Reads `VANTAGE_V5_ACTIVE_WORKSPACE` first, but can infer it from `state/active_workspace.json` if unset.
 - Enables single shared HTTP Basic Auth when `VANTAGE_V5_AUTH_PASSWORD` is set, or multi-user profile auth when `VANTAGE_V5_AUTH_USERS_JSON` / `VANTAGE_V5_AUTH_USERS_FILE` is set; local development remains unauthenticated by default.
 - Reads `VANTAGE_V5_ACCOUNT_CREATION_CODE` as an optional invite-style code for account creation in hosted/profile deployments.

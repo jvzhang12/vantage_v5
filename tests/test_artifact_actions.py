@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC
+from datetime import date
+from datetime import datetime
 from pathlib import Path
 import json
 
@@ -10,6 +13,20 @@ from vantage_v5.services.artifact_actions import is_task_capture_request
 from vantage_v5.services.artifact_mutation_compiler import ArtifactMutationCompiler
 from vantage_v5.services.calendar import LocalCalendarProvider
 from vantage_v5.services.tasks import LocalTaskProvider
+
+
+TEST_TODAY = date(2026, 5, 19)
+
+
+def test_relative_calendar_date_resolution_uses_explicit_app_timezone() -> None:
+    from vantage_v5.services.calendar import current_calendar_date
+    from vantage_v5.services.calendar import resolve_calendar_date
+
+    instant = datetime(2026, 5, 21, 0, 30, tzinfo=UTC)
+
+    assert current_calendar_date(time_zone="UTC", now=instant) == date(2026, 5, 21)
+    assert current_calendar_date(time_zone="America/Los_Angeles", now=instant) == date(2026, 5, 20)
+    assert resolve_calendar_date("tomorrow", time_zone="UTC", today=date(2026, 5, 21)) == date(2026, 5, 22)
 
 
 def test_calendar_action_planner_proposes_replace_from_visible_calendar(tmp_path: Path) -> None:
@@ -27,6 +44,7 @@ def test_calendar_action_planner_proposes_replace_from_visible_calendar(tmp_path
     planner = ArtifactActionPlanner(
         calendar_provider=LocalCalendarProvider(events_path=events_path, writable=True),
         action_store=ArtifactActionStore(tmp_path / "actions"),
+        today=TEST_TODAY,
     )
 
     result = planner.plan_for_turn(
@@ -133,6 +151,7 @@ def test_calendar_capture_statement_proposes_create_event_without_mutating(tmp_p
     planner = ArtifactActionPlanner(
         calendar_provider=LocalCalendarProvider(events_path=events_path, writable=True),
         action_store=ArtifactActionStore(tmp_path / "actions"),
+        today=TEST_TODAY,
     )
 
     result = planner.plan_for_turn(
@@ -156,6 +175,7 @@ def test_calendar_capture_event_called_phrase_proposes_create_event_without_muta
     planner = ArtifactActionPlanner(
         calendar_provider=LocalCalendarProvider(events_path=events_path, writable=True),
         action_store=ArtifactActionStore(tmp_path / "actions"),
+        today=TEST_TODAY,
     )
 
     result = planner.plan_for_turn(
@@ -170,6 +190,7 @@ def test_calendar_capture_event_called_phrase_proposes_create_event_without_muta
     assert action["status"] == "proposed"
     assert action["requires_confirmation"] is True
     assert action["payload"]["title"] == "Graph study review"
+    assert action["payload"]["start"] == "2026-05-20T15:00:00"
     assert action["payload"]["start"].endswith("T15:00:00")
     assert action["payload"]["end"].endswith("T15:30:00")
     assert json.loads(events_path.read_text(encoding="utf-8"))["events"] == []
@@ -238,6 +259,7 @@ def test_compiler_uses_raw_task_capture_when_normalized_command_loses_due_date(t
         calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),
         task_provider=LocalTaskProvider(tasks_path=tmp_path / "tasks.json", writable=True),
         action_store=ArtifactActionStore(tmp_path / "actions"),
+        today=TEST_TODAY,
     )
     compiler = ArtifactMutationCompiler(planner=planner, app_capabilities={}, model="test")
     compiler._normalize_with_model = (  # type: ignore[method-assign]
@@ -314,6 +336,7 @@ def test_task_capture_preserves_meaningful_leading_create_verbs(tmp_path: Path) 
         calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),
         task_provider=LocalTaskProvider(tasks_path=tmp_path / "tasks.json", writable=True),
         action_store=ArtifactActionStore(tmp_path / "actions"),
+        today=TEST_TODAY,
     )
 
     examples = {
@@ -339,6 +362,7 @@ def test_task_capture_cleans_compiler_scaffolding_from_titles(tmp_path: Path) ->
         calendar_provider=LocalCalendarProvider(events_path=tmp_path / "events.json", writable=True),
         task_provider=LocalTaskProvider(tasks_path=tmp_path / "tasks.json", writable=True),
         action_store=ArtifactActionStore(tmp_path / "actions"),
+        today=TEST_TODAY,
     )
 
     examples = {

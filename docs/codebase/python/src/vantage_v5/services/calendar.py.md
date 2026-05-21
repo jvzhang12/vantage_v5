@@ -5,7 +5,7 @@ Calendar service layer for Vantage V5/V6 experiments. It gives the app a small, 
 ## Purpose
 
 - Load calendar events from a local JSON file.
-- Resolve simple date phrases such as `today`, `tomorrow`, `yesterday`, and ISO dates.
+- Resolve simple date phrases such as `today`, `tomorrow`, `yesterday`, and ISO dates against an explicit app/user timezone.
 - Return day/week views with sorted events, calendar metadata, free blocks, and compact summaries.
 - Support confirmed local user JSON mutations while keeping global/configured calendar files read-only by default.
 
@@ -15,7 +15,8 @@ Calendar service layer for Vantage V5/V6 experiments. It gives the app a small, 
 - `CalendarFreeBlock`: open interval DTO with a derived `duration_minutes`.
 - `CalendarDay`: day-level DTO returned by providers and serialized by the API.
 - `LocalCalendarProvider`: reads `events.json`, normalizes supported event shapes, filters events by day/range, reports source status, and optionally writes when constructed as user-scoped/writable.
-- `resolve_calendar_date()`: maps supported date input into a `date`.
+- `current_calendar_date()`: returns today in the configured app/user timezone, defaulting to UTC.
+- `resolve_calendar_date()`: maps supported date input into a `date` using either an explicit `today` or the configured timezone.
 - `compute_free_blocks()`: clips non-all-day events to the workday, merges overlaps, and returns open blocks.
 
 ## Local JSON Shape
@@ -41,6 +42,7 @@ The provider accepts either a list of events or an object with `calendars` and `
 ## Notable Behavior
 
 - Defaults the workday window to 09:00-18:00.
+- Defaults relative date resolution to UTC unless callers provide a user/app timezone or explicit test date, so calendar/task behavior is independent of the process `TZ`.
 - Skips all-day events when computing free blocks, while still returning them as day events.
 - Clips events that partially overlap the requested day or workday.
 - Merges overlapping busy intervals before calculating free blocks.

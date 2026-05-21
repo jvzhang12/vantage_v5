@@ -8,10 +8,12 @@ from datetime import timedelta
 import json
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 DEFAULT_WORKDAY_START = time(9, 0)
 DEFAULT_WORKDAY_END = time(18, 0)
+DEFAULT_APP_TIME_ZONE = "UTC"
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,8 +283,25 @@ class LocalCalendarProvider:
         tmp_path.replace(self.events_path)
 
 
-def resolve_calendar_date(value: str | None, *, today: date | None = None) -> date:
-    base = today or date.today()
+def current_calendar_date(
+    *,
+    time_zone: str = DEFAULT_APP_TIME_ZONE,
+    now: datetime | None = None,
+) -> date:
+    zone = ZoneInfo(time_zone or DEFAULT_APP_TIME_ZONE)
+    current = now or datetime.now(tz=zone)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=zone)
+    return current.astimezone(zone).date()
+
+
+def resolve_calendar_date(
+    value: str | None,
+    *,
+    today: date | None = None,
+    time_zone: str = DEFAULT_APP_TIME_ZONE,
+) -> date:
+    base = today or current_calendar_date(time_zone=time_zone)
     normalized = str(value or "today").strip().lower()
     if normalized in {"", "today"}:
         return base

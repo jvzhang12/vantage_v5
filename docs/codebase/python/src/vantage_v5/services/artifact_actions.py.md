@@ -12,7 +12,7 @@ Generic artifact-action planning and execution layer for Vantage.
 ## Key Classes / Functions
 
 - `ArtifactActionStore`: stores proposed/accepted/rejected action JSON under `state/artifact_actions`.
-- `ArtifactActionPlanner`: detects supported artifact mutations and builds proposed calendar/task actions from visible operational surfaces. By default it persists proposed actions immediately, but callers can request an unsaved candidate with `persist=False` and later commit it with `save_action_plan()`.
+- `ArtifactActionPlanner`: detects supported artifact mutations and builds proposed calendar/task actions from visible operational surfaces. It resolves relative dates against an explicit app/user timezone-derived `today`; by default it persists proposed actions immediately, but callers can request an unsaved candidate with `persist=False` and later commit it with `save_action_plan()`.
 - `execute_artifact_action()`: commits accepted calendar actions through `LocalCalendarProvider`.
 - `reject_artifact_action()`: marks a pending action as rejected without mutating data.
 - `action_surface_context()` and `action_graph_payload()`: adapt action data for refreshed surfaces and Vantage/Inspect receipts.
@@ -20,6 +20,7 @@ Generic artifact-action planning and execution layer for Vantage.
 ## Notable Behavior
 
 - All actions start as `proposed` and require confirmation.
+- Relative calendar/task dates such as `today`, `tomorrow`, weekday names, and task `tonight` use the planner's explicit app date rather than the process timezone.
 - Unsaved proposal candidates use the same validation and payload shape as persisted proposals, letting higher-level TurnPlan authority inspect candidate safety before an action file is written.
 - Calendar actions use visible artifacts first, so the currently displayed calendar day/week is the target context.
 - The narrow offline calendar-capture fallback recognizes concrete scheduling statements such as “Add a calendar event tomorrow at 3 PM called Graph study review” and “Add Graph study review at 3 PM tomorrow,” while read-only lookup phrasing such as “show me my calendar” is intentionally skipped so lookup turns do not become proposals. Calendar command-word cleanup is scoped to this fallback path.

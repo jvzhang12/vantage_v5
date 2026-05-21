@@ -12,6 +12,7 @@ import secrets
 from typing import Any
 
 from vantage_v5.services.calendar import LocalCalendarProvider
+from vantage_v5.services.calendar import current_calendar_date
 from vantage_v5.services.calendar import resolve_calendar_date
 from vantage_v5.services.tasks import LocalTaskProvider
 
@@ -198,10 +199,13 @@ class ArtifactActionPlanner:
         calendar_provider: LocalCalendarProvider,
         action_store: ArtifactActionStore,
         task_provider: LocalTaskProvider | None = None,
+        today: date | None = None,
+        time_zone: str = "UTC",
     ) -> None:
         self.calendar_provider = calendar_provider
         self.task_provider = task_provider
         self.action_store = action_store
+        self.today = today or current_calendar_date(time_zone=time_zone)
 
     def plan_for_turn(
         self,
@@ -261,7 +265,7 @@ class ArtifactActionPlanner:
         if _should_skip_capture(message):
             return ArtifactActionPlan(artifact_actions=[])
 
-        calendar_capture = _parse_calendar_capture(message, events=events)
+        calendar_capture = _parse_calendar_capture(message, events=events, today=self.today)
         if calendar_capture is not None:
             if not self.calendar_provider.writable:
                 return ArtifactActionPlan(
@@ -280,7 +284,7 @@ class ArtifactActionPlanner:
                 ]
             )
 
-        task_capture = _parse_task_capture(message)
+        task_capture = _parse_task_capture(message, today=self.today)
         if task_capture is not None:
             if not self.task_provider or not self.task_provider.writable:
                 return ArtifactActionPlan(
@@ -294,6 +298,7 @@ class ArtifactActionPlanner:
                         message=message,
                         capture=task_capture,
                         source_refs=_source_refs_from_visible_artifacts(visible_artifacts, kinds={"today_briefing", "task_focus"}),
+                        today=self.today,
                     )
                 ]
             )
@@ -364,7 +369,7 @@ class ArtifactActionPlanner:
                 ]
             )
         if match := CREATE_RE.search(message):
-            target_date = _date_from_events(events) or resolve_calendar_date("today")
+            target_date = _date_from_events(events) or resolve_calendar_date("today", today=self.today)
             start = _parse_time_on_date(match.group("start"), target_date)
             if start is None:
                 return ArtifactActionPlan(artifact_actions=[], assistant_message="I could not read the event start time clearly.", error="invalid_time")
@@ -676,9 +681,11 @@ def _task_create_action(
     message: str,
     capture: dict[str, Any],
     source_refs: list[dict[str, Any]],
+    today: date | None = None,
 ) -> dict[str, Any]:
     title = str(capture.get("title") or "Untitled task")
     due_date = str(capture.get("due_date") or "")
+    fallback_date = resolve_calendar_date("today", today=today).isoformat()
     date_label = f" due {due_date}" if due_date else ""
     return _base_action(
         artifact_kind="task",
@@ -691,8 +698,8 @@ def _task_create_action(
             "due_date": due_date or None,
             "status": "open",
             "priority": "normal",
-            "date": due_date or resolve_calendar_date("today").isoformat(),
-            "surface": {"kind": "task_focus", "date": due_date or resolve_calendar_date("today").isoformat()},
+            "date": due_date or fallback_date,
+            "surface": {"kind": "task_focus", "date": due_date or fallback_date},
             "capture": capture.get("capture"),
         },
         preview={
@@ -790,7 +797,12 @@ def _visible_tasks(visible_artifacts: list[dict[str, Any]]) -> list[dict[str, An
     return tasks
 
 
-def _parse_calendar_capture(message: str, *, events: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _parse_calendar_capture(
+    message: str,
+    *,
+    events: list[dict[str, Any]],
+    today: date | None = None,
+) -> dict[str, Any] | None:
     match = (
         CALENDAR_CAPTURE_RE.match(str(message or ""))
         or CALENDAR_CAPTURE_DATE_FIRST_RE.match(str(message or ""))
@@ -802,7 +814,7 @@ def _parse_calendar_capture(message: str, *, events: list[dict[str, Any]]) -> di
     if not title or title.lower().startswith("to "):
         return None
     try:
-        target_date = _resolve_capture_date(match.group("date"))
+        target_date = _resolve_capture_date(match.group("date"), today=today)
     except ValueError:
         return None
     start = _parse_time_on_date(match.group("start"), target_date)
@@ -832,18 +844,18 @@ def _parse_calendar_capture(message: str, *, events: list[dict[str, Any]]) -> di
     }
 
 
-def _parse_task_capture(message: str) -> dict[str, Any] | None:
+def _parse_task_capture(message: str, *, today: date | None = None) -> dict[str, Any] | None:
     match = TASK_CAPTURE_RE.match(str(message or ""))
     if not match:
         return None
     raw_title = str(match.group("title") or "")
-    due_date, raw_title = _extract_task_due_metadata(raw_title)
+    due_date, raw_title = _extract_task_due_metadata(raw_title, today=today)
     title = _clean_task_capture_title(raw_title)
     if not title:
         return None
     if date_match := TASK_DATE_TRAILER_RE.search(title):
         try:
-            due_date = _resolve_task_due_date(date_match.group("date"))
+            due_date = _resolve_task_due_date(date_match.group("date"), today=today)
             title = _clean_task_capture_title(title[: date_match.start()])
         except ValueError:
             due_date = None
@@ -865,20 +877,20 @@ def _parse_task_capture(message: str) -> dict[str, Any] | None:
     }
 
 
-def is_task_capture_request(message: str) -> bool:
+def is_task_capture_request(message: str, *, today: date | None = None) -> bool:
     """Return whether the existing task-capture fallback owns this request."""
 
-    return _parse_task_capture(message) is not None
+    return _parse_task_capture(message, today=today) is not None
 
 
-def _extract_task_due_metadata(value: str) -> tuple[date | None, str]:
+def _extract_task_due_metadata(value: str, *, today: date | None = None) -> tuple[date | None, str]:
     text = str(value or "")
     match = TASK_DUE_METADATA_RE.search(text)
     if not match:
         return None, text
     raw_date = match.group("date") or match.group("due_date")
     try:
-        due_date = _resolve_task_due_date(raw_date)
+        due_date = _resolve_task_due_date(raw_date, today=today)
     except ValueError:
         return None, text
     cleaned = f"{text[: match.start()]} {text[match.end() :]}"
@@ -899,22 +911,22 @@ def _looks_like_calendar_statement_missing_time(message: str) -> bool:
     return bool(_clean_capture_title(match.group("title")))
 
 
-def _resolve_capture_date(value: str | None) -> date:
+def _resolve_capture_date(value: str | None, *, today: date | None = None) -> date:
     text = str(value or "today").strip().lower()
     if text in WEEKDAYS:
-        today = date.today()
-        delta = (WEEKDAYS[text] - today.weekday()) % 7
+        base = today or resolve_calendar_date("today")
+        delta = (WEEKDAYS[text] - base.weekday()) % 7
         if delta == 0:
             delta = 7
-        return today + timedelta(days=delta)
-    return resolve_calendar_date(text)
+        return base + timedelta(days=delta)
+    return resolve_calendar_date(text, today=today)
 
 
-def _resolve_task_due_date(value: str | None) -> date:
+def _resolve_task_due_date(value: str | None, *, today: date | None = None) -> date:
     text = str(value or "").strip().lower()
     if text == "tonight":
-        return resolve_calendar_date("today")
-    return _resolve_capture_date(text)
+        return resolve_calendar_date("today", today=today)
+    return _resolve_capture_date(text, today=today)
 
 
 def _source_refs_from_visible_artifacts(

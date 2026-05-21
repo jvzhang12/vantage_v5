@@ -542,6 +542,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return SurfacePayloadBuilder(
             calendar_provider=_calendar_provider_for_scope(durable_scope),
             task_provider=_task_provider_for_scope(durable_scope),
+            time_zone=cfg.time_zone,
         )
 
     def _artifact_action_store_for_scope(durable_scope: dict[str, Any]) -> ArtifactActionStore:
@@ -555,6 +556,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             calendar_provider=_calendar_provider_for_scope(durable_scope),
             task_provider=_task_provider_for_scope(durable_scope),
             action_store=_artifact_action_store_for_scope(durable_scope),
+            time_zone=cfg.time_zone,
         )
 
     def _artifact_mutation_compiler_for_scope(
@@ -1331,7 +1333,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/calendar/day")
     def get_calendar_day(request: Request, date: str | None = None) -> dict[str, Any]:
         try:
-            target_date = resolve_calendar_date(date)
+            target_date = resolve_calendar_date(date, time_zone=cfg.time_zone)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _calendar_provider_for_scope(_durable_scope(request)).day(target_date).to_dict()
@@ -1339,7 +1341,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/calendar/week")
     def get_calendar_week(request: Request, date: str | None = None) -> dict[str, Any]:
         try:
-            target_date = resolve_calendar_date(date)
+            target_date = resolve_calendar_date(date, time_zone=cfg.time_zone)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _calendar_provider_for_scope(_durable_scope(request)).week(target_date).to_dict()
@@ -1347,7 +1349,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/tasks/focus")
     def get_task_focus(request: Request, date: str | None = None) -> dict[str, Any]:
         try:
-            target_date = resolve_calendar_date(date)
+            target_date = resolve_calendar_date(date, time_zone=cfg.time_zone)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _task_provider_for_scope(_durable_scope(request)).focus(target_date).to_dict()

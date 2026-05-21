@@ -25,6 +25,20 @@ as a temporary private-network escape hatch, not an internet setting.
 
 The FastAPI browser shell serves only the generated React build. Source-checkout runs should execute `npm ci` and `npm run build` before starting `vantage-v5-web`; Docker Compose builds the React bundle into the image during `docker compose up --build`.
 
+## Frontend Build Contract
+
+Production serving requires `src/vantage_v5/webapp/generated/index.html`. From a source checkout, build it before starting FastAPI:
+
+```bash
+npm ci
+npm run build
+vantage-v5-web
+```
+
+`npm run dev` is only the local Vite development server. It is useful for frontend iteration, but it does not satisfy FastAPI's production frontend requirement. When the generated index is absent, `GET /` must stay a loud 503 build-required response with instructions to run the React build.
+
+The Dockerfile enforces the same contract without relying on committed generated output: the `frontend-builder` stage runs `npm ci && npm run build`, and the runtime image copies only `src/vantage_v5/webapp/generated/` from that stage before launching `vantage-v5-web`.
+
 ## Environment
 
 ```bash

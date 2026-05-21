@@ -38,7 +38,7 @@ The fixture also ignores generated `launch-strategy*.md` workspace files when co
 
 The optional Basic Auth coverage also asserts that authenticated users receive the production-facing `Vantage` shell brand rather than the earlier development-version masthead.
 
-The static/PWA coverage verifies that the generated React shell is served from `/` when `src/vantage_v5/webapp/generated/index.html` exists, that generated assets are referenced under `/static/generated/`, that a missing generated index returns a clear build-required error instead of a legacy fallback, and that root install assets expose the expected manifest/service-worker/icon headers, prefer generated files where present, keep service-worker scope at `/`, and stay public before login while protected API routes remain locked behind auth.
+The static/PWA coverage verifies that the generated React shell is served from `/` when `src/vantage_v5/webapp/generated/index.html` exists, that generated assets are referenced under `/static/generated/`, that a missing generated index returns a clear build-required error instead of a legacy fallback, that the Dockerfile builds the generated React bundle before the runtime image launches FastAPI, and that root install assets expose the expected manifest/service-worker/icon headers, prefer generated files where present, keep service-worker scope at `/`, and stay public before login while protected API routes remain locked behind auth.
 
 The calendar endpoint coverage verifies that `/api/calendar/day` is protected in profile-auth mode, rejects unsupported date phrases with a clear 400, and returns the read-only day payload shape that the calendar artifact surface will consume.
 

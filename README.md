@@ -885,6 +885,8 @@ If not, the app falls back to a local placeholder chat response so the UI and wo
 For online access, see [docs/deployment.md](/Users/eden/Documents/Vantage%20v6/docs/deployment.md). The supported Vantage v6 path is Docker Compose plus required auth, persistent Markdown storage, and an optional Tailscale, Cloudflare Tunnel, or Caddy public-facing layer.
 The Docker image builds and includes the generated React frontend during `docker compose up --build`.
 
+FastAPI serves the product browser frontend only from the generated React bundle. When running from a source checkout, run `npm ci` and `npm run build` before starting `vantage-v5-web`; `npm run dev` starts the Vite development server, but it does not make FastAPI `/` serve a dev fallback. If `src/vantage_v5/webapp/generated/index.html` is missing, `/` returns a build-required 503 with the build command instead of serving an older shell.
+
 ## Phone Website / PWA
 
 Vantage v6 can be hosted as a phone-installable website. The React build includes a web app manifest, iOS home-screen metadata, Apple touch icon, and a root service worker. The service worker caches only static generated assets and icons; it deliberately skips `/api/*` so chat, auth, whiteboard, memory, and artifact payloads never enter the browser cache.

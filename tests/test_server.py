@@ -3958,6 +3958,21 @@ def test_missing_generated_index_returns_clear_build_error(
     assert "/static/app.js" not in index.text
 
 
+def test_dockerfile_builds_generated_react_before_runtime_serving() -> None:
+    dockerfile = (_repo_root() / "Dockerfile").read_text(encoding="utf-8")
+
+    frontend_stage = dockerfile.index("AS frontend-builder")
+    build_step = dockerfile.index("RUN npm ci && npm run build")
+    generated_copy = dockerfile.index(
+        "COPY --from=frontend-builder /app/src/vantage_v5/webapp/generated "
+        "./src/vantage_v5/webapp/generated"
+    )
+    runtime_command = dockerfile.index('CMD ["vantage-v5-web"]')
+
+    assert frontend_stage < build_step < generated_copy < runtime_command
+    assert "src/vantage_v5/webapp/static ./src/vantage_v5/webapp/static" not in dockerfile
+
+
 def test_pwa_assets_are_served_with_safe_cache_headers(tmp_path: Path) -> None:
     client, _ = _client(tmp_path)
 

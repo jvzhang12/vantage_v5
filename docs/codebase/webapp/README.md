@@ -1,5 +1,8 @@
 # Webapp Codebase Summaries
 
+> Status: Current source of truth
+> Note: This is the current React frontend codebase map. Historical UI research may preserve old vanilla file targets, but active implementation should start here.
+
 This directory mirrors the React web client under `src/vantage_v5/webapp_react`, plus the browser-facing frontend tests.
 
 The goal is the same as the Python summaries: let future agents understand the shipped client surfaces, state model, payload contract, and focused browser-side tests without reverse-engineering the React app from scratch.
@@ -47,8 +50,8 @@ The goal is the same as the Python summaries: let future agents understand the s
 
 ## Webapp Tests
 
-- [src/vantage_v5/webapp_react/src/App.test.tsx.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp_react/src/App.test.tsx.md)
-- [src/vantage_v5/webapp_react/src/entrypoints.test.ts.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp_react/src/entrypoints.test.ts.md)
-- [src/vantage_v5/webapp_react/src/appReducer.test.ts.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp_react/src/appReducer.test.ts.md)
-- [src/vantage_v5/webapp_react/src/inspectionModel.test.ts.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp_react/src/inspectionModel.test.ts.md)
-- [src/vantage_v5/webapp_react/src/visibleArtifacts.test.ts.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/src/vantage_v5/webapp_react/src/visibleArtifacts.test.ts.md)
+- [src/vantage_v5/webapp_react/src/App.test.tsx.md](src/vantage_v5/webapp_react/src/App.test.tsx.md)
+- [src/vantage_v5/webapp_react/src/entrypoints.test.ts.md](src/vantage_v5/webapp_react/src/entrypoints.test.ts.md)
+- [src/vantage_v5/webapp_react/src/appReducer.test.ts.md](src/vantage_v5/webapp_react/src/appReducer.test.ts.md)
+- [src/vantage_v5/webapp_react/src/inspectionModel.test.ts.md](src/vantage_v5/webapp_react/src/inspectionModel.test.ts.md)
+- [src/vantage_v5/webapp_react/src/visibleArtifacts.test.ts.md](src/vantage_v5/webapp_react/src/visibleArtifacts.test.ts.md)

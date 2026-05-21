@@ -10,4 +10,4 @@ Vitest coverage for the React frontend entrypoint and generated bundle contract.
 
 ## Why It Matters
 
-- These assertions support legacy/static frontend retirement work by making the active React entry path explicit before legacy files are removed.
+- These assertions guard the completed React-only frontend contract: FastAPI serves the generated React bundle, and removed legacy static entrypoints must not become an accidental fallback again.

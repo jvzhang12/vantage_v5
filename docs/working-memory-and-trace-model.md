@@ -1,5 +1,8 @@
 # Working Memory And Trace Model
 
+> Status: Current source of truth
+> Note: This is the current deep semantic model for Whiteboard, Memory Trace, Working Memory, Library, and Recall. Public compatibility aliases are tracked in [compatibility-ledger.md](compatibility-ledger.md).
+
 ## Purpose
 
 This document defines the current product vocabulary for:

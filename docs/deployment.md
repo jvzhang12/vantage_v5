@@ -1,5 +1,8 @@
 # Vantage Deployment Notes
 
+> Status: Current source of truth
+> Note: This is the deployment/build contract. Generated React assets are required for FastAPI production serving; this doc does not describe a legacy frontend fallback.
+
 Vantage is safe to run locally by default. Hosting it online needs a little extra care because the app can read and write Markdown state and can use an OpenAI API key.
 
 ## Recommended First Deployment

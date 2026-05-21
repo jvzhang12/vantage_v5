@@ -1,8 +1,11 @@
 # Vantage Current Architecture
 
+> Status: Current source of truth
+> Note: This is the implementation architecture map. Use [compatibility-ledger.md](compatibility-ledger.md) before changing retained legacy payload fields, storage names, or fallback paths.
+
 This is the quickest architecture map for agents working in the current repository.
 
-Read this after [README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/README.md) and before editing implementation files.
+Read this after [README.md](../README.md) and before editing implementation files.
 
 ## Product Shape
 
@@ -54,7 +57,7 @@ Current implemented control-panel actions include:
 - `manage_experiment`
 - `ask_clarification`
 
-Some deterministic raw-text helpers still exist as transitional guardrails, especially in semantic frame/policy handling, whiteboard carry logic, meta fallback, and client-side deictic reopen. Treat those as migration targets, not the desired long-term architecture. See [control-panel-navigation.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/control-panel-navigation.md).
+Some deterministic raw-text helpers still exist as transitional guardrails, especially in semantic frame/policy handling, whiteboard carry logic, meta fallback, and client-side deictic reopen. Treat those as migration targets, not the desired long-term architecture. See [control-panel-navigation.md](control-panel-navigation.md) and [compatibility-ledger.md](compatibility-ledger.md).
 
 Deterministic fallback is allowed only when it stays narrow, conservative, and visible. It may repair or validate a missing structured field, protect a safety boundary, keep the app responsive when the model/provider is unavailable, or preserve compatibility with older payloads. It must not become a silent semantic crutch.
 
@@ -176,11 +179,11 @@ Local development binds to `127.0.0.1` by default. Hosted/private access should 
 - `VANTAGE_V5_AUTH_PASSWORD` for single-user Basic Auth, or `VANTAGE_V5_AUTH_USERS_JSON` / `VANTAGE_V5_AUTH_USERS_FILE` for isolated user profiles.
 - `VANTAGE_V5_REPO_ROOT=/data` in Docker with a persistent volume.
 
-See [deployment.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/deployment.md).
+See [deployment.md](deployment.md).
 
 ## Source Maps For Agents
 
-Use [codebase/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/README.md) before editing. Each source/test file should have a mirrored summary under `docs/codebase/`.
+Use [codebase/README.md](codebase/README.md) before editing. Each source/test file should have a mirrored summary under `docs/codebase/`.
 
 When a source or test file changes, update its mirrored summary in the same patch and run:
 

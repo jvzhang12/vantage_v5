@@ -1,5 +1,9 @@
 # Frontend Legacy Retirement Note
 
+> Status: Historical rationale
+> Current source of truth: [architecture-overview.md](architecture-overview.md), [deployment.md](deployment.md), and [codebase/webapp/README.md](codebase/webapp/README.md)
+> Note: This note records the completed retirement of the old vanilla/static frontend path. React source plus generated React build output are the only product frontend path.
+
 Date: 2026-05-20
 
 ## Scope

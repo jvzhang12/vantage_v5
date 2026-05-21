@@ -1,5 +1,8 @@
 # Vantage V5 Semantic Rules
 
+> Status: Current source of truth
+> Note: This is the implementation-facing behavior rule list. Compatibility fields and old aliases are cataloged separately in [compatibility-ledger.md](compatibility-ledger.md).
+
 ## Purpose
 
 This note turns the glossary into implementation-facing rules.
@@ -13,7 +16,7 @@ Use it when changing:
 - continuity rules
 - grounding disclosures
 
-Read this after [glossary.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/glossary.md).
+Read this after [glossary.md](glossary.md).
 
 ## Core Rule
 

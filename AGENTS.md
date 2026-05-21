@@ -7,9 +7,9 @@ This file is the repo-level contract for any agent or subagent working in `vanta
 Before changing code:
 
 1. Read this file.
-2. Read [README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/README.md).
-3. Read the codebase map at [docs/codebase/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/README.md).
-4. Read [docs/subagent-orchestration-protocol.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/subagent-orchestration-protocol.md) before you split work across implementation or review subagents.
+2. Read [README.md](README.md).
+3. Read the codebase map at [docs/codebase/README.md](docs/codebase/README.md).
+4. Read [docs/subagent-orchestration-protocol.md](docs/subagent-orchestration-protocol.md) before you split work across implementation or review subagents.
 5. Read the mirrored Markdown summary for each source or test file you plan to edit.
 6. Read the source code only after you understand the summary-level intent.
 
@@ -32,7 +32,7 @@ Before changing code:
 - If you add a new webapp source/test file, add a matching summary Markdown file in the mirrored docs tree during the same change.
 - If you remove or rename a Python file, update or remove its mirrored summary accordingly.
 - If you remove or rename a webapp source/test file, update or remove its mirrored summary accordingly.
-- If your change alters a repo-level behavior or architectural contract, update [README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/README.md) too.
+- If your change alters a repo-level behavior or architectural contract, update [README.md](README.md) too.
 - If your change affects the source/test/docs map itself, run `python3 scripts/check_repo_hygiene.py`.
 - Keep summaries concise and practical: purpose, key functions/classes, major dependencies, and notable behaviors.
 
@@ -98,10 +98,10 @@ Before changing code:
 
 ## Subagent Prompt Template
 
-Use [docs/subagent-orchestration-protocol.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/subagent-orchestration-protocol.md) as the authoritative handoff contract. The shorter template below is only a convenience wrapper and must defer to the protocol for scope, review, and closeout expectations. If you need a quick starting point, use this shape when spawning a worker for this repo:
+Use [docs/subagent-orchestration-protocol.md](docs/subagent-orchestration-protocol.md) as the authoritative handoff contract. The shorter template below is only a convenience wrapper and must defer to the protocol for scope, review, and closeout expectations. If you need a quick starting point, use this shape when spawning a worker for this repo:
 
 ```text
-You are working in /Users/eden/Documents/Obsidian Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5.
+You are working in the current Vantage repository checkout.
 
 Before editing:
 1. Read AGENTS.md.

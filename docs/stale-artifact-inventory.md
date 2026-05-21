@@ -1,7 +1,7 @@
 # Stale Artifact Inventory
 
 > Status: Current source of truth
-> Note: This guide inventories local and repo artifacts that can look authoritative during LLM-assisted Vantage work. It is report-only guidance; it does not authorize deletion, archiving, migration, or behavior changes.
+> Note: This guide inventories local and repo artifacts that can look authoritative during LLM-assisted Vantage work. It is report-only guidance; it does not authorize deletion, archiving, migration, or behavior changes. For compatibility fields that look stale but remain intentional, see [compatibility-ledger.md](compatibility-ledger.md).
 
 Date: 2026-05-21
 

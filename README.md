@@ -10,7 +10,7 @@ The core reset is simple:
 
 For the fastest path into the current repository docs, start with:
 
-- [docs/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/README.md)
+- [docs/README.md](docs/README.md)
 
 That guide points to:
 
@@ -277,7 +277,7 @@ In practice:
 
 See also:
 
-- [docs/navigator-continuity-contract.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/navigator-continuity-contract.md)
+- [docs/navigator-continuity-contract.md](docs/navigator-continuity-contract.md)
 
 ### Near-Term Architecture Direction
 The old implementation roadmap has been archived. Current implementation direction should be read from the active product and architecture docs plus the live lane handoff.
@@ -422,9 +422,9 @@ The whiteboard should stay visibly separate from working memory and should only 
 Accepted whiteboard drafts should preserve that separation too: opening a new email, plan, or other work product should not silently replace an unrelated draft that was already on the whiteboard.
 When the whiteboard is open, it should take visual priority: the draft should occupy the main canvas, chat should collapse into a smaller companion pane, and Working Memory / Learned / Library views should remain exclusive to `Vantage`.
 Mode labels should stay explicit enough that the user always knows whether they are chatting, drafting, or inspecting internals.
-See [docs/glossary.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/glossary.md) for the canonical definitions of `Working Memory`, `Whiteboard`, `Library`, `Learned`, and related terms.
+See [docs/glossary.md](docs/glossary.md) for the canonical definitions of `Working Memory`, `Whiteboard`, `Library`, `Learned`, and related terms.
 
-For the proposed terminology reset around `Whiteboard`, `Memory Trace`, and `Working Memory`, see [docs/working-memory-and-trace-model.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/working-memory-and-trace-model.md).
+For the current terminology reset around `Whiteboard`, `Memory Trace`, and `Working Memory`, see [docs/working-memory-and-trace-model.md](docs/working-memory-and-trace-model.md).
 
 When the UI shows working state, it should stay visibly split into:
 - `Whiteboard` for the active shared workspace
@@ -811,7 +811,9 @@ The V5 architecture can be summarized like this:
 
 This is the current Vantage V5 foundation.
 
-For a grounded comparison between the current repository and the stricter historical canon, see [docs/implementation-vs-canon.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/implementation-vs-canon.md).
+For a grounded comparison between the current repository and the stricter historical canon, see [docs/implementation-vs-canon.md](docs/implementation-vs-canon.md).
+
+For intentionally retained public-payload, request, storage, and fallback compatibility surfaces, see [docs/compatibility-ledger.md](docs/compatibility-ledger.md). For local worktree/runtime clutter that can look like source truth, see [docs/stale-artifact-inventory.md](docs/stale-artifact-inventory.md).
 
 ## Current Demo
 
@@ -882,7 +884,7 @@ Then open [http://127.0.0.1:8005](http://127.0.0.1:8005).
 If `OPENAI_API_KEY` is present in `.env`, chat runs through OpenAI.
 If not, the app falls back to a local placeholder chat response so the UI and workspace flow still work.
 
-For online access, see [docs/deployment.md](/Users/eden/Documents/Vantage%20v6/docs/deployment.md). The supported Vantage v6 path is Docker Compose plus required auth, persistent Markdown storage, and an optional Tailscale, Cloudflare Tunnel, or Caddy public-facing layer.
+For online access, see [docs/deployment.md](docs/deployment.md). The supported Vantage v6 path is Docker Compose plus required auth, persistent Markdown storage, and an optional Tailscale, Cloudflare Tunnel, or Caddy public-facing layer.
 The Docker image builds and includes the generated React frontend during `docker compose up --build`.
 
 FastAPI serves the product browser frontend only from the generated React bundle. When running from a source checkout, run `npm ci` and `npm run build` before starting `vantage-v5-web`; `npm run dev` starts the Vite development server, but it does not make FastAPI `/` serve a dev fallback. If `src/vantage_v5/webapp/generated/index.html` is missing, `/` returns a build-required 503 with the build command instead of serving an older shell.
@@ -897,10 +899,10 @@ For a small trusted group, use Cloudflare Tunnel pointed at `http://127.0.0.1:80
 
 ## Milestones
 
-- [milestone_1.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/milestone_1.md)
-- [milestone_2.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/milestone_2.md)
-- [milestone_3.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/milestone_3.md)
+- [milestone_1.md](milestone_1.md)
+- [milestone_2.md](milestone_2.md)
+- [milestone_3.md](milestone_3.md)
 
 ## Integration Docs
 
-- [nexus_integration.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/nexus_integration.md)
+- [nexus_integration.md](nexus_integration.md)

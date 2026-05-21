@@ -1,6 +1,6 @@
 # `src/vantage_v5/services/vetting.py`
 
-Filters search candidates down to the small set that is actually relevant to the current user message. This is the second pass after retrieval: search finds possibilities, vetting decides what should be carried forward. In the next migration slice, recent `Memory Trace` candidates should join the same decision path rather than bypassing it.
+Filters search candidates down to the small set that is actually relevant to the current user message. This is the second pass after retrieval: search finds possibilities, vetting decides what should be carried forward. Recent `Memory Trace` candidates now participate in the same bounded decision path as other recall candidates rather than bypassing vetting.
 
 ## Purpose
 
@@ -15,7 +15,7 @@ Filters search candidates down to the small set that is actually relevant to the
 - The response is re-mapped back onto the original candidate objects so the caller keeps the full records.
 - Without a client, `_fallback_vet()` keeps items above a score threshold derived from the top result.
 - If the OpenAI vetting call raises at runtime, `vet()` logs the error and falls back to the same deterministic score-threshold path instead of bubbling an exception up to `/api/chat`.
-- Shared helpers now build a continuity hint for selected-record follow-ups, pending whiteboard continuations, and live whiteboard drafts, so chat and Scenario Lab can give the model the right semantic anchor without duplicating the same heuristics in multiple places. The hint is advisory only, summary-level context; it should not become a second hidden context channel that bypasses vetting, and selected-record hints are only emitted when preservation is actually in effect for the turn. Automatic selected-record preservation now yields to pending whiteboard or live whiteboard continuity when the navigator has not made an explicit preserve decision. Memory Trace retrieval should feed into the same bounded vetting pass once that store lands.
+- Shared helpers now build a continuity hint for selected-record follow-ups, pending whiteboard continuations, and live whiteboard drafts, so chat and Scenario Lab can give the model the right semantic anchor without duplicating the same heuristics in multiple places. The hint is advisory only, summary-level context; it should not become a second hidden context channel that bypasses vetting, and selected-record hints are only emitted when preservation is actually in effect for the turn. Automatic selected-record preservation now yields to pending whiteboard or live whiteboard continuity when the navigator has not made an explicit preserve decision. Memory Trace retrieval participates in the same bounded vetting pass.
 
 ## Key Classes / Functions
 

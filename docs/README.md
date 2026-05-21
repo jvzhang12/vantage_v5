@@ -1,5 +1,8 @@
 # Vantage Docs Guide
 
+> Status: Current source of truth
+> Note: This is the tracked entrypoint for choosing current, historical, compatibility, and local-state documentation. Local untracked brainstorm or assessment docs are context inputs only until explicitly tracked.
+
 This is the best starting point for the repository documentation.
 
 Use this guide when you want to know:
@@ -14,12 +17,12 @@ Use this guide when you want to know:
 
 If you are orienting to the current product, read in this order:
 
-1. [README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/README.md)
-2. [architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md)
-3. [glossary.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/glossary.md)
-4. [semantic-rules.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/semantic-rules.md)
-5. [implementation-vs-canon.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/implementation-vs-canon.md)
-6. [codebase/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/README.md)
+1. [README.md](../README.md)
+2. [architecture-overview.md](architecture-overview.md)
+3. [glossary.md](glossary.md)
+4. [semantic-rules.md](semantic-rules.md)
+5. [implementation-vs-canon.md](implementation-vs-canon.md)
+6. [codebase/README.md](codebase/README.md)
 
 That sequence gives you:
 
@@ -36,29 +39,29 @@ That sequence gives you:
 
 Use these when you are changing user-facing behavior or trying to preserve canonical terminology:
 
-- [glossary.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/glossary.md)
-- [semantic-rules.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/semantic-rules.md)
-- [working-memory-and-trace-model.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/working-memory-and-trace-model.md)
-- [reasoning-path.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/reasoning-path.md)
-- [navigator-continuity-contract.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/navigator-continuity-contract.md)
-- [control-panel-navigation.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/control-panel-navigation.md)
-- [protocols.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/protocols.md)
-- [semantic-frame.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/semantic-frame.md)
+- [glossary.md](glossary.md)
+- [semantic-rules.md](semantic-rules.md)
+- [working-memory-and-trace-model.md](working-memory-and-trace-model.md)
+- [reasoning-path.md](reasoning-path.md)
+- [navigator-continuity-contract.md](navigator-continuity-contract.md)
+- [control-panel-navigation.md](control-panel-navigation.md)
+- [protocols.md](protocols.md)
+- [semantic-frame.md](semantic-frame.md)
 
 ### Implementation Planning
 
 Use these for active implementation work:
 
-- [system-improvements-checklist.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/system-improvements-checklist.md)
-- [system-improvements-assessment.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/system-improvements-assessment.md)
-- [conversation-continuity-resume-todo.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/conversation-continuity-resume-todo.md)
-- [whiteboard-draft-retention-todo.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/whiteboard-draft-retention-todo.md)
-- [refactor-deep-modules-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/refactor-deep-modules-plan.md)
-- [architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md)
-- [subagent-orchestration-protocol.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/subagent-orchestration-protocol.md)
-- [codebase/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/README.md)
+- [system-improvements-checklist.md](system-improvements-checklist.md)
+- [system-improvements-assessment.md](system-improvements-assessment.md)
+- [conversation-continuity-resume-todo.md](conversation-continuity-resume-todo.md)
+- [whiteboard-draft-retention-todo.md](whiteboard-draft-retention-todo.md)
+- [refactor-deep-modules-plan.md](refactor-deep-modules-plan.md)
+- [architecture-overview.md](architecture-overview.md)
+- [subagent-orchestration-protocol.md](subagent-orchestration-protocol.md)
+- [codebase/README.md](codebase/README.md)
 
-The older current-repo implementation roadmap has been archived at [archive/implementation-roadmap.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/archive/implementation-roadmap.md). Use it for historical context only; active implementation direction should come from the current product docs, architecture overview, codebase maps, and the active lane handoff.
+The older current-repo implementation roadmap has been archived at [archive/implementation-roadmap.md](archive/implementation-roadmap.md). Use it for historical context only; active implementation direction should come from the current product docs, architecture overview, codebase maps, and the active lane handoff.
 
 Current status note:
 
@@ -70,14 +73,24 @@ Current status note:
 
 Use this when preparing private hosted access, Docker, Basic Auth, or persistent storage:
 
-- [deployment.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/deployment.md)
+- [deployment.md](deployment.md)
+
+### Compatibility And Local State
+
+Use these when a field, path, or local artifact looks stale but may still have a compatibility reason:
+
+- [compatibility-ledger.md](compatibility-ledger.md)
+- [stale-artifact-inventory.md](stale-artifact-inventory.md)
+- [repository-entropy-audit.md](repository-entropy-audit.md)
+
+Local files such as `docs/brainstorm.md`, `docs/brainstorm-implementation-list.md`, `docs/vantage-behavioral-workflow-canon.md`, and `docs/behavioral-workflow-assessment-2026-05-21.md` may exist untracked in this worktree. If untracked, treat them as local assessment or brainstorm inputs, not current product contracts.
 
 ### UI Research And Frontend Direction
 
 Use these when the task is about UX, product framing, or frontend implementation slices:
 
-- [ui-research/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/README.md)
-- [codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md) for current React implementation targets.
+- [ui-research/README.md](ui-research/README.md)
+- [codebase/webapp/README.md](codebase/webapp/README.md) for current React implementation targets.
 
 Older UI implementation plans remain useful historical rationale, but many predate the React-only frontend transition. Follow their status headers when deciding whether a file is current guidance.
 
@@ -85,21 +98,21 @@ Older UI implementation plans remain useful historical rationale, but many preda
 
 Use these only when you need historical rationale or a deferred architecture thread:
 
-- [archive/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/archive/README.md)
-- [archive/implementation-roadmap.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/archive/implementation-roadmap.md)
-- [archive/implementation-plans/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/archive/implementation-plans/README.md)
-- [ui-research/archive/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/archive/README.md)
+- [archive/README.md](archive/README.md)
+- [archive/implementation-roadmap.md](archive/implementation-roadmap.md)
+- [archive/implementation-plans/README.md](archive/implementation-plans/README.md)
+- [ui-research/archive/README.md](ui-research/archive/README.md)
 
 ## Current Active Path
 
 If you want the shortest current path for implementation decisions, use:
 
-1. [README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/README.md)
-2. [architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md)
-3. [glossary.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/glossary.md)
-4. [semantic-rules.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/semantic-rules.md)
-5. [codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md)
-6. [subagent-orchestration-protocol.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/subagent-orchestration-protocol.md)
+1. [README.md](../README.md)
+2. [architecture-overview.md](architecture-overview.md)
+3. [glossary.md](glossary.md)
+4. [semantic-rules.md](semantic-rules.md)
+5. [codebase/webapp/README.md](codebase/webapp/README.md)
+6. [subagent-orchestration-protocol.md](subagent-orchestration-protocol.md)
 
 ## Practical Rule
 

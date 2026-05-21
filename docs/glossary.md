@@ -1,5 +1,8 @@
 # Vantage V5 Glossary
 
+> Status: Current source of truth
+> Note: This is the canonical semantic vocabulary. For retained legacy field names such as `working_memory` or `workspace_*`, see [compatibility-ledger.md](compatibility-ledger.md).
+
 ## Purpose
 
 This glossary defines the core product terms for `vantage-v5`.
@@ -8,9 +11,9 @@ Use these definitions when changing UI copy, API semantics, retrieval behavior, 
 
 If another document uses these terms differently, this glossary should be treated as the canonical semantic reference for the current repo unless `README.md` explicitly says otherwise.
 
-For implementation-facing behavioral rules built on top of these definitions, see [semantic-rules.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/semantic-rules.md).
+For implementation-facing behavioral rules built on top of these definitions, see [semantic-rules.md](semantic-rules.md).
 
-For the small structured continuity payload implemented for the navigator interpreter, see [navigator-continuity-contract.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/navigator-continuity-contract.md).
+For the small structured continuity payload implemented for the navigator interpreter, see [navigator-continuity-contract.md](navigator-continuity-contract.md).
 
 ## Core Terms
 

@@ -13,6 +13,7 @@ from typing import Any
 import yaml
 
 from vantage_v5.services.calendar import LocalCalendarProvider
+from vantage_v5.services.calendar import current_calendar_date
 from vantage_v5.services.calendar import resolve_calendar_date
 from vantage_v5.services.calendar import week_start_for
 from vantage_v5.services.product_scope import operational_product_scope
@@ -339,11 +340,12 @@ class AttentionEngine:
         task_provider: LocalTaskProvider,
         vector_index: VectorIndex | None = None,
         today: date | None = None,
+        time_zone: str = "UTC",
     ) -> None:
         self.calendar_provider = calendar_provider
         self.task_provider = task_provider
         self.vector_index = vector_index
-        self.today = today or date.today()
+        self.today = today or current_calendar_date(time_zone=time_zone)
 
     def prepare_turn(
         self,
@@ -509,7 +511,7 @@ class AttentionEngine:
 
 
 def build_query_frame(message: str, *, today: date | None = None) -> QueryFrame:
-    today = today or date.today()
+    today = today or current_calendar_date()
     raw_text = str(message or "")
     normalized = " ".join(raw_text.strip().split()).lower()
     tokens = tuple(sorted(token for token in tokenize(normalized) if token not in ATTENTION_STOPWORDS))

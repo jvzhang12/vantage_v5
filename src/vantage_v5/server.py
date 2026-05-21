@@ -926,6 +926,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 calendar_provider=_calendar_provider_for_scope(durable_scope),
                 task_provider=_task_provider_for_scope(durable_scope),
                 vector_index=SQLiteVectorIndex(Path(durable_scope["root"]) / "state" / "vector_index.sqlite3"),
+                time_zone=cfg.time_zone,
             ),
         )
         app_capabilities = _app_capability_manifest_for_scope(durable_scope)

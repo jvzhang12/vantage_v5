@@ -10,6 +10,8 @@ from vantage_v5.services.attention import build_query_frame
 from vantage_v5.services.attention import NavigatorSelection
 from vantage_v5.services.attention import normalize_navigator_selection
 from vantage_v5.services.attention import SelectedAttentionResource
+from vantage_v5.services.artifact_actions import ArtifactActionPlanner
+from vantage_v5.services.artifact_actions import ArtifactActionStore
 from vantage_v5.services.calendar import LocalCalendarProvider
 from vantage_v5.services.tasks import LocalTaskProvider
 from vantage_v5.services.vector_index import SQLiteVectorIndex
@@ -361,6 +363,56 @@ def test_attention_indexes_calendar_and_tasks_for_operational_requests(tmp_path:
     kinds = {candidate.kind for candidate in turn.candidates}
     assert "calendar_day" in kinds
     assert "task_focus" in kinds
+
+
+def test_attention_operational_dates_use_configured_timezone_and_match_proposals(tmp_path: Path, monkeypatch) -> None:
+    import vantage_v5.services.attention as attention_module
+
+    def _fake_current_calendar_date(*, time_zone: str = "UTC", now=None) -> date:
+        if time_zone == "UTC":
+            return date(2026, 5, 21)
+        return date(2026, 5, 20)
+
+    monkeypatch.setattr(attention_module, "current_calendar_date", _fake_current_calendar_date)
+    runtime = _runtime(tmp_path)
+    workspace = runtime["workspace_store"].save("working-draft", "# Working Draft\n\nCurrent scratchpad.")
+    events_path = tmp_path / "state" / "calendar" / "events.json"
+    tasks_path = tmp_path / "state" / "tasks" / "tasks.json"
+    events_path.parent.mkdir(parents=True)
+    tasks_path.parent.mkdir(parents=True)
+    events_path.write_text(json.dumps({"events": []}), encoding="utf-8")
+    tasks_path.write_text(json.dumps({"tasks": []}), encoding="utf-8")
+    calendar_provider = LocalCalendarProvider(events_path=events_path, writable=True)
+    task_provider = LocalTaskProvider(tasks_path=tasks_path, writable=True)
+    engine = AttentionEngine(
+        calendar_provider=calendar_provider,
+        task_provider=task_provider,
+        time_zone="UTC",
+    )
+
+    turn = engine.prepare_turn(
+        message="What does my calendar and task list look like tomorrow?",
+        runtime=runtime,
+        workspace=workspace,
+        visible_artifacts=[],
+    )
+    planner = ArtifactActionPlanner(
+        calendar_provider=calendar_provider,
+        task_provider=task_provider,
+        action_store=ArtifactActionStore(tmp_path / "actions"),
+        today=engine.today,
+    )
+    proposal = planner.plan_for_turn(
+        message="Add a calendar event tomorrow at 3 PM called Graph study review.",
+        visible_artifacts=[],
+        persist=False,
+    )
+
+    candidate_ids = {candidate.resource_id for candidate in turn.candidates}
+    assert "calendar_day:2026-05-22" in candidate_ids
+    assert "task_focus:2026-05-22" in candidate_ids
+    assert "calendar_day:2026-05-21" not in candidate_ids
+    assert proposal.artifact_actions[0]["payload"]["date"] == "2026-05-22"
 
 
 def test_attention_my_day_fallback_prefers_operational_resources_over_old_traces(tmp_path: Path) -> None:

@@ -1,0 +1,131 @@
+# Repository Entropy Audit
+
+Date: 2026-05-21
+
+Scope: audit-only. This report inventories repository knowledge, compatibility seams, local/runtime state, and likely cleanup slices after pipeline cleanup and behavior-preservation proof. It does not delete, move, archive, normalize, or rewrite existing files.
+
+## 1. Executive Summary
+
+The current source-of-truth stack is mostly coherent: `README.md`, `docs/README.md`, `docs/architecture-overview.md`, `docs/glossary.md`, `docs/semantic-rules.md`, `docs/working-memory-and-trace-model.md`, and `docs/codebase/README.md` agree that Vantage is chat-first, React-only for the product frontend, bounded in Working Memory, conservative about writes, and explicit about Whiteboard vs Memory Trace vs Library.
+
+The entropy is concentrated in four places:
+
+- Compatibility surfaces that are intentionally preserved but easy to mistake for future-facing product shape: `workspace_*`, `working_memory`, `created_record`, `concept_id`, `selected_record`, `workspace_update.type`, `ChatService.search_context()`, and deterministic fallback paths.
+- Historical or semi-current plans that still sound actionable, especially UI research docs that reference removed vanilla frontend files.
+- Runtime or local-state directories that look like product truth because they contain Markdown records, generated assets, traces, and screenshots.
+- Mirrored codebase summaries that are generally useful, but a few now carry older migration language after Memory Trace and React-only work landed.
+
+Highest-priority finding: current React source still contains visible copy saying the legacy Library remains available in the old frontend fallback, while current docs say the legacy frontend fallback is gone. This is not fixed here because the slice is audit-only.
+
+Brainstorm status: `docs/brainstorm.md` and `docs/brainstorm-implementation-list.md` are present in this worktree and were read, but both are untracked (`git ls-files` does not know them). They should be treated as draft/local planning inputs until explicitly added, normalized, or replaced by tracked plans.
+
+## 2. Current Source-Of-Truth Docs
+
+| Classification | Evidence path | Note | Why it matters | Suggested cleanup slice | Priority |
+|---|---|---|---|---|---|
+| Current source of truth | `README.md` | Broadest current product contract: chat-first, Attention/Recall/Working Memory handoff, TurnPlan authority, Whiteboard vocabulary, compatibility aliases, React build contract. | It is long and mixes current contract, MVP defaults, compatibility tables, and historical vocabulary; agents may over-read older `workspace` language. | Add a short "Current contract summary" or split compatibility table into a focused compatibility note. | P1 |
+| Current source of truth | `docs/README.md` | Best entrypoint and source-priority guide. It already points archived docs away from current implementation. | This is the clearest antidote to entropy; keep it as the doc router. | After cleanup, update it with explicit status for new entropy report and brainstorm files. | P2 |
+| Current source of truth | `docs/architecture-overview.md` | Current request path, module ownership, Working Memory/Recall meaning, React-only frontend, storage model. | Best implementation overview. It also names transitional deterministic helpers and old roadmap status. | Keep as canonical architecture map; update only after actual consolidation slices. | P2 |
+| Current source of truth | `docs/glossary.md` | Canonical semantic definitions for Working Memory, Recall, Memory Trace, Library, Whiteboard, Navigator Continuity Frame, protocols, corrections. | Strongest semantic reference when docs disagree. | None now; cite it from future cleanup PRs. | P3 |
+| Current source of truth | `docs/semantic-rules.md` | Implementation-facing guardrails for scope, pinning, grounding, writes, protocols, and control-panel authority. | Useful behavior contract; overlaps heavily with README by design. | Later, consider keeping README shorter and making this the canonical rule list. | P2 |
+| Current source of truth | `docs/working-memory-and-trace-model.md` | Focused canonical note for Whiteboard, Memory Trace, Working Memory, Library, and Recall. | Reduces semantic ambiguity, but some content repeats glossary/semantic-rules. | Consolidate repeated Working Memory definitions by making this the single deep dive and linking from others. | P2 |
+| Current source of truth | `docs/codebase/README.md` plus `docs/codebase/python/README.md` and `docs/codebase/webapp/README.md` | Human-first map to source/test summaries. | Critical for agent onboarding and hygiene. | Keep hygiene check mandatory; add status note when summaries are historical or generated from older migration waves. | P2 |
+| Current source of truth | `docs/deployment.md` and `docs/frontend-legacy-retirement-audit.md` | Deployment and React-only serving contract. | The legacy fallback removal is easy to regress. | Keep; maybe link retirement audit from deployment/architecture when frontend cleanup begins. | P2 |
+
+## 3. Active Plans
+
+| Classification | Evidence path | Note | Why it matters | Suggested cleanup slice | Priority |
+|---|---|---|---|---|---|
+| Active plan | `docs/brainstorm-implementation-list.md` | Untracked local file. It names the current phase gate: pipeline cleanup -> behavior preservation proof -> repository entropy audit -> consolidation/labeling/archive cleanup -> feature expansion. | It is directly relevant, but because it is untracked it can disappear or differ between worktrees. | Decide whether to track it, replace it with a tracked roadmap, or keep it explicitly local-only. | P1 |
+| Draft / brainstorm | `docs/brainstorm.md` | Untracked local idea notebook. Good product instincts, intentionally contradictory/open-ended. | Future agents may treat ideas as assignments if they do not notice untracked status. | If tracked later, add a status header that says non-authoritative idea notebook. | P2 |
+| Active plan | `docs/system-improvements-checklist.md` and `docs/system-improvements-assessment.md` | Listed by `docs/README.md` as implementation planning. | Potentially overlaps with architecture overview and current lane handoffs. | Review and mark completed/superseded items after TurnPlan and frontend state work. | P2 |
+| Active plan | `docs/refactor-deep-modules-plan.md` | Planning around service boundaries after deep-module work. | May be partly completed by current architecture, but still sounds actionable. | Convert remaining work into a small checklist or mark historical if complete. | P2 |
+| Active plan | `docs/conversation-continuity-resume-todo.md` and `docs/whiteboard-draft-retention-todo.md` | Narrow future feature plans for resume and draft retention. | Useful, but they depend on clean Memory Trace/Whiteboard semantics. | Keep as active deferred plans; link to any new lifecycle metadata plan. | P3 |
+| Active plan | `docs/ui-research/frontend-guidance-implementation-plan.md` | Current UI execution tracker per `docs/README.md` and UI archive README. | Should be the active UI plan after React migration. | Audit it for React-only assumptions before the next UI slice. | P1 |
+| Active hardening plan | `docs/stability-hardening-audit.md` | Stabilization map after deep-module refactor; next priority is Navigator eval/routing reliability. | Still current enough to guide hardening, but it is an audit, not a durable architecture contract. | Convert remaining items into tracked backlog or mark completed sections. | P2 |
+
+## 4. Historical / Superseded Docs
+
+| Classification | Evidence path | Note | Why it matters | Suggested cleanup slice | Priority |
+|---|---|---|---|---|---|
+| Archive | `docs/archive/README.md`, `docs/archive/implementation-roadmap.md`, `docs/archive/implementation-plans/*` | Explicit archive for older roadmaps and implementation plans. | Clear enough; low risk if agents follow `docs/README.md`. | No deletion; preserve rationale. | P3 |
+| Historical rationale | `docs/implementation-vs-canon.md` | Valuable explanation of repo-led divergence from older canon, especially Whiteboard vs internal focused workspace. | It still helps resolve "workspace" semantic confusion. | Keep; maybe link from future Whiteboard/workspace compatibility note. | P3 |
+| Historical rationale | `docs/frontend-legacy-retirement-audit.md` | Accurate record of legacy static frontend removal. | Useful while UI docs still mention vanilla paths. | Keep until all stale frontend references are labeled. | P2 |
+| Unclear / generated assessment | `docs/vantage-codebase-functionality-map.md` | Generated 2026-05-09 from a dirty worktree, tests not run. Still detailed and mostly useful, but not the current codebase map authority. | It sounds current and code-backed, but should not outrank `docs/codebase/` summaries or architecture overview. | Add a status header: historical read-only assessment, superseded by current codebase maps for implementation. | P1 |
+| Unclear / strategic map | `docs/vantage-capability-interface-map.md` | MCP-like capability runtime synthesis from 2026-05-14. | Useful framing, but not in the main `docs/README.md` active path. It may invite new architecture work before cleanup. | Label as exploratory architecture rationale or promote selected pieces into current architecture docs later. | P2 |
+| Historical / retired in place | `docs/ui-research/*` older visual redesign docs | Several files already say retired, but many remain outside archive due links. | The statuses vary; some still mention removed vanilla files. | Add top-level status to every UI plan: active, retired, historical research, or superseded by frontend guidance. | P1 |
+
+## 5. Duplicate Or Conflicting Concepts
+
+| Classification | Evidence path | Note | Why it matters | Suggested cleanup slice | Priority |
+|---|---|---|---|---|---|
+| Current but duplicated | `README.md`, `docs/glossary.md`, `docs/semantic-rules.md`, `docs/working-memory-and-trace-model.md`, `docs/architecture-overview.md` | Working Memory, Recall, Memory Trace, Whiteboard, and Library are explained repeatedly. The definitions agree today. | Agreement is good, but future edits can drift across five docs. | Choose one deep semantic source for each concept, then make other docs short pointers. | P2 |
+| Current compatibility tension | `README.md`, `docs/glossary.md`, `src/vantage_v5/services/response_mode.py`, `src/vantage_v5/webapp_react/src/normalizers.ts` | Product Working Memory is full in-scope model context; API `recall` and legacy `working_memory` are narrower aliases. | This is the most likely semantic trap for agents and tests. | Create a compatibility note for `working_memory` alias retirement conditions. | P1 |
+| Current compatibility tension | `README.md`, `docs/architecture-overview.md`, `src/vantage_v5/storage/workspaces.py`, tests using `workspace_*` | Product language says Whiteboard; APIs/storage still use workspace names. | Agents may rename public fields or storage paths prematurely, or keep writing new docs in deprecated terms. | Add a `Whiteboard vs workspace compatibility` note and forbid new product docs from using workspace except for concrete fields. | P1 |
+| Current conflict | `src/vantage_v5/webapp_react/src/components/Surfaces.tsx`, `docs/architecture-overview.md`, `docs/frontend-legacy-retirement-audit.md` | React component copy says "the legacy Library remains available in the old frontend fallback"; docs say there is no legacy product frontend fallback. | This is a direct current conflict and user-visible copy can mislead browser smoke/review. | UI copy cleanup slice: update Library placeholder text without changing payload/API behavior. | P0 |
+| Current but scattered | `README.md`, `docs/architecture-overview.md`, `docs/control-panel-navigation.md`, `docs/stability-hardening-audit.md`, `docs/brainstorm-implementation-list.md` | Navigator/control-panel and TurnPlan authority are described in several places. | New behavior may add another deterministic helper instead of flowing through Navigator/TurnPlan. | Consolidate "intent seam and authority seam" into one current architecture note. | P1 |
+| Current but subtle | `docs/protocols.md`, `docs/semantic-rules.md`, `docs/architecture-overview.md`, `canonical/concepts/*-protocol.md` | Protocols are guidance, not factual evidence, but are stored in concept-like Markdown and can enter candidate memory. | Agents may treat protocols as normal concepts or factual grounding. | Add protocol storage/semantic boundary to a compatibility cleanup checklist. | P2 |
+| Current but noisy | Scenario Lab docs/tests/artifacts/workspaces | Scenario Lab is current, but tracked demo scenario workspaces/artifacts plus ignored runtime artifacts make it hard to tell fixture from product state. | Future agents may preserve a demo artifact as a contract or accidentally mutate it. | Label demo fixtures and distinguish tracked seed examples from local generated outputs. | P1 |
+
+## 6. Legacy / Compatibility Surface Area
+
+| Classification | Evidence path | Note | Why it matters | Suggested cleanup slice | Priority |
+|---|---|---|---|---|---|
+| Compatibility path | `README.md` compatibility table, `src/vantage_v5/services/turn_payloads.py`, `src/vantage_v5/webapp_react/src/normalizers.ts`, `tests/test_turn_payloads.py` | Public aliases include `working_memory`, `created_record`, `workspace_update.type`, `concept_id`, selected-record fields, and snake/camel request variants. | Tests preserve API stability, but the product reason for each alias should be periodically revalidated. | Compatibility inventory slice: list each alias, consumer, smoke evidence, and removal condition. | P1 |
+| Transitional backend path | `README.md`, `docs/architecture-overview.md`, `src/vantage_v5/services/chat.py`, `src/vantage_v5/services/context_handoff.py` | `ChatService.search_context()` remains retrieval/vetting source and diagnostic fallback while generation consumes handoff-adapted recall. | Important behavior-preservation seam; easy to mistake as redundant dead code. | After more smokes, decide whether search_context is retrieval-only, diagnostic-only, or removable. | P1 |
+| Transitional deterministic fallback | `docs/architecture-overview.md`, `docs/stability-hardening-audit.md`, `tests/test_attention.py`, `tests/test_artifact_actions.py`, `tests/test_server.py` | Deterministic helpers exist for Attention fallback, artifact/task compiler repair, semantic policy, whiteboard carry, meta fallback, and client deictic reopen. | Some tests preserve fallback behavior that may be compatibility rather than desired semantic routing. | Navigator/TurnPlan cleanup slice: mark each fallback as safety, offline fallback, compatibility, or migration target. | P1 |
+| Frontend compatibility residue | `docs/codebase/webapp/src/vantage_v5/webapp_react/src/normalizers.ts.md`, `docs/codebase/webapp/src/vantage_v5/webapp_react/src/entrypoints.test.ts.md` | Summaries still say React migrates away from vanilla `.mjs` helpers or supports legacy/static retirement work. | Accurate historically, but after React-only transition these can sound like vanilla helpers still exist. | Refresh webapp summaries after the React-only contract is settled. | P2 |
+| Old frontend references | `docs/ui-research/archive/vantage-ui-implementation-checklist.md`, `docs/ui-research/vantage-visual-redesign-master-plan.md`, other UI research docs | Many UI plans reference removed `src/vantage_v5/webapp/index.html`, `app.js`, `styles.css`, and `.mjs` helpers. Some are retired, some are less clearly labeled. | Agents could edit nonexistent paths or resurrect old frontend assumptions. | UI docs status sweep: mark or archive old vanilla-file plans; keep design rationale. | P1 |
+| Old workspace naming | `concepts/shared-workspace.md`, `memories/saved-workspace-per-user-request.md`, tracked `workspaces/*.md`, README API examples | Some tracked source-truth-like records preserve old workspace language. | These may be legitimate seed data, but can confuse product-language cleanup. | Data fixture audit: mark demo/user records vs canonical docs; do not rewrite durable user content without consent. | P2 |
+
+## 7. Runtime State vs Source Truth
+
+| Classification | Evidence path | Note | Why it matters | Suggested cleanup slice | Priority |
+|---|---|---|---|---|---|
+| Runtime/local state | Ignored `artifacts/`, `concepts/`, `memories/`, `memory_trace/`, `traces/`, `state/`, `workspaces/` entries from `git status --ignored --short` | Many Markdown records and traces are ignored local runtime output; a few seed/demo records are tracked. | The directory names are product stores, so local generated data looks authoritative. | Add a repo-state guide listing tracked seed records vs ignored runtime records. | P1 |
+| Build output | Ignored `src/vantage_v5/webapp/generated/` | Required for FastAPI serving but ignored and reproducible via `npm run build`. | Agents may think missing generated assets mean source deletion, or may try to commit build output. | Keep deployment contract prominent; optionally add a short generated-assets note in docs/codebase/webapp README. | P2 |
+| Dependency/build/cache noise | `.venv/`, `node_modules/`, `build/`, `src/vantage_v5.egg-info/`, `.pytest_cache/`, `tests/__pycache__/`, `tmp/`, `eval_runs/` | Local tooling output appears in worktree scans. | It distracts from source inventory and can pollute audit commands. | Add "ignore these in audits" list to repo hygiene or docs guide. | P3 |
+| UI evidence assets | `docs/ui-research/baselines/**` | Tracked screenshots and verification JSON are useful visual evidence, not current product contracts. | Agents may mistake old screenshots for desired current UI. | Label baseline directories with slice/date status or add README in baselines. | P2 |
+| Local planning files | `docs/brainstorm.md`, `docs/brainstorm-implementation-list.md` | Present but untracked. | They can influence work in this machine but not other clones. | Decide track/archive/local-only status before relying on them in future branch prompts. | P1 |
+
+## 8. Test And Behavior Contract Questions
+
+| Classification | Evidence path | Note | Why it matters | Suggested cleanup slice | Priority |
+|---|---|---|---|---|---|
+| Compatibility-preserving tests | `tests/test_turn_payloads.py`, `tests/test_server.py`, `docs/codebase/python/tests/test_server.py.md` | Tests intentionally preserve `recall` plus legacy `working_memory`, `created_record`, pending workspace `type/status`, camelCase request fields, and selected-record aliases. | Some compatibility should stay; some may become permanent drag if no owner reviews removal conditions. | Compatibility test taxonomy: label tests as current product contract vs alias preservation. | P1 |
+| Fallback-preserving tests | `tests/test_artifact_actions.py`, `tests/test_attention.py`, `tests/test_server.py` | Tests lock deterministic fallback, raw-message repair, and provider-failure fallback behavior. | Good safety net, but can hide semantic gaps if fallback becomes the product path. | Add explicit `fallback_contract` naming/metadata where tests protect offline/safety behavior. | P2 |
+| Legacy-copy tests | `tests/test_response_mode.py` | Tests strip legacy "best guess" prefaces defensively. | This is likely compatibility cleanup, not future product behavior. | Keep until old payloads are impossible; then consider narrowing. | P3 |
+| Old model-client shape | `docs/codebase/python/tests/test_model_client.py.md` | "Preserving the old V5 model-client call shape" is compatibility language. | Probably harmless, but old V5 shape may outlive its reason. | Model-client adapter cleanup after provider contracts settle. | P3 |
+| Scenario lineage compatibility | `tests/test_server.py`, `tests/test_record_cards.py` | Tests recover legacy comparison lineage from `comes_from`. | Useful if old artifacts remain; otherwise future Scenario Lab behavior may carry extra legacy rules. | Scenario Lab artifact schema review: current schema vs legacy recovery. | P2 |
+| Whiteboard/workspace tests | `tests/test_context_engine.py`, `tests/test_draft_artifact_lifecycle.py`, `tests/test_whiteboard_routing.py` | Tests use workspace storage classes while product docs say Whiteboard. | Correct for implementation, but reinforces deprecated wording in test names and fixtures. | Do not rename storage paths now; consider test doc wording cleanup only. | P2 |
+
+## 9. Source / Summary Drift Candidates
+
+| Classification | Evidence path | Note | Why it matters | Suggested cleanup slice | Priority |
+|---|---|---|---|---|---|
+| Likely stale summary | `docs/codebase/python/src/vantage_v5/services/vetting.py.md` | Says Memory Trace retrieval should feed into the same bounded vetting pass "once that store lands"; Memory Trace store and retrieval now exist. | Agents reading summaries first may think Memory Trace integration is still future work. | Refresh this summary from current vetting/search behavior. | P1 |
+| Current source conflict | `src/vantage_v5/webapp_react/src/components/Surfaces.tsx` vs `docs/frontend-legacy-retirement-audit.md` | Library placeholder references old frontend fallback. | Direct mismatch with React-only contract. | UI copy cleanup slice. | P0 |
+| Ambiguous currentness | `docs/vantage-codebase-functionality-map.md` | Generated assessment from dirty worktree with tests not run, but title sounds like current functionality map. | Could outrank `docs/codebase` in an agent's mind. | Add historical/generated status header. | P1 |
+| Frontend migration wording | `docs/codebase/webapp/src/vantage_v5/webapp_react/src/normalizers.ts.md`, `docs/codebase/webapp/src/vantage_v5/webapp_react/src/entrypoints.test.ts.md` | Still framed around migration away from vanilla helper modules. | Mostly harmless, but after legacy removal the active concern is alias normalization, not vanilla migration. | Refresh summaries during next webapp docs pass. | P2 |
+| Absolute-path drift | `AGENTS.md`, `README.md`, many docs links | Links point to the older Obsidian-vault `vantage-v5` path while this worktree is `/Users/eden/Documents/Vantage v6`. | Clickable docs may send agents to a different or stale checkout. | Path portability cleanup: convert internal doc links to repo-relative links where practical. | P1 |
+
+## 10. Recommended Cleanup Slices
+
+1. **P0 UI copy conflict cleanup**: update the React Library placeholder that says the old frontend fallback remains available. Verify no behavior/API changes; run frontend tests and a browser smoke.
+2. **P1 compatibility inventory and labels**: create a tracked compatibility ledger for `working_memory`, `workspace_*`, `created_record`, `concept_id`, `workspace_update.type`, `selected_record`, camelCase request aliases, `ChatService.search_context()`, and deterministic fallbacks. Mark owner, consumer, removal condition, and tests.
+3. **P1 docs status sweep**: add status headers to generated assessment maps, semi-current UI plans, and old vanilla frontend references. Do not delete rationale; label active/current/historical/superseded.
+4. **P1 runtime-state source-truth guide**: document which top-level stores are tracked seed/demo records, ignored local runtime output, generated build output, or actual source code. Include `memory_trace/`, `traces/`, `state/`, `src/vantage_v5/webapp/generated/`, and UI screenshot baselines.
+5. **P1 source-summary refresh**: update stale mirrored summaries, starting with `vetting.py.md`, webapp normalizer/entrypoint summaries, and any summary that still says a completed migration is future work.
+6. **P2 semantic consolidation**: reduce duplicate Working Memory/Recall/Memory Trace/Whiteboard definitions by making `docs/glossary.md` and `docs/working-memory-and-trace-model.md` the semantic authorities and shortening repeated README/architecture prose.
+7. **P2 test taxonomy cleanup**: mark tests as product behavior, compatibility alias, fallback/safety, or historical regression. This helps future reviewers know whether changing a test means changing desired behavior or retiring old baggage.
+8. **P2 path portability cleanup**: replace absolute old-checkout links with repo-relative links where possible, especially in docs intended for local agents.
+
+## 11. Open Questions
+
+- Should the untracked brainstorm files become tracked planning docs, or should future prompts continue treating them as local-only context?
+- Which compatibility aliases still have real external consumers beyond the React app and tests?
+- Is `ChatService.search_context()` now a permanent retrieval/vetting seam, or should it eventually become a private retrieval helper behind the Attention/Recall handoff?
+- Should tracked demo records in `artifacts/`, `concepts/`, and `workspaces/` remain in source, move under `fixtures/`, or be labeled as seed/demo state?
+- Does the hidden Library dock still have a product reason after React-only transition, or should Library restoration be planned explicitly in React?
+- Should Scenario Lab legacy lineage recovery from `comes_from` remain indefinitely for old artifacts, or should old artifacts be migrated once and the compatibility path retired?
+- How should docs distinguish "historical rationale worth reading" from "active implementation plan" without losing useful design memory?

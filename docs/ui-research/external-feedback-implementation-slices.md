@@ -1,6 +1,9 @@
 # External Feedback Implementation Slices
 
-> Status: retired as an active implementation plan. Use [frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md) for current frontend execution tracking. This file remains historical context.
+> Status: Historical rationale
+> Current source of truth: [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md) and [docs/codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md)
+> Note: This retired implementation plan remains historical context.
+> Note: File-target references to `src/vantage_v5/webapp/*` and mirrored vanilla frontend summaries describe the retired frontend path and should not guide new implementation work.
 
 This document translates the external product feedback into a ranked implementation sequence tied to the current frontend architecture.
 

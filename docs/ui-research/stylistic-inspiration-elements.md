@@ -1,5 +1,9 @@
 # Stylistic Inspiration Elements
 
+> Status: Historical rationale
+> Current source of truth: [docs/codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md)
+> Note: This document preserves visual/product inspiration. It should not be treated as a current implementation plan.
+
 This note turns the high-level stylistic direction for Vantage into a concrete set of reusable interface elements taken from the referenced product inspirations.
 
 The goal is not to copy another product's brand or chrome.

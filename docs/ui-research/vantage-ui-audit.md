@@ -1,5 +1,9 @@
 # Vantage UI Audit
 
+> Status: Historical rationale
+> Current source of truth: [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md) and [docs/codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md)
+> Note: This audit preserves UI research and critique from an earlier frontend state. Use it for rationale, not current file targets or implementation contracts.
+
 This is a local audit of the current Vantage UI structure and terminology.
 
 It is intentionally grounded in the repository's present architecture rather than an abstract redesign.

@@ -361,7 +361,7 @@ export function WhiteboardSurface({
 }
 
 export function LibrarySurface() {
-  return <EmptyPanel title="Library" body="The React shell is ready for Library parity; the legacy Library remains available in the old frontend fallback." />;
+  return <EmptyPanel title="Library" body="The React shell is the only product frontend path. Library parity belongs in React; FastAPI serves the generated build and fails loudly when it is missing." />;
 }
 
 export function ScenarioLabSurface() {

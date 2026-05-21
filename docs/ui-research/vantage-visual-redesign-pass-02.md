@@ -1,5 +1,9 @@
 # Vantage Visual Redesign Pass 02
 
+> Status: Historical rationale
+> Current source of truth: [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md) and [docs/codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md)
+> Note: This visual redesign pass documents completed design direction. Use it for rationale only; current implementation work should follow the React codebase summaries and current architecture overview.
+
 This pass is not another subtle refinement.
 
 It is a stronger visual redesign pass intended to make Vantage feel:

@@ -1,5 +1,9 @@
 # Vantage Stylistic Direction
 
+> Status: Historical rationale
+> Current source of truth: [docs/codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md)
+> Note: This note preserves visual direction from an earlier UI planning pass. It should not override current React implementation guidance.
+
 This note captures a stylistic direction for Vantage that builds on the current product strengths and sharpens the intended feel of the interface.
 
 ## Core Direction

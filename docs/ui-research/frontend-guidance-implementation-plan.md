@@ -1,8 +1,10 @@
 # Frontend Guidance Implementation Plan
 
-Status: active execution tracker.
+> Status: Historical rationale
+> Current source of truth: [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md) and [docs/codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md)
+> Note: This file is preserved as the UI polish tracker used during earlier frontend passes. File-target references to `src/vantage_v5/webapp/*` describe the retired vanilla frontend and should not guide new implementation work.
 
-This is the single current implementation plan for the next Vantage UI polish pass. It supersedes the older UI implementation plans listed in [Retired Planning Docs](#retired-planning-docs).
+This was the implementation plan for an earlier Vantage UI polish pass. It superseded the older UI implementation plans listed in [Retired Planning Docs](#retired-planning-docs) during that pass.
 
 ## Purpose
 

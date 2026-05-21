@@ -1,5 +1,9 @@
 # External Feedback Action Plan
 
+> Status: Historical rationale
+> Current source of truth: [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md) and [docs/codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md)
+> Note: This document preserves feedback interpretation from an earlier UI pass. It should not be treated as current implementation guidance.
+
 This document turns recent hands-on external product feedback into concrete design and implementation priorities for Vantage.
 
 It is meant to sit between:

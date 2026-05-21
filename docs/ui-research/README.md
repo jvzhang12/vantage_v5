@@ -28,9 +28,10 @@ The goal is to understand the best interaction patterns for:
 
 If you are deciding what to build next, start here:
 
-1. [frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md)
+1. [../codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md) for current React source targets.
+2. [../architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md) for the current frontend serving contract.
 
-Older implementation plans are retired as active trackers. Some remain in this folder for historical context, and the archived checklist is indexed in [archive/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/archive/README.md). When they conflict, the frontend guidance implementation plan wins.
+Older implementation plans are retired as active trackers. Some remain in this folder for historical context, and the archived checklist is indexed in [archive/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/archive/README.md). When they conflict, the current architecture overview and React codebase summaries win.
 
 ## Core Thesis
 

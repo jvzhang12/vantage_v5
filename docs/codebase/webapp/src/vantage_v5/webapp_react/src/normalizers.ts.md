@@ -5,7 +5,7 @@ React TypeScript DTO normalizers.
 ## Purpose
 
 - Convert existing backend snake_case and legacy aliases into stable React-facing objects.
-- Preserve API compatibility while the frontend migrates away from vanilla `.mjs` helpers.
+- Preserve API compatibility in the React-only frontend while normalizing older payload aliases that originated before the vanilla helper modules were retired.
 
 ## Coverage
 

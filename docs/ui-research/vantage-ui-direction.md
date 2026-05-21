@@ -1,5 +1,9 @@
 # Vantage UI Direction
 
+> Status: Historical rationale
+> Current source of truth: [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md) and [docs/codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md)
+> Note: This document is preserved for product-direction context. It should not override the current React-only frontend architecture or codebase summaries.
+
 This document turns the research and audit into a practical UI direction for Vantage.
 
 It is deliberately close to the current repository.

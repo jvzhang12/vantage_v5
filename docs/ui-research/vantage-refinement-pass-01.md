@@ -1,5 +1,9 @@
 # Vantage Refinement Pass 01
 
+> Status: Historical rationale
+> Current source of truth: [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md) and [docs/codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md)
+> Note: This pass is preserved as design rationale from an earlier UI refinement wave. It is not current implementation guidance.
+
 This pass is about making Vantage feel composed, elegant, and product-grade without changing its core semantics.
 
 It is not a redesign of the architecture.

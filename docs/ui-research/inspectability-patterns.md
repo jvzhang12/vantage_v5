@@ -1,5 +1,9 @@
 # Inspectability Patterns
 
+> Status: Historical rationale
+> Current source of truth: [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md) and [docs/glossary.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/glossary.md)
+> Note: This research note is preserved for inspectability rationale. Use current product docs and codebase summaries for implementation guidance.
+
 This document focuses on how AI products make reasoning, sources, memory, and system actions inspectable without making the product feel like an operator console.
 
 For Vantage, this matters because the product already has strong internal distinctions:

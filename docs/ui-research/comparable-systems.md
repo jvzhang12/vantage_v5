@@ -1,5 +1,9 @@
 # Comparable Systems
 
+> Status: Historical rationale
+> Current source of truth: [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md)
+> Note: This research snapshot is preserved for product rationale. It should not override current Vantage architecture, frontend, or payload contracts.
+
 As of April 19, 2026, these are the most relevant external interaction models for Vantage.
 
 The useful comparison is not “which product has the most features.”

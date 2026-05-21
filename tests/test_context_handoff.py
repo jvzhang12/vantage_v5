@@ -369,6 +369,62 @@ def test_handoff_adapter_preserves_generation_context_and_sanitizes_memory_trace
     assert adapted.trace["sanitized_memory_trace_ids"] == ["memory_trace:prior-turn-1"]
 
 
+def test_handoff_adapter_preserves_non_memory_trace_turn_slug_candidates() -> None:
+    raw_prompt = "Explain the private graph exam strategy."
+    raw_assistant = "Private answer about the graph exam strategy."
+    concept = CandidateMemory(
+        id="turn-taking-in-dialogue",
+        title="Turn-Taking in Dialogue",
+        type="concept",
+        card="Conversational turn-taking manages speaker transitions.",
+        score=10.0,
+        reason="concept match",
+        source="concept",
+        trust="high",
+        body="Turn-taking is a normal dialogue concept, not a Memory Trace record.",
+    )
+    trace = CandidateMemory(
+        id="turn-20260520120000-explain-the-private-graph-exam-strategy",
+        title=raw_prompt,
+        type="memory_trace",
+        card=raw_assistant,
+        score=8.0,
+        reason="memory trace match",
+        source="memory_trace",
+        trust="recent",
+        body=f"## Source Turn\n## User Message\n{raw_prompt}\n## Assistant Response\n{raw_assistant}",
+    )
+    response_payload = {
+        "mode": "chat",
+        "recall": [concept.to_recall_dict(), trace.to_recall_dict()],
+    }
+    handoff = build_attention_recall_context_handoff(
+        request_payload={"message": "How does turn taking work?"},
+        response_payload=response_payload,
+    )
+
+    trace_payload = handoff.to_trace_payload()
+    adapted = adapt_handoff_to_generation_memory(
+        context_handoff=handoff,
+        legacy_vetted_memory=[concept, trace],
+    )
+
+    assert trace_payload["comparison"]["recall_resource_ids"] == [
+        "turn-taking-in-dialogue",
+        "memory_trace:prior-turn-1",
+    ]
+    assert [item.id for item in adapted.memory] == [
+        "turn-taking-in-dialogue",
+        "memory_trace:prior-turn-1",
+    ]
+    assert adapted.memory[0].body == concept.body
+    assert adapted.memory[1].body == ""
+    assert adapted.trace["parity"]["same_count"] is True
+    assert adapted.trace["sanitized_memory_trace_ids"] == ["memory_trace:prior-turn-1"]
+    assert not _payload_contains(trace_payload, raw_prompt)
+    assert not _payload_contains(trace_payload, raw_assistant)
+
+
 def test_selected_attention_memory_trace_is_sanitized_for_generation() -> None:
     raw_phrase = "plan-the-confidential-graph-exam-retake"
     raw_id = f"memory_trace:turn-20260520-{raw_phrase}"

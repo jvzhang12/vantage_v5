@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -12,6 +13,19 @@ MEMORY_TRACE_PUBLIC_BODY_MARKERS = (
     "## User Message",
     "## Assistant Response",
 )
+PROMPT_DERIVED_TURN_ID_RE = re.compile(r"^(?:[a-z_]+:)?turn-\d{8,}(?:[-:].*)?$", re.IGNORECASE)
+NORMAL_RECORD_VALUES = {
+    "artifact",
+    "concept",
+    "draft",
+    "memory",
+    "note",
+    "protocol",
+    "reference_note",
+    "saved_note",
+    "vault_note",
+    "whiteboard",
+}
 
 
 def sanitize_public_attention_state_payload(value: dict[str, Any] | None) -> dict[str, Any]:
@@ -230,12 +244,14 @@ def is_memory_trace_derived(value: dict[str, Any]) -> bool:
         str(value.get("app") or "").strip().lower(),
     }
     identifier = str(value.get("id") or value.get("resource_id") or "").strip().lower()
-    return (
-        "memory_trace" in values
-        or identifier.startswith("memory_trace:")
-        or is_prompt_derived_id(identifier)
-        or has_memory_trace_source_body(value)
-    )
+    if "memory_trace" in values or identifier.startswith("memory_trace:") or has_memory_trace_source_body(value):
+        return True
+    if values & NORMAL_RECORD_VALUES:
+        return False
+    # With no trustworthy kind/source, a storage-shaped turn id is treated as a
+    # public-safety signal. Natural slugs such as "turn-taking-in-dialogue" are
+    # not prompt-derived ids.
+    return is_prompt_derived_id(identifier)
 
 
 def is_prompt_derived_id(value: Any) -> bool:
@@ -244,7 +260,11 @@ def is_prompt_derived_id(value: Any) -> bool:
         return False
     if text.startswith(PUBLIC_PRIOR_TRACE_PREFIX):
         return False
-    return text.startswith("turn-") or text.startswith("memory_trace:") or ":turn-" in text
+    return (
+        text.startswith("memory_trace:")
+        or bool(PROMPT_DERIVED_TURN_ID_RE.match(text))
+        or bool(re.search(r":turn-\d{8,}", text))
+    )
 
 
 def has_memory_trace_source_body(value: dict[str, Any]) -> bool:

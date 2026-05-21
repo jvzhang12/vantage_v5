@@ -19,5 +19,6 @@ Focused unit tests for the internal Attention/Recall context handoff.
 - Memory Trace resources with raw prompt/assistant-derived fields are sanitized across handoff, role projection, and Working Memory view payloads.
 - Prompt-derived Memory Trace storage ids are replaced by safe public aliases, role references/comparison ids resolve to those aliases, and `working_memory_view.turn.trace_id` does not expose raw Memory Trace record ids.
 - Handoff-derived generation memory keeps concept bodies available but replaces Memory Trace ids with safe aliases and strips raw trace bodies.
+- Non-Memory-Trace concept candidates with natural `turn-...` slugs, such as `turn-taking-in-dialogue`, stay unchanged in handoff roles and adapted generation memory while adjacent Memory Trace rows are still sanitized.
 - Selected Attention Memory Trace resources are sanitized before generation while selected non-Memory-Trace resources remain behavior-compatible.
 - Synthetic surface-open placeholders preserve the open-target role without claiming they were sent to the response LLM.

@@ -13,11 +13,12 @@ Shared public-safe projection helpers for Memory Trace, Recall, and Working Memo
 - `public_memory_trace_record()`: projects the current turn Memory Trace record into the `current-turn` public alias with compact metadata and no body/content.
 - `public_memory_trace_list()` / `public_memory_trace_item()`: project Memory Trace-derived rows into `memory_trace:prior-turn-N` entries with generic title/card/summary and no raw prompt or assistant text.
 - `sanitize_public_attention_state_payload()`: applies the shared projection to public Attention candidates, Navigator selection, and selected Attention resources before response attachment.
-- `public_attention_selection()`, `public_vetting_payload()`, `public_safe_id_list()`, and `public_turn_id()`: sanitize prompt-derived ids, including kind-prefixed `concept:turn-*` forms.
+- `public_attention_selection()`, `public_vetting_payload()`, `public_safe_id_list()`, and `public_turn_id()`: sanitize trace-shaped prompt-derived ids, including kind-prefixed `concept:turn-<timestamp>*` forms.
 - `is_memory_trace_derived()` and `is_prompt_derived_id()`: shared detection primitives for public payload and trace-safe context helpers.
 
 ## Notable Behavior
 
 - Safe Memory Trace aliases are `current-turn` for the current trace record and `memory_trace:prior-turn-N` for prior-turn context rows.
 - Rows containing Memory Trace source markers such as `## Source Turn`, `## User Message`, or `## Assistant Response` are treated as Memory Trace-derived even if their `source` or `type` says concept, memory, artifact, or note.
+- Normal concept, memory, artifact, protocol, and note rows are not treated as Memory Trace records merely because their natural slug starts with `turn-`; storage-shaped turn ids are sanitized when Memory Trace/source-turn evidence is present or the row lacks trustworthy normal provenance.
 - Non-Memory-Trace rows are copied unchanged by list projection so existing useful candidate fields remain available.

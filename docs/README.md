@@ -80,6 +80,7 @@ Use this when preparing private hosted access, Docker, Basic Auth, or persistent
 Use these when a field, path, or local artifact looks stale but may still have a compatibility reason:
 
 - [compatibility-ledger.md](compatibility-ledger.md)
+- [test-taxonomy.md](test-taxonomy.md)
 - [stale-artifact-inventory.md](stale-artifact-inventory.md)
 - [stale-code-inventory.md](stale-code-inventory.md)
 - [repository-entropy-audit.md](repository-entropy-audit.md)

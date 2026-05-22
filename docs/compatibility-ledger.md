@@ -30,3 +30,19 @@ Vantage carries a few older names and payload aliases while the product language
 - Prefer adding status labels and removal conditions before deleting aliases.
 - If a compatibility surface affects behavior, label the relevant tests as compatibility, fallback/safety, or current product contract before changing them.
 - Public `/api/chat` shape changes require backend, frontend, tests, docs, and smoke coverage in the same planned migration.
+
+## First Possible Retirement Slices
+
+Use [test-taxonomy.md](test-taxonomy.md) before starting any of these. These are planning notes, not permission to delete.
+
+| Surface | First possible retirement slice | Required evidence |
+|---|---|---|
+| `working_memory` top-level response field | Public payload alias consumer review. | React and any known external/API smoke clients consume `recall` or `working_memory_view`; compatibility tests are reclassified or removed intentionally. |
+| `workspace_*` names | Not a near-term retirement target. Start with docs/UI copy only. | A storage/API migration plan exists for persisted workspace files, `/api/workspace*`, React request/response fields, and fixtures. |
+| `created_record` | Single-created-record alias narrowing. | `learned`/record cards are the only UI/API consumer path and malformed alias tests can be removed without hiding real payload bugs. |
+| `concept_id` flattened ids | Saved-record DTO cleanup. | Consumers use typed record ids/sources from `learned`/record cards instead of flattened concept-first fields. |
+| `workspace_update.type` | Pending Whiteboard status migration. | React and API clients send/read canonical `workspace_update.status` and lifecycle metadata; old type-only carry/backfill tests no longer represent active clients. |
+| Selected-record aliases | Selection-vs-pinning cleanup. | `selected_record*` is inspect-only everywhere, `pinned_context*` owns carry-forward, and low-context follow-up smokes still pass. |
+| camelCase request aliases | Versioned request-shape cleanup. | React sends canonical request keys and any external client compatibility story is explicit. |
+| `ChatService.search_context()` | Attention/Recall retrieval ownership cutover. | Handoff owns generation context and either owns retrieval/vetting or wraps search privately; parity diagnostics are no longer needed. |
+| Deterministic fallbacks | Fallback observability and narrowing. | Each fallback has trace/source labels, representative smokes prove the structured path works, and provider-failure product policy is explicit. |

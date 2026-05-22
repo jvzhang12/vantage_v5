@@ -1,7 +1,7 @@
 # Stale Code Inventory
 
 > Status: Current source of truth
-> Note: This guide inventories code that may be active-but-transitional, compatibility-retained, fallback-only, unclear, or ready for future retirement review. It is not deletion authorization and does not change runtime behavior. For public aliases and retained compatibility fields, see [compatibility-ledger.md](compatibility-ledger.md). For runtime files, generated assets, local worktrees, and untracked docs, see [stale-artifact-inventory.md](stale-artifact-inventory.md).
+> Note: This guide inventories code that may be active-but-transitional, compatibility-retained, fallback-only, unclear, or ready for future retirement review. It is not deletion authorization and does not change runtime behavior. For public aliases and retained compatibility fields, see [compatibility-ledger.md](compatibility-ledger.md). For test role classification, see [test-taxonomy.md](test-taxonomy.md). For runtime files, generated assets, local worktrees, and untracked docs, see [stale-artifact-inventory.md](stale-artifact-inventory.md).
 
 Date: 2026-05-21
 
@@ -80,6 +80,28 @@ These are the main code entropy candidates. "Candidate" here means "needs an exp
 | `tests/test_navigator.py` control-panel fallback cases | Fallback/safety guardrail | Tests fallback open/remember/preserve behavior. | Protects provider-failure and invalid-response behavior. | Rename/label as fallback-specific if future Navigator output becomes primary. |
 | Scenario Lab legacy lineage tests in `tests/test_server.py` | Compatibility-retained | Legacy comparison artifact recovery and selected-record payload preservation. | Protects old saved comparison artifacts. | Tie to a migration decision for old Scenario Lab artifacts. |
 
+## Test Evidence Crosswalk
+
+Use [test-taxonomy.md](test-taxonomy.md) for the reviewer-facing classification. This crosswalk ties each major stale-code or compatibility candidate above to concrete test evidence.
+
+| Candidate | Test evidence | Test classification | Retirement signal |
+|---|---|---|---|
+| `legacy_*` fields in `response_mode.py` | `tests/test_response_mode.py`, response-mode sections in `tests/test_turn_payloads.py` and `tests/test_server.py` | Compatibility alias / historical regression | Canonical `response_mode` fields fully replace legacy fields and visible preface sanitizer is no longer needed beyond one regression. |
+| Top-level `working_memory`, `created_record`, selected-record aliases, `workspace_update.type` | `tests/test_turn_payloads.py`, compatibility sections in `tests/test_server.py`, React `appReducer.test.ts`/normalizer-adjacent state tests | Compatibility alias / old payload contract | React and external clients consume only `working_memory_view`, `learned`, pinned-context fields, and canonical Whiteboard status/lifecycle metadata. |
+| `ChatService.search_context()` | `tests/test_search.py`, `tests/test_context_handoff.py`, handoff/generation sections in `tests/test_server.py` | Transitional architecture seam | Attention/Recall handoff owns retrieval/generation context without legacy parity diagnostics. |
+| Legacy handoff parity fields | `tests/test_context_handoff.py`, generation parity sections in `tests/test_server.py` | Transitional architecture seam | Parity is stable across smokes and legacy search ids are no longer needed for diagnostics. |
+| Navigator/control-panel fallback | `tests/test_navigator.py`, surface/open/preserve server sections | Fallback / safety guardrail | Structured Navigator output reliably supplies actions; fallback traces show only provider-failure use. |
+| Attention deterministic fallback and surface guards | `tests/test_attention.py`, selected attention server regressions | Fallback / safety guardrail | Structured Attention/Navigator selection covers resource selection and open intent without fallback hits. |
+| Artifact mutation compiler fallback | `tests/test_artifact_actions.py`, calendar/task server proposal tests | Fallback / safety guardrail | Model-normalized actions reliably preserve required titles, dates, statuses, and confirmation gates. |
+| Chat provider fallback drafts/offers | Provider-failure sections in `tests/test_server.py`, whiteboard accept fallback tests | Fallback / safety guardrail | Product decision says provider failure should error instead of draft locally, or fallback remains explicitly dev/offline-only. |
+| Meta write interpreter and `_fallback_decide` | Meta/concept/revision sections in `tests/test_server.py`, TurnPlan write-authority tests | Transitional architecture seam / unclear owner review | TurnPlan/control-panel structured write intent fully owns semantic write authority. |
+| `semantic_frame.py`, `semantic_policy.py`, `local_semantic_actions.py` | Semantic policy sections in `tests/test_server.py`, TurnPlan no-write/write-projection tests | Transitional architecture seam | TurnPlan execution policy owns local save/publish/experiment/write decisions with equivalent receipts. |
+| `create_revision` path | Concept revision tests in `tests/test_server.py`, concept-write authority tests in `tests/test_turn_plan.py` | Unclear / needs owner review | Product owner decides revision is current hidden capability, future UX, or retired code. |
+| Legacy Scenario Lab comparison recovery | Scenario Lab lineage tests in `tests/test_server.py`, lifecycle/card enrichment tests | Compatibility alias / historical regression | Old comparison artifacts are migrated or declared unsupported. |
+| Record-card lineage heuristics | `tests/test_record_cards.py`, lifecycle/card enrichment tests, server saved-item/open tests | Compatibility alias / historical regression | Canonical lineage metadata exists for new and migrated records. |
+| CamelCase request aliases | CamelCase workspace payload case in `tests/test_server.py`, React request-shaping tests | Compatibility alias / old request contract | Versioned API or confirmed clients use snake_case only. |
+| Generated React serving tests | Static/PWA/server tests and `src/vantage_v5/webapp_react/src/entrypoints.test.ts` | Current product contract / historical regression guard | Keep while React/generated is the serving contract; only consolidate duplicate assertions. |
+
 ## Already Retired Or Not Source
 
 | Path / area | Classification | Current state | Note |
@@ -103,9 +125,9 @@ Do not treat a low import count as deletion proof. Vantage uses FastAPI route re
 
 ## Recommended Cleanup Slices
 
-1. **Code/test taxonomy labels**: label tests and modules as product contract, compatibility alias, fallback/safety, transitional seam, or historical regression.
-2. **Fallback hit observability**: make sure every deterministic fallback that can affect a response has an explicit trace/source field and is easy to smoke for.
-3. **Response-mode and payload alias retirement plan**: list consumers and removal conditions for `legacy_*`, `working_memory`, `created_record`, `workspace_update.type`, and selected-record aliases.
+1. **Response-mode compatibility narrowing**: use [test-taxonomy.md](test-taxonomy.md) to reduce duplicate legacy preface regressions and review `legacy_*` response-mode fields.
+2. **Public payload alias consumer review**: list consumers and removal conditions for `working_memory`, `created_record`, `workspace_update.type`, selected-record aliases, and camelCase request aliases.
+3. **Fallback hit observability**: make sure every deterministic fallback that can affect a response has an explicit trace/source field and is easy to smoke for.
 4. **Attention/Recall retrieval ownership plan**: decide when `ChatService.search_context()` becomes private, diagnostic-only, or retired.
 5. **Meta/semantic policy consolidation**: review whether `meta.py`, `semantic_policy.py`, and local semantic actions can shrink now that TurnPlan execution policy exists.
 6. **Scenario Lab legacy lineage migration**: decide whether to migrate old comparison artifacts and remove `_looks_like_legacy_comparison_artifact` recovery later.

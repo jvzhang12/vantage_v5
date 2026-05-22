@@ -81,6 +81,7 @@ Use these when a field, path, or local artifact looks stale but may still have a
 
 - [compatibility-ledger.md](compatibility-ledger.md)
 - [stale-artifact-inventory.md](stale-artifact-inventory.md)
+- [stale-code-inventory.md](stale-code-inventory.md)
 - [repository-entropy-audit.md](repository-entropy-audit.md)
 
 Local files such as `docs/brainstorm.md`, `docs/brainstorm-implementation-list.md`, `docs/vantage-behavioral-workflow-canon.md`, and `docs/behavioral-workflow-assessment-2026-05-21.md` may exist untracked in this worktree. If untracked, treat them as local assessment or brainstorm inputs, not current product contracts.

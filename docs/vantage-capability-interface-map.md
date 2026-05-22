@@ -1,7 +1,7 @@
 # Vantage Capability Interface Map
 
 > Status: Historical rationale
-> Current source of truth: [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md)
+> Current source of truth: [docs/architecture-overview.md](architecture-overview.md)
 > Note: This is an exploratory read-only synthesis of capability-interface patterns. It may inform future architecture work, but it does not define current routing, payload, storage, or frontend contracts.
 
 Date: 2026-05-14

@@ -5,7 +5,7 @@
 
 ## Purpose
 
-This glossary defines the core product terms for `vantage-v5`.
+This glossary defines the core product terms for the current Vantage checkout. The package may still use `vantage-v5` / `vantage_v5` names for compatibility.
 
 Use these definitions when changing UI copy, API semantics, retrieval behavior, or documentation.
 

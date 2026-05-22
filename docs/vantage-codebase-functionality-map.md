@@ -1,12 +1,12 @@
 # Vantage Codebase Functionality Map
 
 > Status: Historical rationale
-> Current source of truth: [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md) and [docs/codebase/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/README.md)
+> Current source of truth: [docs/architecture-overview.md](architecture-overview.md) and [docs/codebase/README.md](codebase/README.md)
 > Note: This generated read-only assessment is preserved for context. It was produced from a dirty worktree and should not be treated as current implementation guidance when it differs from the current codebase maps or architecture overview.
 
 Generated: 2026-05-09
 
-Repository: `/Users/eden/Documents/Obsidian Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5`
+Repository at assessment time: `/Users/eden/Documents/Obsidian Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5`
 
 Purpose: establish a shared, code-backed view of what Vantage currently does so future OpenClaw comparison work can start from a grounded map instead of vibes.
 

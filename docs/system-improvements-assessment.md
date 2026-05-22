@@ -4,7 +4,7 @@
 
 This note compiles read-only assessment findings from backend, frontend, and product-semantics passes over the current repo.
 
-It evaluates whether the current improvement ideas fit `vantage-v5` as it exists today, and where they should plug into the system.
+It evaluates whether the current improvement ideas fit the Vantage repository as it exists today, and where they should plug into the system.
 
 ## Summary
 

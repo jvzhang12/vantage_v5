@@ -28,7 +28,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 - [ ] Preserve active drafts across refreshes, navigation, and app restarts.
 - [ ] Keep draft application non-destructive when another draft is already active.
 - [ ] Add recoverable draft retention with warnings before cleanup.
-- [ ] See [whiteboard-draft-retention-todo.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/whiteboard-draft-retention-todo.md).
+- [ ] See [whiteboard-draft-retention-todo.md](whiteboard-draft-retention-todo.md).
 
 ## Memory And Retrieval
 
@@ -63,7 +63,7 @@ Use this as the parent checklist while brainstorming. Detailed plans can branch 
 
 ## Frontend Experience
 
-- [ ] Track the active UI polish pass in [ui-research/frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md).
+- [ ] Track the historical UI polish pass in [ui-research/frontend-guidance-implementation-plan.md](ui-research/frontend-guidance-implementation-plan.md), but use the current React codebase map before implementation.
 - [ ] Continue consolidating surface state across Chat, Whiteboard, and Vantage.
 - [ ] Reduce surprising layout changes.
 - [ ] Keep compact evidence visible in chat without turning chat into an inspection panel.

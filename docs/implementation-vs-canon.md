@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This note compares the current `vantage-v5` repository to the canonical Vantage documentation in Nexus.
+This note compares the current Vantage repository to the canonical Vantage documentation in Nexus.
 
 It is not a replacement for canon. It is a reality check:
 

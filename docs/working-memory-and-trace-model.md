@@ -11,7 +11,7 @@ This document defines the current product vocabulary for:
 - the automatically captured recent history
 - the bounded context sent to the LLM for generation
 
-It is the canonical semantic model for the current `vantage-v5` migration phase.
+It is the canonical semantic model for the current Vantage migration phase.
 
 Use this document when updating:
 

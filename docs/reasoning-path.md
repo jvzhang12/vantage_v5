@@ -8,7 +8,7 @@ It lives inside `Vantage`, not in ordinary chat and not in the whiteboard.
 
 The goal is to make the turn pipeline inspectable without turning the product into a raw operator console or a prompt dump.
 
-This document is grounded in the current `vantage-v5` repository rather than an idealized future architecture. The current UI exposes a six-stage reasoning rail inside the Vantage answer dock:
+This document is grounded in the current Vantage repository rather than an idealized future architecture. The current UI exposes a six-stage reasoning rail inside the Vantage answer dock:
 
 - `Request`
 - `Route`
@@ -79,9 +79,9 @@ Putting it in the whiteboard would blur the distinction between:
 
 That would violate the current repo semantics described in:
 
-- [README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/README.md)
-- [docs/glossary.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/glossary.md)
-- [docs/semantic-rules.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/semantic-rules.md)
+- [README.md](../README.md)
+- [docs/glossary.md](glossary.md)
+- [docs/semantic-rules.md](semantic-rules.md)
 
 ## Canonical Distinctions
 
@@ -134,7 +134,7 @@ The current repository now gives the navigator a small structured continuity fra
 
 That implemented V1 contract is documented in:
 
-- [docs/navigator-continuity-contract.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/navigator-continuity-contract.md)
+- [docs/navigator-continuity-contract.md](navigator-continuity-contract.md)
 
 The intent is to improve deictic follow-ups such as `pull that up on the whiteboard` without broadening Working Memory or flooding the interpreter with too much context.
 
@@ -247,7 +247,7 @@ The current UI keeps `Recall` and the candidate pools inspectable without promot
 
 ### Backend Notes
 
-The request enters through `/api/chat` in [src/vantage_v5/server.py](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/src/vantage_v5/server.py).
+The request enters through `/api/chat` in [src/vantage_v5/server.py](../src/vantage_v5/server.py).
 
 Important incoming fields already exist:
 

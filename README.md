@@ -2,6 +2,8 @@
 
 Vantage V5 is a fresh restart point for the product and architecture.
 
+Naming note: the Python package and console script still use `vantage-v5` / `vantage_v5` for compatibility, while current local deployment notes may refer to the working app as Vantage v6.
+
 The core reset is simple:
 
 `Vantage should feel like talking to any other good LLM, while quietly building durable concept-based memory behind the scenes.`

@@ -113,7 +113,7 @@ Brainstorm status: `docs/brainstorm.md` and `docs/brainstorm-implementation-list
 | Addressed source conflict | `src/vantage_v5/webapp_react/src/components/Surfaces.tsx` vs `docs/frontend-legacy-retirement-audit.md` | Library placeholder no longer references the old frontend fallback. | Preserved as history for the earlier P0 cleanup. | No current cleanup needed unless stale fallback copy reappears. | P3 |
 | Ambiguous currentness | `docs/vantage-codebase-functionality-map.md` | Generated assessment from dirty worktree with tests not run, but title sounds like current functionality map. | Could outrank `docs/codebase` in an agent's mind. | Add historical/generated status header. | P1 |
 | Frontend migration wording | `docs/codebase/webapp/src/vantage_v5/webapp_react/src/normalizers.ts.md`, `docs/codebase/webapp/src/vantage_v5/webapp_react/src/entrypoints.test.ts.md` | Still framed around migration away from vanilla helper modules. | Mostly harmless, but after legacy removal the active concern is alias normalization, not vanilla migration. | Refresh summaries during next webapp docs pass. | P2 |
-| Absolute-path drift | `AGENTS.md`, `README.md`, many docs links | Links point to the older Obsidian-vault `vantage-v5` path while this worktree is `/Users/eden/Documents/Vantage v6`. | Clickable docs may send agents to a different or stale checkout. | Path portability cleanup: convert internal doc links to repo-relative links where practical. | P1 |
+| Addressed current-doc path drift | `AGENTS.md`, `docs/subagent-orchestration-protocol.md`, current index/map docs | Current guidance previously mixed old Obsidian-vault `vantage-v5` links with this checkout. The current guidance and codebase-map links now use repo-relative links where practical; historical/archive plans may still preserve old paths as evidence. | Reduces the chance that agents jump to stale checkouts while preserving historical rationale. | Continue converting historical links only when a doc is still used as active guidance. | P3 |
 
 ## 10. Recommended Cleanup Slices
 
@@ -124,7 +124,7 @@ Brainstorm status: `docs/brainstorm.md` and `docs/brainstorm-implementation-list
 5. **P1 source-summary refresh**: update stale mirrored summaries, starting with `vetting.py.md`, webapp normalizer/entrypoint summaries, and any summary that still says a completed migration is future work.
 6. **P2 semantic consolidation**: reduce duplicate Working Memory/Recall/Memory Trace/Whiteboard definitions by making `docs/glossary.md` and `docs/working-memory-and-trace-model.md` the semantic authorities and shortening repeated README/architecture prose.
 7. **P2 test taxonomy cleanup**: mark tests as product behavior, compatibility alias, fallback/safety, or historical regression. This helps future reviewers know whether changing a test means changing desired behavior or retiring old baggage.
-8. **P2 path portability cleanup**: replace absolute old-checkout links with repo-relative links where possible, especially in docs intended for local agents.
+8. **Partially completed P2 path portability cleanup**: current guidance docs now avoid old-checkout absolute links where practical. Remaining old paths mostly live in historical/archive plans and should be converted only when those docs are promoted back into active guidance.
 
 ## 11. Open Questions
 

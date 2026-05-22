@@ -24,7 +24,7 @@ The goal is to fix that without flooding the navigator with too much context or 
 
 ## Current Repository Truth
 
-Today the navigator payload in [src/vantage_v5/services/navigator.py](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/src/vantage_v5/services/navigator.py) already includes:
+Today the navigator payload in [src/vantage_v5/services/navigator.py](../src/vantage_v5/services/navigator.py) already includes:
 
 - `user_message`
 - `recent_chat`
@@ -40,7 +40,7 @@ That is enough for:
 - pinned-context continuity
 - many current-draft follow-ups
 
-The repository now also includes a small structured `continuity_context` built server-side in [src/vantage_v5/server.py](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/src/vantage_v5/server.py) and passed into the navigator interpreter.
+The repository now also includes a small structured `continuity_context` built server-side in [src/vantage_v5/server.py](../src/vantage_v5/server.py) and passed into the navigator interpreter.
 
 That continuity frame currently provides:
 

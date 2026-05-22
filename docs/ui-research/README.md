@@ -13,25 +13,25 @@ The goal is to understand the best interaction patterns for:
 
 ## Read Order
 
-1. [comparable-systems.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/comparable-systems.md)
-2. [inspectability-patterns.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/inspectability-patterns.md)
-3. [vantage-ui-audit.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-ui-audit.md)
-4. [vantage-ui-direction.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-ui-direction.md)
-5. [external-feedback-action-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/external-feedback-action-plan.md)
-6. [frontend-guidance-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/frontend-guidance-implementation-plan.md)
-7. [vantage-refinement-pass-01.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-refinement-pass-01.md)
-8. [vantage-stylistic-direction.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-stylistic-direction.md)
-9. [stylistic-inspiration-elements.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/stylistic-inspiration-elements.md)
-10. [vantage-visual-redesign-pass-02.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-visual-redesign-pass-02.md)
+1. [comparable-systems.md](comparable-systems.md)
+2. [inspectability-patterns.md](inspectability-patterns.md)
+3. [vantage-ui-audit.md](vantage-ui-audit.md)
+4. [vantage-ui-direction.md](vantage-ui-direction.md)
+5. [external-feedback-action-plan.md](external-feedback-action-plan.md)
+6. [frontend-guidance-implementation-plan.md](frontend-guidance-implementation-plan.md)
+7. [vantage-refinement-pass-01.md](vantage-refinement-pass-01.md)
+8. [vantage-stylistic-direction.md](vantage-stylistic-direction.md)
+9. [stylistic-inspiration-elements.md](stylistic-inspiration-elements.md)
+10. [vantage-visual-redesign-pass-02.md](vantage-visual-redesign-pass-02.md)
 
 ## Active Implementation Docs
 
 If you are deciding what to build next, start here:
 
-1. [../codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md) for current React source targets.
-2. [../architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md) for the current frontend serving contract.
+1. [../codebase/webapp/README.md](../codebase/webapp/README.md) for current React source targets.
+2. [../architecture-overview.md](../architecture-overview.md) for the current frontend serving contract.
 
-Older implementation plans are retired as active trackers. Some remain in this folder for historical context, and the archived checklist is indexed in [archive/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/archive/README.md). When they conflict, the current architecture overview and React codebase summaries win.
+Older implementation plans are retired as active trackers. Some remain in this folder for historical context, and the archived checklist is indexed in [archive/README.md](archive/README.md). When they conflict, the current architecture overview and React codebase summaries win.
 
 ## Core Thesis
 

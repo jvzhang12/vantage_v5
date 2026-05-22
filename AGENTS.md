@@ -1,6 +1,6 @@
 # Agent Operating Rules
 
-This file is the repo-level contract for any agent or subagent working in `vantage-v5`.
+This file is the repo-level contract for any agent or subagent working in the current Vantage checkout. The Python package and console script still use the `vantage_v5` / `vantage-v5-web` names for compatibility.
 
 ## Read First
 
@@ -27,7 +27,8 @@ Before changing code:
 ## Documentation Rules
 
 - If you change a Python file, update its mirrored summary in `docs/codebase/python/...`.
-- If you change a webapp file under `src/vantage_v5/webapp`, update its mirrored summary in `docs/codebase/webapp/...`.
+- If you change a React webapp source/test file under `src/vantage_v5/webapp_react`, update its mirrored summary in `docs/codebase/webapp/...`.
+- If you change FastAPI frontend serving behavior or generated-build contract behavior under `src/vantage_v5/webapp/generated`, update the deployment docs and webapp/Python codebase summaries as needed. Do not edit generated build output as source.
 - If you add a new Python file, add a matching summary Markdown file in the mirrored docs tree during the same change.
 - If you add a new webapp source/test file, add a matching summary Markdown file in the mirrored docs tree during the same change.
 - If you remove or rename a Python file, update or remove its mirrored summary accordingly.

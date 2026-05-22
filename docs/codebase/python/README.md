@@ -6,49 +6,49 @@ The goal is to let future agents understand the codebase shape, responsibilities
 
 ## How To Use This
 
-- Start from [../README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/README.md) if you are not sure which layer you need.
+- Start from [../README.md](../README.md) if you are not sure which layer you need.
 - Start here for a map of the backend.
 - Open the summary that matches the file you are about to edit.
 - Use the summary to decide whether you need the real code, then drill into the source only when necessary.
 
 ## Runtime And API
 
-- [src/vantage_v5/config.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/config.py.md)
-- [src/vantage_v5/server.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/server.py.md)
+- [src/vantage_v5/config.py.md](src/vantage_v5/config.py.md)
+- [src/vantage_v5/server.py.md](src/vantage_v5/server.py.md)
 
 ## Services
 
-- [src/vantage_v5/services/chat.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/chat.py.md)
-- [src/vantage_v5/services/context_engine.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/context_engine.py.md)
-- [src/vantage_v5/services/context_handoff.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/context_handoff.py.md)
-- [src/vantage_v5/services/context_sources.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/context_sources.py.md)
-- [src/vantage_v5/services/context_support.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/context_support.py.md)
-- [src/vantage_v5/services/corrections.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/corrections.py.md)
-- [src/vantage_v5/services/draft_artifact_lifecycle.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/draft_artifact_lifecycle.py.md)
-- [src/vantage_v5/services/executor.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/executor.py.md)
-- [src/vantage_v5/services/local_semantic_actions.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/local_semantic_actions.py.md)
-- [src/vantage_v5/services/meta.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/meta.py.md)
-- [src/vantage_v5/services/navigator.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/navigator.py.md)
-- [src/vantage_v5/services/navigator_eval.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/navigator_eval.py.md)
-- [src/vantage_v5/services/protocol_engine.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/protocol_engine.py.md)
-- [src/vantage_v5/services/protocols.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/protocols.py.md)
-- [src/vantage_v5/services/product_scope.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/product_scope.py.md)
-- [src/vantage_v5/services/public_context_projection.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/public_context_projection.py.md)
-- [src/vantage_v5/services/record_cards.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/record_cards.py.md)
-- [src/vantage_v5/services/response_mode.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/response_mode.py.md)
-- [src/vantage_v5/services/scenario_lab.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/scenario_lab.py.md)
-- [src/vantage_v5/services/search.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/search.py.md)
-- [src/vantage_v5/services/semantic_frame.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/semantic_frame.py.md)
-- [src/vantage_v5/services/semantic_policy.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/semantic_policy.py.md)
-- [src/vantage_v5/services/surface_invocation.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/surface_invocation.py.md)
-- [src/vantage_v5/services/surface_payloads.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/surface_payloads.py.md)
-- [src/vantage_v5/services/tasks.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/tasks.py.md)
-- [src/vantage_v5/services/turn_orchestrator.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_orchestrator.py.md)
-- [src/vantage_v5/services/turn_payloads.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_payloads.py.md)
-- [src/vantage_v5/services/turn_plan.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/src/vantage_v5/services/turn_plan.py.md)
-- [src/vantage_v5/services/turn_staging.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/turn_staging.py.md)
-- [src/vantage_v5/services/vetting.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/vetting.py.md)
-- [src/vantage_v5/services/whiteboard_routing.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/services/whiteboard_routing.py.md)
+- [src/vantage_v5/services/chat.py.md](src/vantage_v5/services/chat.py.md)
+- [src/vantage_v5/services/context_engine.py.md](src/vantage_v5/services/context_engine.py.md)
+- [src/vantage_v5/services/context_handoff.py.md](src/vantage_v5/services/context_handoff.py.md)
+- [src/vantage_v5/services/context_sources.py.md](src/vantage_v5/services/context_sources.py.md)
+- [src/vantage_v5/services/context_support.py.md](src/vantage_v5/services/context_support.py.md)
+- [src/vantage_v5/services/corrections.py.md](src/vantage_v5/services/corrections.py.md)
+- [src/vantage_v5/services/draft_artifact_lifecycle.py.md](src/vantage_v5/services/draft_artifact_lifecycle.py.md)
+- [src/vantage_v5/services/executor.py.md](src/vantage_v5/services/executor.py.md)
+- [src/vantage_v5/services/local_semantic_actions.py.md](src/vantage_v5/services/local_semantic_actions.py.md)
+- [src/vantage_v5/services/meta.py.md](src/vantage_v5/services/meta.py.md)
+- [src/vantage_v5/services/navigator.py.md](src/vantage_v5/services/navigator.py.md)
+- [src/vantage_v5/services/navigator_eval.py.md](src/vantage_v5/services/navigator_eval.py.md)
+- [src/vantage_v5/services/protocol_engine.py.md](src/vantage_v5/services/protocol_engine.py.md)
+- [src/vantage_v5/services/protocols.py.md](src/vantage_v5/services/protocols.py.md)
+- [src/vantage_v5/services/product_scope.py.md](src/vantage_v5/services/product_scope.py.md)
+- [src/vantage_v5/services/public_context_projection.py.md](src/vantage_v5/services/public_context_projection.py.md)
+- [src/vantage_v5/services/record_cards.py.md](src/vantage_v5/services/record_cards.py.md)
+- [src/vantage_v5/services/response_mode.py.md](src/vantage_v5/services/response_mode.py.md)
+- [src/vantage_v5/services/scenario_lab.py.md](src/vantage_v5/services/scenario_lab.py.md)
+- [src/vantage_v5/services/search.py.md](src/vantage_v5/services/search.py.md)
+- [src/vantage_v5/services/semantic_frame.py.md](src/vantage_v5/services/semantic_frame.py.md)
+- [src/vantage_v5/services/semantic_policy.py.md](src/vantage_v5/services/semantic_policy.py.md)
+- [src/vantage_v5/services/surface_invocation.py.md](src/vantage_v5/services/surface_invocation.py.md)
+- [src/vantage_v5/services/surface_payloads.py.md](src/vantage_v5/services/surface_payloads.py.md)
+- [src/vantage_v5/services/tasks.py.md](src/vantage_v5/services/tasks.py.md)
+- [src/vantage_v5/services/turn_orchestrator.py.md](src/vantage_v5/services/turn_orchestrator.py.md)
+- [src/vantage_v5/services/turn_payloads.py.md](src/vantage_v5/services/turn_payloads.py.md)
+- [src/vantage_v5/services/turn_plan.py.md](src/vantage_v5/services/turn_plan.py.md)
+- [src/vantage_v5/services/turn_staging.py.md](src/vantage_v5/services/turn_staging.py.md)
+- [src/vantage_v5/services/vetting.py.md](src/vantage_v5/services/vetting.py.md)
+- [src/vantage_v5/services/whiteboard_routing.py.md](src/vantage_v5/services/whiteboard_routing.py.md)
 
 ## Current Backend Flow
 
@@ -82,16 +82,16 @@ The goal is to let future agents understand the codebase shape, responsibilities
 
 ## Storage
 
-- [src/vantage_v5/storage/artifacts.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/artifacts.py.md)
-- [src/vantage_v5/storage/concepts.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/concepts.py.md)
-- [src/vantage_v5/storage/experiments.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/experiments.py.md)
-- [src/vantage_v5/storage/markdown_store.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/markdown_store.py.md)
-- [src/vantage_v5/storage/memory_trace.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/memory_trace.py.md)
-- [src/vantage_v5/storage/memories.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/memories.py.md)
-- [src/vantage_v5/storage/overlay.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/overlay.py.md)
-- [src/vantage_v5/storage/state.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/state.py.md)
-- [src/vantage_v5/storage/vault.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/vault.py.md)
-- [src/vantage_v5/storage/workspaces.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/src/vantage_v5/storage/workspaces.py.md)
+- [src/vantage_v5/storage/artifacts.py.md](src/vantage_v5/storage/artifacts.py.md)
+- [src/vantage_v5/storage/concepts.py.md](src/vantage_v5/storage/concepts.py.md)
+- [src/vantage_v5/storage/experiments.py.md](src/vantage_v5/storage/experiments.py.md)
+- [src/vantage_v5/storage/markdown_store.py.md](src/vantage_v5/storage/markdown_store.py.md)
+- [src/vantage_v5/storage/memory_trace.py.md](src/vantage_v5/storage/memory_trace.py.md)
+- [src/vantage_v5/storage/memories.py.md](src/vantage_v5/storage/memories.py.md)
+- [src/vantage_v5/storage/overlay.py.md](src/vantage_v5/storage/overlay.py.md)
+- [src/vantage_v5/storage/state.py.md](src/vantage_v5/storage/state.py.md)
+- [src/vantage_v5/storage/vault.py.md](src/vantage_v5/storage/vault.py.md)
+- [src/vantage_v5/storage/workspaces.py.md](src/vantage_v5/storage/workspaces.py.md)
 
 ## Memory Trace Slice
 
@@ -102,27 +102,27 @@ The goal is to let future agents understand the codebase shape, responsibilities
 
 ## Tests
 
-- [tests/test_repo_hygiene.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_repo_hygiene.py.md)
-- [tests/test_context_engine.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_context_engine.py.md)
-- [tests/test_context_handoff.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_context_handoff.py.md)
-- [tests/test_context_support.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_context_support.py.md)
-- [tests/test_draft_artifact_lifecycle.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_draft_artifact_lifecycle.py.md)
-- [tests/test_local_semantic_actions.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_local_semantic_actions.py.md)
-- [tests/test_navigator.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_navigator.py.md)
-- [tests/test_navigator_eval_contract.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_navigator_eval_contract.py.md)
-- [tests/test_protocol_engine.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_protocol_engine.py.md)
-- [tests/test_record_cards.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_record_cards.py.md)
-- [tests/test_search.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_search.py.md)
-- [tests/test_server.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_server.py.md)
-- [tests/test_surface_invocation.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_surface_invocation.py.md)
-- [tests/test_surface_payloads.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_surface_payloads.py.md)
-- [tests/test_tasks.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_tasks.py.md)
-- [tests/test_turn_payloads.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_turn_payloads.py.md)
-- [tests/test_turn_plan.py.md](/Users/eden/Documents/Vantage%20v6/docs/codebase/python/tests/test_turn_plan.py.md)
-- [tests/test_turn_staging.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_turn_staging.py.md)
-- [tests/test_whiteboard_routing.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/tests/test_whiteboard_routing.py.md)
+- [tests/test_repo_hygiene.py.md](tests/test_repo_hygiene.py.md)
+- [tests/test_context_engine.py.md](tests/test_context_engine.py.md)
+- [tests/test_context_handoff.py.md](tests/test_context_handoff.py.md)
+- [tests/test_context_support.py.md](tests/test_context_support.py.md)
+- [tests/test_draft_artifact_lifecycle.py.md](tests/test_draft_artifact_lifecycle.py.md)
+- [tests/test_local_semantic_actions.py.md](tests/test_local_semantic_actions.py.md)
+- [tests/test_navigator.py.md](tests/test_navigator.py.md)
+- [tests/test_navigator_eval_contract.py.md](tests/test_navigator_eval_contract.py.md)
+- [tests/test_protocol_engine.py.md](tests/test_protocol_engine.py.md)
+- [tests/test_record_cards.py.md](tests/test_record_cards.py.md)
+- [tests/test_search.py.md](tests/test_search.py.md)
+- [tests/test_server.py.md](tests/test_server.py.md)
+- [tests/test_surface_invocation.py.md](tests/test_surface_invocation.py.md)
+- [tests/test_surface_payloads.py.md](tests/test_surface_payloads.py.md)
+- [tests/test_tasks.py.md](tests/test_tasks.py.md)
+- [tests/test_turn_payloads.py.md](tests/test_turn_payloads.py.md)
+- [tests/test_turn_plan.py.md](tests/test_turn_plan.py.md)
+- [tests/test_turn_staging.py.md](tests/test_turn_staging.py.md)
+- [tests/test_whiteboard_routing.py.md](tests/test_whiteboard_routing.py.md)
 
 ## Scripts
 
-- [scripts/check_repo_hygiene.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/scripts/check_repo_hygiene.py.md)
-- [scripts/eval_navigator.py.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/python/scripts/eval_navigator.py.md)
+- [scripts/check_repo_hygiene.py.md](scripts/check_repo_hygiene.py.md)
+- [scripts/eval_navigator.py.md](scripts/eval_navigator.py.md)

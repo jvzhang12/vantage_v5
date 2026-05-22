@@ -6,20 +6,20 @@ These docs are preserved for historical context, but they are no longer the main
 
 For current UI implementation, use:
 
-- [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md)
-- [docs/codebase/webapp/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/webapp/README.md)
+- [docs/architecture-overview.md](../../architecture-overview.md)
+- [docs/codebase/webapp/README.md](../../codebase/webapp/README.md)
 
 ## Archived Here
 
-- [vantage-ui-implementation-checklist.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/archive/vantage-ui-implementation-checklist.md)
+- [vantage-ui-implementation-checklist.md](vantage-ui-implementation-checklist.md)
   - earlier implementation checklist now superseded by the current React codebase summaries and architecture overview
 
 ## Retired In Place
 
 These files remain outside the archive folder because other notes still link to them, but they are historical rather than active implementation trackers:
 
-- [external-feedback-implementation-slices.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/external-feedback-implementation-slices.md)
-- [external-feedback-follow-on-roadmap.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/external-feedback-follow-on-roadmap.md)
-- [vantage-premium-ui-ux-implementation-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-premium-ui-ux-implementation-plan.md)
-- [vantage-visual-redesign-checklist.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-visual-redesign-checklist.md)
-- [vantage-visual-redesign-master-plan.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/ui-research/vantage-visual-redesign-master-plan.md)
+- [external-feedback-implementation-slices.md](../external-feedback-implementation-slices.md)
+- [external-feedback-follow-on-roadmap.md](../external-feedback-follow-on-roadmap.md)
+- [vantage-premium-ui-ux-implementation-plan.md](../vantage-premium-ui-ux-implementation-plan.md)
+- [vantage-visual-redesign-checklist.md](../vantage-visual-redesign-checklist.md)
+- [vantage-visual-redesign-master-plan.md](../vantage-visual-redesign-master-plan.md)

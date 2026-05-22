@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document is the execution contract for scoped implementation and review work in `vantage-v5`.
+This document is the execution contract for scoped implementation and review work in the current Vantage checkout.
 
 Use it when a task is being split across workers and you want the next agent to preserve context, respect scope, and close out cleanly without rediscovering the repo from scratch.
 
@@ -28,23 +28,23 @@ If a task would violate one of those invariants, the worker should stop and repo
 When deciding what the repository means today, use this order:
 
 1. the current source code and the current repo docs
-2. [README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/README.md)
-3. [docs/glossary.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/glossary.md)
-4. [docs/semantic-rules.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/semantic-rules.md)
-5. [docs/implementation-vs-canon.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/implementation-vs-canon.md)
-6. [docs/architecture-overview.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/architecture-overview.md)
-7. [docs/codebase/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/README.md) and the mirrored summaries
+2. [README.md](../README.md)
+3. [docs/glossary.md](glossary.md)
+4. [docs/semantic-rules.md](semantic-rules.md)
+5. [docs/implementation-vs-canon.md](implementation-vs-canon.md)
+6. [docs/architecture-overview.md](architecture-overview.md)
+7. [docs/codebase/README.md](codebase/README.md) and the mirrored summaries
 8. archived planning docs only for historical context, and only when they do not conflict with current repo truth
 
-This order keeps implementation work grounded in what `vantage-v5` actually does now.
+This order keeps implementation work grounded in what the current repository actually does now.
 
 ## Required Reading Before A Worker Starts
 
 Every worker should read, in this order:
 
-1. [AGENTS.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/AGENTS.md)
-2. [README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/README.md)
-3. [docs/codebase/README.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/codebase/README.md)
+1. [AGENTS.md](../AGENTS.md)
+2. [README.md](../README.md)
+3. [docs/codebase/README.md](codebase/README.md)
 4. this protocol
 5. the mirrored summary files for the exact source or test files in scope
 6. the source files themselves
@@ -52,7 +52,7 @@ Every worker should read, in this order:
 
 Workers should not browse outside that bundle unless a clearly necessary dependency forces it.
 
-For semantic-contract waves, the worker should also read [docs/glossary.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/glossary.md), [docs/semantic-rules.md](/Users/eden/Documents/Obsidian%20Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5/docs/semantic-rules.md), and the exact roadmap section named by the task before starting implementation or review.
+For semantic-contract waves, the worker should also read [docs/glossary.md](glossary.md), [docs/semantic-rules.md](semantic-rules.md), and the exact roadmap section named by the task before starting implementation or review.
 
 ## Scope Rules
 
@@ -130,7 +130,7 @@ If review finds an issue, the orchestrator should either:
 Use this shape when orchestrating implementation work:
 
 ```text
-You are working in /Users/eden/Documents/Obsidian Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5.
+You are working in the current Vantage repository checkout.
 
 Before editing:
 1. Read AGENTS.md.
@@ -162,7 +162,7 @@ At the end:
 Use this shape when orchestrating review work:
 
 ```text
-You are reviewing the exact diff for the scoped task in /Users/eden/Documents/Obsidian Vault/Nexus/99_Reference/openclaw-workspace-seal-vantage/vantage-v5.
+You are reviewing the exact diff for the scoped task in the current Vantage repository checkout.
 
 Read:
 1. AGENTS.md

@@ -1,7 +1,7 @@
 # Repository Entropy Audit
 
 > Status: Historical rationale
-> Current source of truth: [README.md](../README.md), [docs/README.md](README.md), [architecture-overview.md](architecture-overview.md), [compatibility-ledger.md](compatibility-ledger.md), [stale-artifact-inventory.md](stale-artifact-inventory.md), and [stale-code-inventory.md](stale-code-inventory.md)
+> Current source of truth: [README.md](../README.md), [docs/README.md](README.md), [architecture-overview.md](architecture-overview.md), [pseudocode/README.md](pseudocode/README.md), [compatibility-ledger.md](compatibility-ledger.md), [stale-artifact-inventory.md](stale-artifact-inventory.md), and [stale-code-inventory.md](stale-code-inventory.md)
 > Note: This audit is preserved as the 2026-05-21 inventory that motivated the docs cleanup passes. Some findings have since been addressed; use the current source-of-truth docs above when they differ.
 
 Date: 2026-05-21
@@ -33,6 +33,7 @@ Brainstorm status: `docs/brainstorm.md` and `docs/brainstorm-implementation-list
 | Current source of truth | `docs/glossary.md` | Canonical semantic definitions for Working Memory, Recall, Memory Trace, Library, Whiteboard, Navigator Continuity Frame, protocols, corrections. | Strongest semantic reference when docs disagree. | None now; cite it from future cleanup PRs. | P3 |
 | Current source of truth | `docs/semantic-rules.md` | Implementation-facing guardrails for scope, pinning, grounding, writes, protocols, and control-panel authority. | Useful behavior contract; overlaps heavily with README by design. | Later, consider keeping README shorter and making this the canonical rule list. | P2 |
 | Current source of truth | `docs/working-memory-and-trace-model.md` | Focused canonical note for Whiteboard, Memory Trace, Working Memory, Library, and Recall. | Reduces semantic ambiguity, but some content repeats glossary/semantic-rules. | Consolidate repeated Working Memory definitions by making this the single deep dive and linking from others. | P2 |
+| Current source of truth | `docs/pseudocode/README.md` and `docs/pseudocode/*.md` | Current design-intent canon for the North Star, information model, turn lifecycle, Attention/Recall/Working Memory, write authority, surfaces, agent-readable context, and failure modes. | Gives future agents a product-logic layer to compare code against before implementation cleanup. It does not claim current code conforms. | Keep aligned when intended system logic changes; use architecture and compatibility docs for current-code drift. | P2 |
 | Current source of truth | `docs/codebase/README.md` plus `docs/codebase/python/README.md` and `docs/codebase/webapp/README.md` | Human-first map to source/test summaries. | Critical for agent onboarding and hygiene. | Keep hygiene check mandatory; add status note when summaries are historical or generated from older migration waves. | P2 |
 | Current source of truth | `docs/deployment.md` and `docs/frontend-legacy-retirement-audit.md` | Deployment and React-only serving contract. | The legacy fallback removal is easy to regress. | Keep; maybe link retirement audit from deployment/architecture when frontend cleanup begins. | P2 |
 

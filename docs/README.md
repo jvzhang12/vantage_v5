@@ -21,8 +21,9 @@ If you are orienting to the current product, read in this order:
 2. [architecture-overview.md](architecture-overview.md)
 3. [glossary.md](glossary.md)
 4. [semantic-rules.md](semantic-rules.md)
-5. [implementation-vs-canon.md](implementation-vs-canon.md)
-6. [codebase/README.md](codebase/README.md)
+5. [pseudocode/README.md](pseudocode/README.md)
+6. [implementation-vs-canon.md](implementation-vs-canon.md)
+7. [codebase/README.md](codebase/README.md)
 
 That sequence gives you:
 
@@ -30,6 +31,7 @@ That sequence gives you:
 - current runtime architecture
 - canonical repo vocabulary
 - implementation-facing behavior rules
+- current design-intent pseudocode for turn flow, context, surfaces, and write authority
 - current repo versus older canon clarification
 - a map of the actual code
 
@@ -47,6 +49,7 @@ Use these when you are changing user-facing behavior or trying to preserve canon
 - [control-panel-navigation.md](control-panel-navigation.md)
 - [protocols.md](protocols.md)
 - [semantic-frame.md](semantic-frame.md)
+- [pseudocode/README.md](pseudocode/README.md)
 
 ### Implementation Planning
 
@@ -85,6 +88,14 @@ Use these when a field, path, or local artifact looks stale but may still have a
 - [stale-code-inventory.md](stale-code-inventory.md)
 - [repository-entropy-audit.md](repository-entropy-audit.md)
 
+### Design Intent
+
+Use this when you need intended system logic before touching implementation:
+
+- [pseudocode/README.md](pseudocode/README.md)
+
+The pseudocode canon describes the desired North Star, information flow, processing model, authority rules, and failure guards. It is not proof that current code already conforms.
+
 Local files such as `docs/brainstorm.md`, `docs/brainstorm-implementation-list.md`, `docs/vantage-behavioral-workflow-canon.md`, and `docs/behavioral-workflow-assessment-2026-05-21.md` may exist untracked in this worktree. If untracked, treat them as local assessment or brainstorm inputs, not current product contracts.
 
 ### UI Research And Frontend Direction
@@ -113,8 +124,9 @@ If you want the shortest current path for implementation decisions, use:
 2. [architecture-overview.md](architecture-overview.md)
 3. [glossary.md](glossary.md)
 4. [semantic-rules.md](semantic-rules.md)
-5. [codebase/webapp/README.md](codebase/webapp/README.md)
-6. [subagent-orchestration-protocol.md](subagent-orchestration-protocol.md)
+5. [pseudocode/README.md](pseudocode/README.md)
+6. [codebase/webapp/README.md](codebase/webapp/README.md)
+7. [subagent-orchestration-protocol.md](subagent-orchestration-protocol.md)
 
 ## Practical Rule
 

@@ -13,7 +13,9 @@ Use it when a change touches:
 - Attention, Recall, or Working Memory
 - Whiteboard and Vantage surfaces
 - durable writes, proposals, drafts, or TurnPlan authority
-- public-safe context and trace projection
+- proposal acceptance and write confirmation flows
+- generation-safe, public-safe, and diagnostic-safe context projection
+- Memory Trace retention and privacy boundaries
 - deterministic fallback boundaries
 
 The canonical vocabulary remains in [../glossary.md](../glossary.md). The implementation architecture map remains [../architecture-overview.md](../architecture-overview.md). Compatibility surfaces remain cataloged in [../compatibility-ledger.md](../compatibility-ledger.md).

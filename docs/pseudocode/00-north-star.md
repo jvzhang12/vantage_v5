@@ -52,8 +52,9 @@ else:
 Memory helps but stays bounded:
 
 ```text
-candidate_context = search(Memory Trace + Library + relevant surfaces)
-selected_context = LLM_vet(candidate_context, message)
+surface_context = prepare_visible_pinned_or_targeted_surfaces()
+candidate_pool = search(Memory Trace + Library + Reference Notes)
+selected_context = Attention_and_Recall_select(surface_context + candidate_pool, message)
 working_memory = bounded(current message + recent chat + selected_context + intentional surface context)
 ```
 
@@ -62,7 +63,7 @@ Writes require authority:
 ```text
 if proposed_action mutates durable state:
     require explicit user intent or confirmation-gated proposal
-    validate with TurnPlan/write authority
+    validate pre-generation action class and post-generation candidate safety
     execute only through the existing write path
 ```
 
@@ -73,7 +74,7 @@ Keep these distinctions visible in every design and implementation review:
 | Distinction | North Star |
 |---|---|
 | Chat vs Whiteboard | Chat is default conversation; Whiteboard is collaborative drafting. |
-| Whiteboard vs Library | Whiteboard is active work; Library is saved durable material. |
+| Whiteboard vs Library | Whiteboard is ongoing work; Library is saved durable material. |
 | Concepts vs memories vs artifacts | Concepts are timeless reasoning knowledge; memories are continuity facts; artifacts are concrete outputs. |
 | Attention vs Recall vs Working Memory | Attention selects broad turn resources; Recall is memory grounding over selected resources; Working Memory is the full bounded model input. |
 | Draft vs proposal vs durable write | Drafts and proposals are pending; durable writes persist only after authority. |

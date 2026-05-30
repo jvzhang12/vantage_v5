@@ -43,8 +43,10 @@ Working Memory is broader than top-level API `recall`:
 
 ```text
 function build_working_memory(turn):
-    attention = select_broad_resources(turn)
-    recall = select_memory_grounding(attention, turn)
+    resource_seed = prepare_visible_pinned_surface_resources(turn)
+    candidate_pool = bounded_search(Memory Trace + Library + Reference Notes)
+    attention = select_broad_resources(resource_seed + candidate_pool, turn)
+    recall = project_and_vet_memory_grounding(attention, candidate_pool, turn)
     handoff = group_by_role(attention, recall)
 
     return bounded_context(
@@ -55,8 +57,32 @@ function build_working_memory(turn):
         protocol_guidance=handoff.protocol_guidance,
         pinned_or_continuity_context=handoff.pinned_or_continuity_context,
         whiteboard_context=intentional_whiteboard_context(turn),
-    )
+)
 ```
+
+## Non-Circular Boundary
+
+Attention and Recall should not depend on each other in a loop.
+
+```text
+1. prepare known turn resources:
+       visible surfaces
+       pinned context
+       currently targeted Whiteboard or artifact
+       app resources named by structured intent
+       protocol guidance candidates
+2. search the bounded candidate pool:
+       Memory Trace
+       Concepts
+       Memories
+       Artifacts
+       Reference Notes
+3. Attention selects broad resources from known resources + search candidates
+4. Recall projects and vets the memory-grounding subset from Attention-selected candidates
+5. Working Memory composes final generation context from user message, recent chat, Recall, protocols, pinned/continuity context, and selected in-scope surface content
+```
+
+Search can happen before Attention selection because search is only candidate discovery. Recall happens after Attention selection because Recall is the memory-grounding role/view over the selected candidate set.
 
 ## Role Projection
 
@@ -96,7 +122,7 @@ Handoff should not:
 
 - pass full Memory Trace bodies to public payloads
 - expose prompt-derived trace ids publicly
-- use different safety rules for generation and public views
+- confuse projection tiers; generation-safe context may be richer than public views, but shared safety invariants still apply
 - invent semantic relevance deterministically
 - silently drop valid non-trace records because their ids resemble trace ids
 
@@ -122,6 +148,7 @@ This avoids false mismatches while keeping prompt-derived ids out of public diag
 Known transitional seams can remain until reviewed:
 
 - legacy search/retrieval paths may still supply candidates
+- search may remain a retrieval helper while Attention/Recall own role projection
 - handoff parity diagnostics may compare new and old shapes
 - API `working_memory` may still alias narrower Recall-shaped data
 - deterministic fallback may supply conservative selections when model output fails

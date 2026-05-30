@@ -35,6 +35,10 @@ Protocol:
     reusable task guidance
     guidance, not factual evidence
 
+ReferenceNote:
+    read-only or import-only reference material
+    not a Memory, Concept, or Artifact unless explicitly converted with write authority
+
 Whiteboard:
     live collaborative Markdown draft
     may enter Working Memory only when intentionally in scope
@@ -42,6 +46,11 @@ Whiteboard:
 PinnedContext:
     explicit carry-forward context
     persists until cleared
+
+PendingProposal:
+    confirmation-gated mutation candidate
+    has stable proposal identity, normalized arguments, source turn, expiry, and status
+    not executed until an AcceptedProposal flow revalidates it
 ```
 
 ## Turn Context Roles
@@ -80,12 +89,68 @@ function classify_saved_item(item):
         return Artifact
     if item is reusable process guidance:
         return Protocol
+    if item is external/reference material:
+        return ReferenceNote
     return NeedsClarification
 ```
 
-## Safety Projection
+## Reference Note Rule
+
+Reference Notes are read-only by default.
+
+```text
+if user asks to use a Reference Note:
+    treat it as recallable reference context
+
+if user asks to import or save a Reference Note:
+    require explicit import/write authority
+    choose target type deliberately:
+        keep as ReferenceNote for imported read-only source material
+        convert to Concept only for timeless reasoning knowledge
+        convert to Memory only for retained continuity facts
+        convert to Artifact only for concrete outputs
+```
+
+Do not silently turn reference material into a memory, concept, or artifact merely because it was useful in a turn.
+
+## Projection Tiers
 
 Memory Trace and source-turn-derived rows require projection before they appear in public payloads, safe diagnostics, or model-input paths not designed for raw trace bodies.
+
+```text
+internal_storage:
+    may keep raw and summarized records when policy allows
+    may include full Memory Trace for recall/debug
+    remains private and storage-scoped
+
+generation_safe:
+    may include selected bounded content needed for the answer
+    may include fuller selected Artifact or Whiteboard excerpts within budget
+    may include Memory Trace only as a bounded excerpt or summary appropriate for model input
+    must exclude prompt-derived trace ids and unrelated raw trace bodies
+
+public_safe:
+    exposes compact aliases, titles, summaries, roles, provenance, receipts
+    keeps working_memory_view compact even when generation_safe context is richer
+    excludes raw prompts, raw assistant text, full trace bodies, and prompt-derived trace ids
+
+diagnostic_safe:
+    exposes bounded comparison metadata and safe ids
+    may show mismatch/parity status
+    excludes raw trace bodies and prompt-derived ids
+```
+
+Shared invariants:
+
+```text
+every tier must:
+    preserve source kind and role
+    avoid hidden chain-of-thought
+    avoid prompt-derived public ids
+    avoid unrelated or unbounded context
+```
+
+Public projection:
 
 ```text
 function public_project(resource):
@@ -123,9 +188,31 @@ public_payload:
     must not expose raw trace bodies, raw prompts, assistant text, or prompt-derived trace ids
 
 model_input:
-    may receive selected bounded context
+    may receive selected bounded generation_safe context
+    may be richer than public working_memory_view
     must not receive unsafe trace content through bypass paths
 ```
+
+## Memory Trace Retention And Privacy
+
+Memory Trace is automatic, but automatic does not mean unlimited or always recallable.
+
+```text
+when recording Memory Trace:
+    store enough structure for continuity, recall, and audit
+    prefer summarized or excerpted recall text for future model input
+    keep raw turn text private to internal storage when retained
+    suppress or redact obvious secrets, credentials, and user-declared sensitive content
+    mark non-recallable when the user explicitly says not to remember or asks to forget that trace
+```
+
+Retention policy:
+
+- Raw vs summarized trace: intended model input should use summaries or bounded excerpts; raw bodies are internal storage only unless a future policy explicitly permits more.
+- Retention horizon: unresolved product decision. Until a horizon is chosen, treat Memory Trace as privacy-sensitive local recent history with suppression and eventual-retention hooks.
+- Sensitive content: explicit secrets, credentials, private identifiers, or user-declared "do not remember" material should be suppressed from recall and public diagnostics.
+- Forget/correction effects: saved-item `mark_incorrect` and `forget` suppress Library records from recall. For Memory Trace, the intended equivalent is a non-recallable/suppressed trace state; exact hard deletion vs suppression is unresolved.
+- Assistant text: prior assistant text is continuity evidence about what Vantage said or did. It is not automatically factual evidence about the world unless backed by recalled Library/reference material or current reasoning.
 
 ## Compatibility Names
 

@@ -15,6 +15,7 @@ before editing behavior:
     read mirrored codebase summaries for touched files
     then read source
 ```
+
 This order keeps implementation entropy from becoming product truth by accident.
 
 ## Evaluation Pattern
@@ -48,7 +49,9 @@ Safe agent-readable receipts should answer:
 receipt:
     context_sources: bounded safe list
     role_projection: answer_context / recall_context / protocol_guidance / surface / pinned
-    authority: safe allow/deny/proposed/no-write summary
+    projection_tier: generation_safe | public_safe | diagnostic_safe
+    authority: safe allow/deny/proposed/accepted/executed/no-write summary
+    authority_phase: pre_generation_envelope | post_generation_validation | accepted_proposal_revalidation
     fallback_source: absent or explicit
 ```
 
@@ -87,10 +90,15 @@ Do not update it merely because current code is messy. Current-code drift belong
 ```text
 before finalizing a change:
     check no raw Memory Trace leaks to public payload/model input
+    check generation-safe context and public-safe working_memory_view are intentionally different when needed
     check deterministic fallback remains narrow and labeled
     check visible/open/selected/pinned/in-scope remain distinct
+    check "active" surface logic is expressed as visible/editing/currently targeted/pinned/in scope
     check writes are authority-gated
+    check writes have both pre-generation intent and post-generation candidate validation
+    check accepted proposals match exactly one fresh pending proposal and are revalidated
     check experiment mode stays isolated
+    check Memory Trace retention/suppression rules are respected
     check compatibility aliases were not removed accidentally
     check docs and mirrored summaries match touched source/tests
 ```

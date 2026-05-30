@@ -84,19 +84,21 @@ Not allowed as the primary product path:
 - inferred write intent from raw text when structured intent is absent
 - hidden relevance invention
 
-## Principle 6: Public Safety By Projection
+## Principle 6: Safety By Projection Tier
 
 ```text
-public_payload = project_safe(internal_state)
+internal_storage = private retained state
+generation_context = project_generation_safe(internal_state)
+public_payload = project_public_safe(internal_state)
+diagnostics = project_diagnostic_safe(internal_state)
 
-remove raw prompts
-remove raw assistant text from trace-derived records
-remove prompt-derived ids
-remove full Memory Trace bodies
-keep bounded aliases, summaries, provenance, and receipts
+generation_context may be richer than public_payload when selected content is in scope
+public_payload keeps bounded aliases, summaries, provenance, and receipts
+diagnostics keep bounded comparison metadata
+all tiers remove unsafe prompt-derived ids and unrelated raw trace bodies
 ```
 
-Internal trace/storage can retain richer data when appropriate. Public payloads and safe diagnostics must not leak it.
+Internal trace/storage can retain richer data when policy allows. Generation-safe context may include selected bounded artifact or Whiteboard content. Public payloads and safe diagnostics must stay compact and must not leak raw Memory Trace bodies, raw prompts, or prompt-derived trace ids.
 
 ## Principle 7: Experiment Mode Is Bounded
 

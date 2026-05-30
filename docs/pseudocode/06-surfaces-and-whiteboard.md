@@ -46,9 +46,14 @@ in_scope:
 
 editing:
     user and assistant are actively drafting or revising the item
+
+currently_targeted:
+    the Navigator/control panel, composer mode, or explicit user reference identifies this surface/item as the target of the current turn
 ```
 
 Visible, open, and selected do not automatically mean pinned or in scope.
+
+Avoid using `active` by itself. When a rule needs it, spell out whether it means visible, editing, currently targeted, pinned, or in scope.
 
 ## Whiteboard Entry
 
@@ -71,7 +76,9 @@ The Whiteboard should feel like a drafting mode, not an unavoidable side panel.
 function whiteboard_in_scope(turn):
     if user explicitly references current draft:
         return true
-    if Whiteboard is active and user is continuing the draft:
+    if Whiteboard is editing and user is continuing the draft:
+        return true
+    if Whiteboard is currently_targeted by structured intent:
         return true
     if Whiteboard is pinned:
         return true
@@ -116,9 +123,12 @@ Surface commands are UI state commands first, not storage mutations.
 
 ```text
 if Navigator routes to Scenario Lab:
-    create branch outputs and comparison artifact according to Scenario Lab contract
+    create branch outputs and comparison artifact only through Scenario Lab write authority
+    validate generated outputs before persistence
 elif user asks follow-up about an existing comparison:
     prefer chat continuity with pinned/selected context unless user asks to rerun
+elif Scenario Lab intent is ambiguous:
+    ask clarification or offer Scenario Lab; do not create comparison artifacts
 ```
 
 Scenario Lab is current, but it should stay explicit and distinct from ordinary chat and Whiteboard drafting.

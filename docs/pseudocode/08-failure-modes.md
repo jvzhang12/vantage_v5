@@ -20,13 +20,16 @@ if normal chat can satisfy the request:
 
 Symptom:
 
-- whole graph, whole transcript, full artifact bodies, or raw Memory Trace records enter generation
+- whole graph, whole transcript, unbounded or unrelated full artifact bodies, or raw Memory Trace records enter generation
+- selected, in-scope artifact or Whiteboard content is blocked merely because it is fuller than the compact public view
 
 Guard:
 
 ```text
 assert context_source_count <= budget
 assert each source has role and summary
+allow selected in-scope artifact_or_whiteboard_content within budget
+keep public working_memory_view compact even when internal model context is fuller
 assert raw trace bodies are absent unless internal-only and explicitly allowed
 ```
 
